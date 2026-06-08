@@ -10,55 +10,20 @@ from pathlib import Path
 from prompt_toolkit import PromptSession
 from prompt_toolkit.history import FileHistory
 
+if __package__ in (None, ""):
+    sys.path.append(str(Path(__file__).resolve().parents[1]))
+
+from langbridge_cli.tools import TOOL_SCHEMAS, TOOLS
+
 
 API_URL = "https://api.openai.com/v1/responses"
 DEFAULT_MODEL = "gpt-5.1-codex"
 CONFIG_DIR = Path.home() / ".langbridge"
 CONFIG_PATH = CONFIG_DIR / "config.json"
 HISTORY_PATH = CONFIG_DIR / "history"
-MAX_AGENT_STEPS = 8
-MAX_FILE_BYTES = 20_000
+MAX_AGENT_STEPS = 20
 WORKSPACE_ROOT = Path.cwd().resolve()
 RUNS_DIR = WORKSPACE_ROOT / "session-history"
-
-
-TOOL_SCHEMAS = [
-    {
-        "type": "function",
-        "name": "list_dir",
-        "description": "List files and directories under the current workspace.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "path": {
-                    "type": "string",
-                    "description": "Directory path relative to the current workspace.",
-                    "default": ".",
-                }
-            },
-            "required": [],
-            "additionalProperties": False,
-        },
-    },
-    {
-        "type": "function",
-        "name": "read_file",
-        "description": "Read a text file under the current workspace.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "path": {
-                    "type": "string",
-                    "description": "File path relative to the current workspace.",
-                }
-            },
-            "required": ["path"],
-            "additionalProperties": False,
-        },
-    },
-]
-
-TOOLS = {}
 
 
 def main():
@@ -126,61 +91,6 @@ def read_user_input(session):
     if session is not None:
         return session.prompt("langbridge> ")
     return input("langbridge> ")
-
-
-def tool(name):
-    def register(function):
-        TOOLS[name] = function
-        return function
-
-    return register
-
-
-def resolve_workspace_path(path):
-    target = (WORKSPACE_ROOT / path).resolve()
-    try:
-        target.relative_to(WORKSPACE_ROOT)
-    except ValueError:
-        raise ValueError("Path must stay inside the current workspace")
-    return target
-
-
-@tool("list_dir")
-def list_dir(path="."):
-    target = resolve_workspace_path(path)
-    if not target.exists():
-        raise FileNotFoundError(f"No such directory: {path}")
-    if not target.is_dir():
-        raise NotADirectoryError(f"Not a directory: {path}")
-
-    entries = []
-    for child in sorted(target.iterdir(), key=lambda item: (not item.is_dir(), item.name.lower())):
-        kind = "directory" if child.is_dir() else "file"
-        entries.append({"name": child.name, "type": kind})
-
-    return json.dumps({"path": str(target.relative_to(WORKSPACE_ROOT)), "entries": entries}, indent=2)
-
-
-@tool("read_file")
-def read_file(path):
-    target = resolve_workspace_path(path)
-    if not target.exists():
-        raise FileNotFoundError(f"No such file: {path}")
-    if not target.is_file():
-        raise IsADirectoryError(f"Not a file: {path}")
-
-    data = target.read_bytes()
-    truncated = len(data) > MAX_FILE_BYTES
-    data = data[:MAX_FILE_BYTES]
-
-    try:
-        text = data.decode("utf-8")
-    except UnicodeDecodeError:
-        raise ValueError(f"File is not valid UTF-8 text: {path}")
-
-    if truncated:
-        text += f"\n\n[truncated after {MAX_FILE_BYTES} bytes]"
-    return text
 
 
 def run_agent(api_key, model, messages, run_log_path):
