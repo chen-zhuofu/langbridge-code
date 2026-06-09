@@ -14,13 +14,7 @@ except ModuleNotFoundError:  # pragma: no cover - depends on optional training e
     torch = None
 
 
-TRAIN_PATH = (
-    Path(__file__).resolve().parents[1]
-    / "synthetic-env"
-    / "hand-made-mlp"
-    / "grpo"
-    / "train.py"
-)
+TRAIN_PATH = Path(__file__).resolve().parents[1] / "train.py"
 
 
 def load_train_module():

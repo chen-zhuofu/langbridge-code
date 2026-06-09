@@ -7,7 +7,7 @@ import reward_fn
 import random
 from typing import Callable
 
-def sample_batch(data_path: str, data_size: int) -> tuple[str, str]:
+def sample_batch(data_path: str, data_size: int) -> tuple[list[str], list[str]]:
     all_samples = []
     with open(data_path, 'r') as f:
         for line in f:
@@ -19,7 +19,7 @@ def sample_batch(data_path: str, data_size: int) -> tuple[str, str]:
     prompts = []
     responses = []
     for sample in samples:
-        prompts.append(template.format(question = sample["question"]))
+        prompts.append(template.format(question=sample["question"]))
         responses.append(sample["answers"])
     return prompts, responses
     

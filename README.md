@@ -11,6 +11,7 @@ current workspace:
 - `edit_file`: edit UTF-8 text files with exact string replacement
 - `search_files`: search UTF-8 text files for exact text matches
 - `run_tests`: run Python unit tests with a timeout
+- `install_python_packages`: install Python packages with `uv add`
 
 File tools are limited to the directory where you start the CLI.
 

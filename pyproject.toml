@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "A tiny interactive coding agent CLI backed by a Codex model."
 requires-python = ">=3.11"
 dependencies = [
+    "numpy>=2.4.6",
     "prompt-toolkit>=3.0.52",
 ]
 
@@ -23,4 +24,5 @@ build-backend = "setuptools.build_meta"
 [dependency-groups]
 dev = [
     "pytest>=9.0.3",
+    "torch>=2.12.0",
 ]
