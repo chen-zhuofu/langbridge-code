@@ -8,3 +8,6 @@ src/langbridge_cli.egg-info/dependency_links.txt
 src/langbridge_cli.egg-info/entry_points.txt
 src/langbridge_cli.egg-info/requires.txt
 src/langbridge_cli.egg-info/top_level.txt
+src/langbridge_cli/tools/__init__.py
+src/langbridge_cli/tools/filesystem.py
+src/langbridge_cli/tools/testing.py

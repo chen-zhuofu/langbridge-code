@@ -10,6 +10,7 @@ current workspace:
 - `read_file`: read UTF-8 text files
 - `edit_file`: edit UTF-8 text files with exact string replacement
 - `search_files`: search UTF-8 text files for exact text matches
+- `run_tests`: run Python unit tests with a timeout
 
 File tools are limited to the directory where you start the CLI.
 
