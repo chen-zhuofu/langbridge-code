@@ -3,7 +3,7 @@ def main() -> None:
     print("Hello, world from synthetic-env!")
     print("Hello, New Jersey from synthetic-env!")
     print("hello new jersey")
-    print("hello nyc")
+    print("hello wuhan")
     print("hello california")
 
 
