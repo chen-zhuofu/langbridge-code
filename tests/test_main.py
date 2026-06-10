@@ -6,7 +6,7 @@ def test_system_prompt_includes_karpathy_guidelines():
     assert "Simplicity first." in SYSTEM_PROMPT
     assert "Make surgical changes." in SYSTEM_PROMPT
     assert "Work toward verifiable goals." in SYSTEM_PROMPT
-    assert "Before calling tools" in SYSTEM_PROMPT
+    assert "Before every tool call" in SYSTEM_PROMPT
 
 
 def test_extract_reasoning_summaries():
