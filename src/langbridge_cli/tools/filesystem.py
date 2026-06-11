@@ -138,6 +138,22 @@ TOOL_SCHEMAS = [
             "additionalProperties": False,
         },
     },
+    {
+        "type": "function",
+        "name": "delete_file",
+        "description": "Delete a file under the current workspace. This does not delete directories.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "File path relative to the current workspace.",
+                }
+            },
+            "required": ["path"],
+            "additionalProperties": False,
+        },
+    },
 ]
 
 TOOLS = {}
@@ -287,6 +303,18 @@ def create_file(path, content):
 
     target.write_text(content, encoding="utf-8")
     return f"Created {path}."
+
+
+@tool("delete_file")
+def delete_file(path):
+    target = resolve_workspace_path(path)
+    if not target.exists():
+        raise FileNotFoundError(f"No such file: {path}")
+    if not target.is_file():
+        raise IsADirectoryError(f"Not a file: {path}")
+
+    target.unlink()
+    return f"Deleted {path}."
 
 
 def iter_paths(directory):

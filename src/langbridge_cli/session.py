@@ -2,16 +2,15 @@ import json
 import sys
 from datetime import datetime
 
+from openai import OpenAI
+
 from langbridge_cli.config import (
-    COMPACT_WHEN_TOKENS_OVER,
     MAX_SESSION_CHOICES,
-    MAX_TOOL_SUMMARY_OUTPUT_CHARS,
-    RECENT_CONTEXT_TOKENS,
+    MAX_SESSION_SUMMARY_INPUT_CHARS,
     RUNS_DIR,
-    STALE_TOOL_OUTPUT_CHARS,
-    SUMMARY_TARGET_CHARS,
 )
-from langbridge_cli.parse import truncate_text
+from langbridge_cli.debug import print_llm_request, print_llm_response
+from langbridge_cli.parse import extract_output_text, truncate_text
 
 
 def create_run_log_path():
@@ -82,210 +81,55 @@ def read_session_records(path):
     return read_session_log(path)["turns"]
 
 
-def restore_session_messages(records):
-    if not records:
-        return []
+def write_session_summary(api_key, model, run_log_path):
+    session_log = read_session_log(run_log_path)
+    if session_log["summary"]:
+        return
 
-    messages = restore_full_session_messages(records)
-    if estimate_tokens(messages) <= COMPACT_WHEN_TOKENS_OVER:
-        return messages
-
-    return restore_compacted_session_messages(records)
-
-
-def restore_full_session_messages(records):
-    messages = initial_messages_from_record(records[0])
-    for record in records:
-        user = record.get("user")
-        if user:
-            messages.append({"role": "user", "content": user})
-        append_turn_messages(messages, record.get("steps", []), record.get("assistant", ""))
-    return messages
+    session_log["summary"] = create_session_summary(api_key, model, session_log["turns"])
+    run_log_path.write_text(
+        json.dumps(session_log, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
 
 
-def initial_messages_from_record(record):
-    messages = clone(record.get("input") or record.get("agent_input") or [])
-    initial = []
-    for message in messages:
-        if message.get("role") == "user":
-            break
-        initial.append(message)
-    return initial
-
-# compaction algorithm
-# 1. split full records into recent and old(RECENT_CONTEXT_TOKENS)
-# 2. for old records, call summarize_old_records to summarize
-# 3. for recent records, truncate the relativly old turn's tool output and keep compact[:max_chars]
-# TODO: LLM summary
-def restore_compacted_session_messages(records):
-    initial = initial_messages_from_record(records[0])
-    recent_records = select_recent_records(records)
-    older_records = records[: len(records) - len(recent_records)]
-
-    messages = list(initial)
-    summary = summarize_old_records(older_records)
-    if summary:
-        messages.append({"role": "assistant", "content": summary})
-
-    for index, record in enumerate(recent_records):
-        user = record.get("user")
-        if user:
-            messages.append({"role": "user", "content": user})
-        turn_messages = []
-        append_turn_messages(turn_messages, record.get("steps", []), record.get("assistant", ""))
-        # Full tool outputs are kept only for the last two turns; older ones are stale.
-        if index < len(recent_records) - 2:
-            truncate_stale_tool_outputs(turn_messages)
-        messages.extend(turn_messages)
-    return messages
+def create_session_summary(api_key, model, records):
+    prompt = (
+        "Summarize this coding-agent CLI session as a short title for a session picker. "
+        "Return only the title, no punctuation wrapper, under 12 words.\n\n"
+        f"{session_summary_input(records)}"
+    )
+    data = create_text_response(
+        api_key,
+        model,
+        [
+            {"role": "system", "content": "You write concise session titles."},
+            {"role": "user", "content": prompt},
+        ],
+    )
+    return extract_output_text(data.get("output", [])).strip()
 
 
-def truncate_stale_tool_outputs(items):
-    for item in items:
-        if item.get("type") == "function_call_output":
-            item["output"] = truncate_text(item.get("output", ""), STALE_TOOL_OUTPUT_CHARS)
+def create_text_response(api_key, model, agent_input):
+    client = OpenAI(api_key=api_key)
+    print_llm_request("session summary", model, agent_input)
+    response = client.responses.create(model=model, input=agent_input)
+    data = response.model_dump(exclude_none=True)
+    print_llm_response("session summary", data)
+    return data
 
 
-def select_recent_records(records):
-    selected = []
-    for record in reversed(records):
-        candidate = [record] + selected
-        if selected and estimate_tokens(records_to_messages(candidate)) > RECENT_CONTEXT_TOKENS:
-            break
-        selected = candidate
-    return selected or records[-1:]
-
-
-def records_to_messages(records):
-    messages = []
-    for record in records:
-        user = record.get("user")
-        if user:
-            messages.append({"role": "user", "content": user})
-        append_turn_messages(messages, record.get("steps", []), record.get("assistant", ""))
-    return messages
-
-
-def summarize_old_records(records):
-    if not records:
-        return ""
-
-    lines = ["Older session summary:"]
-    for record in records:
+def session_summary_input(records):
+    lines = []
+    for record in records[-5:]:
         user = record.get("user")
         assistant = record.get("assistant")
         if user:
-            lines.append(f"- User: {truncate_text(user, 300)}")
-        tool_activity = summarize_record_tool_activity(record)
-        if tool_activity:
-            lines.append(f"  Tools: {tool_activity}")
+            lines.append(f"User: {truncate_text(user, 300)}")
         if assistant:
-            lines.append(f"  Assistant: {truncate_text(assistant, 300)}")
-    return truncate_text("\n".join(lines), SUMMARY_TARGET_CHARS)
+            lines.append(f"Assistant: {truncate_text(assistant, 300)}")
 
-
-def summarize_record_tool_activity(record):
-    lines = []
-    for step in record.get("steps", []):
-        for item in step.get("action", []):
-            if item.get("name"):
-                lines.append(f"{item['name']}({json.dumps(item.get('arguments', {}), ensure_ascii=False)})")
-        if "output" in step:
-            for item in step["output"]:
-                if item.get("type") == "function_call":
-                    lines.append(f"{item.get('name', 'unknown')}({item.get('arguments', '{}')})")
-    return truncate_text("; ".join(lines), 500)
-
-
-def estimate_tokens(value):
-    return len(json.dumps(value, ensure_ascii=False)) // 4
-
-
-def clone(value):
-    return json.loads(json.dumps(value, ensure_ascii=False))
-
-
-def append_turn_messages(messages, steps, assistant_reply):
-    messages.extend(tool_items_from_steps(steps))
-    if assistant_reply:
-        messages.append({"role": "assistant", "content": assistant_reply})
-
-
-def tool_items_from_steps(steps):
-    items = []
-    for step in steps:
-        if "output" in step:
-            items.extend(tool_items_from_output(step["output"]))
-        else:
-            items.extend(tool_items_from_formatted_step(step))
-    return items
-
-
-def tool_items_from_output(output):
-    return [
-        clone(item)
-        for item in output
-        if item.get("type") in {"reasoning", "function_call", "function_call_output"}
-    ]
-
-
-def tool_items_from_formatted_step(step):
-    reasoning = step.get("reasoning", [])
-    if not reasoning and step.get("action"):
-        return previous_tool_activity_message(step)
-
-    items = []
-    items.extend(clone(reasoning))
-    action = step.get("action", [])
-    if isinstance(action, dict):
-        action = action.get("tool_calls", [])
-
-    for item in action:
-        if item.get("name") and item.get("call_id"):
-            items.append(
-                {
-                    "type": "function_call",
-                    "call_id": item["call_id"],
-                    "name": item["name"],
-                    "arguments": json.dumps(item.get("arguments", {}), ensure_ascii=False),
-                }
-            )
-
-    for item in step.get("observation", []):
-        if item.get("call_id"):
-            items.append(
-                {
-                    "type": "function_call_output",
-                    "call_id": item["call_id"],
-                    "output": item.get("output", ""),
-                }
-            )
-    return items
-
-
-def previous_tool_activity_message(step):
-    lines = []
-    observations = {
-        item.get("call_id"): item.get("output", "")
-        for item in step.get("observation", [])
-        if item.get("call_id")
-    }
-    action = step.get("action", [])
-    if isinstance(action, dict):
-        action = action.get("tool_calls", [])
-
-    for item in action:
-        name = item.get("name")
-        call_id = item.get("call_id")
-        if not name:
-            continue
-        arguments = json.dumps(item.get("arguments", {}), ensure_ascii=False)
-        output = truncate_text(observations.get(call_id, ""), MAX_TOOL_SUMMARY_OUTPUT_CHARS)
-        lines.append(f"- {name}({arguments}): {output}")
-
-    if not lines:
-        return []
-    return [{"role": "assistant", "content": "Previous tool activity:\n" + "\n".join(lines)}]
+    return truncate_text("\n".join(lines), MAX_SESSION_SUMMARY_INPUT_CHARS)
 
 
 def last_turn_id(records):

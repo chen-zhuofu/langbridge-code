@@ -1,10 +1,12 @@
 import copy
+import inspect
 import json
 import sys
 
 from openai import OpenAI, OpenAIError
 
 from langbridge_cli.config import MAX_AGENT_STEPS, WRITE_TOOLS
+from langbridge_cli.debug import print_llm_request, print_llm_response
 from langbridge_cli.logging import (
     write_finish_log,
     write_input_log,
@@ -12,7 +14,7 @@ from langbridge_cli.logging import (
     write_tool_calls_result_log,
 )
 from langbridge_cli.parse import extract_output_text, print_step_trace
-from langbridge_cli.tools import TOOL_SCHEMAS, TOOLS
+from langbridge_cli.tools import MAIN_TOOL_SCHEMAS, MAIN_TOOLS
 
 
 def run_agent(api_key, model, input, run_log_path, turn_id):
@@ -26,7 +28,7 @@ def run_agent(api_key, model, input, run_log_path, turn_id):
             input.extend(step_response)
             write_tool_calls_log(run_log_path, turn_id, step, step_response) # write step_response or socalled "action" into log
             for call in tool_calls:
-                tool_output = run_tool_call(call)
+                tool_output = run_tool_call(call, api_key, model)
                 input.append(tool_output)
                 write_tool_calls_result_log(run_log_path, turn_id, step, tool_output) # write tool_output or socalled "observation" into log
         else:
@@ -43,34 +45,75 @@ def run_agent(api_key, model, input, run_log_path, turn_id):
 
 def create_response(api_key, model, agent_input):
     client = OpenAI(api_key=api_key)
+    print_llm_request("PM agent", model, agent_input, MAIN_TOOL_SCHEMAS)
     try:
         response = client.responses.create(
             model=model,
             input=agent_input,
-            tools=TOOL_SCHEMAS,
+            tools=MAIN_TOOL_SCHEMAS,
             reasoning={"summary": "auto"},
         )
     except OpenAIError as error:
         raise RuntimeError(str(error))
 
-    return response.model_dump(exclude_none=True)
+    data = response.model_dump(exclude_none=True)
+    print_llm_response("PM agent", data)
+    return data
 
 
-def run_tool_call(call):
+def run_tool_call(call, api_key=None, model=None):
     name = call.get("name")
     call_id = call.get("call_id")
 
     try:
         arguments = json.loads(call.get("arguments") or "{}")
-        if name not in TOOLS:
+        if name not in MAIN_TOOLS:
             raise ValueError(f"Unknown tool: {name}")
         if name in WRITE_TOOLS and not approve_write_tool(name, arguments):
             raise PermissionError(f"{name} was not approved")
-        output = TOOLS[name](**arguments)
+        tool_arguments = add_hidden_tool_context(MAIN_TOOLS[name], arguments, api_key, model)
+        output = MAIN_TOOLS[name](**tool_arguments)
+        if name == "ask_l4_engineer":
+            output = append_pm_l3_review(api_key, model, arguments, output)
     except Exception as error:
         output = f"Tool error: {error}"
 
     return {"type": "function_call_output", "call_id": call_id, "output": output}
+
+
+def append_pm_l3_review(api_key, model, arguments, l4_output):
+    if not l4_output.startswith("L4_STATUS: READY_FOR_REVIEW"):
+        return l4_output
+
+    from langbridge_cli.multi_agent import l3_review_passed, run_l3_test_engineer
+
+    l3_report = run_l3_test_engineer(
+        api_key,
+        model,
+        arguments.get("task", ""),
+        pm_l3_review_context(arguments.get("context", ""), l4_output),
+    )
+    pm_status = "OK" if l3_review_passed(l3_report) else "NEEDS_WORK"
+    return f"{l4_output}\n\nPM_DETERMINISTIC_L3_REVIEW:\n{l3_report}\n\nPM_REVIEW_STATUS: {pm_status}"
+
+
+def pm_l3_review_context(context, l4_output):
+    parts = []
+    if context:
+        parts.append(context)
+    parts.append("L4 completed work and is ready for PM-triggered L3 review.")
+    parts.append(f"L4 report:\n{l4_output}")
+    return "\n\n".join(parts)
+
+
+def add_hidden_tool_context(function, arguments, api_key, model):
+    parameters = inspect.signature(function).parameters
+    tool_arguments = dict(arguments)
+    if "api_key" in parameters:
+        tool_arguments["api_key"] = api_key
+    if "model" in parameters:
+        tool_arguments["model"] = model
+    return tool_arguments
 
 
 def approve_write_tool(name, arguments):

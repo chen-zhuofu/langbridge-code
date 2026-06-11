@@ -7,7 +7,8 @@ DEFAULT_MODEL = "gpt-5.1-codex"
 CONFIG_DIR = Path.home() / ".langbridge"
 CONFIG_PATH = CONFIG_DIR / "config.json"
 HISTORY_PATH = CONFIG_DIR / "history"
-MAX_AGENT_STEPS = 5
+MAX_AGENT_STEPS = 50
+MAX_SPECIALIST_AGENT_STEPS = 30
 MAX_TOOL_SUMMARY_OUTPUT_CHARS = 300
 MAX_SESSION_CHOICES = 10
 MAX_SESSION_SUMMARY_INPUT_CHARS = 4_000
@@ -17,7 +18,13 @@ SUMMARY_TARGET_CHARS = 8_000
 STALE_TOOL_OUTPUT_CHARS = 500
 WORKSPACE_ROOT = Path.cwd().resolve()
 RUNS_DIR = WORKSPACE_ROOT / "session-history"
-WRITE_TOOLS = {"create_file", "edit_file", "install_python_packages"}
+WRITE_TOOLS = {
+    "create_file",
+    "delete_file",
+    "edit_file",
+    "install_python_packages",
+    "ask_l4_engineer",
+}
 
 
 def load_api_key():

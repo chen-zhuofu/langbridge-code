@@ -1,4 +1,4 @@
-from langbridge_cli import session as session_module
+from langbridge_cli import context as context_module
 
 
 def make_record(turn_id, user, assistant, tool_output=""):
@@ -25,11 +25,11 @@ def test_restore_session_messages_compacts_old_records(monkeypatch):
         make_record(1, "old task", "old answer", "old output " * 200),
         make_record(2, "recent task", "recent answer", "recent output"),
     ]
-    monkeypatch.setattr(session_module, "COMPACT_WHEN_TOKENS_OVER", 1)
-    recent_tokens = session_module.estimate_tokens(session_module.records_to_messages([records[-1]]))
-    monkeypatch.setattr(session_module, "RECENT_CONTEXT_TOKENS", recent_tokens + 1)
+    monkeypatch.setattr(context_module, "COMPACT_WHEN_TOKENS_OVER", 1)
+    recent_tokens = context_module.estimate_tokens(context_module.records_to_messages([records[-1]]))
+    monkeypatch.setattr(context_module, "RECENT_CONTEXT_TOKENS", recent_tokens + 1)
 
-    messages = session_module.restore_session_messages(records)
+    messages = context_module.restore_session_messages(records)
 
     assert messages[0] == {"role": "system", "content": "system"}
     assert any(
@@ -52,23 +52,23 @@ def test_compacted_messages_truncate_stale_tool_outputs(monkeypatch):
         make_reasoning_record(turn_id, f"task {turn_id}", f"answer {turn_id}", f"output {turn_id} " * 200)
         for turn_id in range(1, 5)
     ]
-    monkeypatch.setattr(session_module, "RECENT_CONTEXT_TOKENS", 10**9)
+    monkeypatch.setattr(context_module, "RECENT_CONTEXT_TOKENS", 10**9)
 
-    messages = session_module.restore_compacted_session_messages(records)
+    messages = context_module.restore_compacted_session_messages(records)
 
     outputs = [item for item in messages if item.get("type") == "function_call_output"]
     assert len(outputs) == 4
     for item in outputs[:2]:
-        assert len(item["output"]) <= session_module.STALE_TOOL_OUTPUT_CHARS + len("...")
+        assert len(item["output"]) <= context_module.STALE_TOOL_OUTPUT_CHARS + len("...")
     for item in outputs[2:]:
-        assert len(item["output"]) > session_module.STALE_TOOL_OUTPUT_CHARS
+        assert len(item["output"]) > context_module.STALE_TOOL_OUTPUT_CHARS
 
 
 def test_restore_session_messages_keeps_small_sessions_raw(monkeypatch):
     records = [make_record(1, "small task", "small answer")]
-    monkeypatch.setattr(session_module, "COMPACT_WHEN_TOKENS_OVER", 100_000)
+    monkeypatch.setattr(context_module, "COMPACT_WHEN_TOKENS_OVER", 100_000)
 
-    messages = session_module.restore_session_messages(records)
+    messages = context_module.restore_session_messages(records)
 
     assert not any(
         message.get("content", "").startswith("Older session summary:")

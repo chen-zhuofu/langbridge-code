@@ -1,13 +1,21 @@
 from langbridge_cli.parse import extract_reasoning_summaries, print_step_trace
 from langbridge_cli.prompt import SYSTEM_PROMPT
+from langbridge_cli.roles import L3_TEST_ENGINEER_PROMPT, L4_ENGINEER_PROMPT
 
 
-def test_system_prompt_includes_karpathy_guidelines():
-    assert "Think before coding." in SYSTEM_PROMPT
-    assert "Simplicity first." in SYSTEM_PROMPT
-    assert "Make surgical changes." in SYSTEM_PROMPT
-    assert "Work toward verifiable goals." in SYSTEM_PROMPT
+def test_system_prompt_defines_pm_routing_role():
+    assert "the PM for a multi-agent coding team" in SYSTEM_PROMPT
+    assert "clarify requirements" in SYSTEM_PROMPT
+    assert "Send that task brief to the L4 engineer" in SYSTEM_PROMPT
+    assert "When an L5 Ralph loop is available" in SYSTEM_PROMPT
     assert "Before every tool call" in SYSTEM_PROMPT
+
+
+def test_engineering_guidelines_live_in_specialist_prompts():
+    assert "Think before coding." in L4_ENGINEER_PROMPT
+    assert "Make surgical changes." in L4_ENGINEER_PROMPT
+    assert "Work toward verifiable goals." in L4_ENGINEER_PROMPT
+    assert "avoided unrequested features" in L3_TEST_ENGINEER_PROMPT
 
 
 def test_extract_reasoning_summaries():

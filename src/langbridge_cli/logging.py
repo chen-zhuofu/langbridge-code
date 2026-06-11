@@ -1,14 +1,10 @@
 import json
 
-from openai import OpenAI
-
-from langbridge_cli.config import MAX_SESSION_SUMMARY_INPUT_CHARS
 from langbridge_cli.parse import (
     extract_output_text,
     extract_reasoning_items,
     extract_turn_user_input,
     parse_json_string,
-    truncate_text,
 )
 from langbridge_cli.session import read_session_log
 
@@ -70,54 +66,6 @@ def upsert_turn_record(run_log_path, record):
         json.dumps(session_log, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
-
-
-def write_session_summary(api_key, model, run_log_path):
-    session_log = read_session_log(run_log_path)
-    if session_log["summary"]:
-        return
-
-    session_log["summary"] = create_session_summary(api_key, model, session_log["turns"])
-    run_log_path.write_text(
-        json.dumps(session_log, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
-
-
-def create_session_summary(api_key, model, records):
-    prompt = (
-        "Summarize this coding-agent CLI session as a short title for a session picker. "
-        "Return only the title, no punctuation wrapper, under 12 words.\n\n"
-        f"{session_summary_input(records)}"
-    )
-    data = create_text_response(
-        api_key,
-        model,
-        [
-            {"role": "system", "content": "You write concise session titles."},
-            {"role": "user", "content": prompt},
-        ],
-    )
-    return extract_output_text(data.get("output", [])).strip()
-
-
-def create_text_response(api_key, model, agent_input):
-    client = OpenAI(api_key=api_key)
-    response = client.responses.create(model=model, input=agent_input)
-    return response.model_dump(exclude_none=True)
-
-
-def session_summary_input(records):
-    lines = []
-    for record in records[-5:]:
-        user = record.get("user")
-        assistant = record.get("assistant")
-        if user:
-            lines.append(f"User: {truncate_text(user, 300)}")
-        if assistant:
-            lines.append(f"Assistant: {truncate_text(assistant, 300)}")
-
-    return truncate_text("\n".join(lines), MAX_SESSION_SUMMARY_INPUT_CHARS)
 
 
 def format_log_step(step, output):
