@@ -1,7 +1,8 @@
 import json
-import urllib.request
 
-from langbridge_cli.config import API_URL, MAX_SESSION_SUMMARY_INPUT_CHARS
+from openai import OpenAI
+
+from langbridge_cli.config import MAX_SESSION_SUMMARY_INPUT_CHARS
 from langbridge_cli.parse import (
     extract_output_text,
     extract_reasoning_items,
@@ -101,19 +102,9 @@ def create_session_summary(api_key, model, records):
 
 
 def create_text_response(api_key, model, agent_input):
-    body = json.dumps({"model": model, "input": agent_input}).encode()
-    request = urllib.request.Request(
-        API_URL,
-        data=body,
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        },
-        method="POST",
-    )
-
-    with urllib.request.urlopen(request) as response:
-        return json.loads(response.read())
+    client = OpenAI(api_key=api_key)
+    response = client.responses.create(model=model, input=agent_input)
+    return response.model_dump(exclude_none=True)
 
 
 def session_summary_input(records):

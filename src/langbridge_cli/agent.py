@@ -1,10 +1,10 @@
 import copy
 import json
 import sys
-import urllib.error
-import urllib.request
 
-from langbridge_cli.config import API_URL, MAX_AGENT_STEPS, WRITE_TOOLS
+from openai import OpenAI, OpenAIError
+
+from langbridge_cli.config import MAX_AGENT_STEPS, WRITE_TOOLS
 from langbridge_cli.logging import (
     write_finish_log,
     write_input_log,
@@ -42,32 +42,18 @@ def run_agent(api_key, model, input, run_log_path, turn_id):
 
 
 def create_response(api_key, model, agent_input):
-    body = json.dumps(
-        {
-            "model": model,
-            "input": agent_input,
-            "tools": TOOL_SCHEMAS,
-            "reasoning": {"summary": "auto"},
-        }
-    ).encode()
-    request = urllib.request.Request(
-        API_URL,
-        data=body,
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        },
-        method="POST",
-    )
-
+    client = OpenAI(api_key=api_key)
     try:
-        with urllib.request.urlopen(request) as response:
-            data = json.loads(response.read())
-    except urllib.error.HTTPError as error:
-        data = json.loads(error.read())
-        raise RuntimeError(data.get("error", {}).get("message", "OpenAI request failed"))
+        response = client.responses.create(
+            model=model,
+            input=agent_input,
+            tools=TOOL_SCHEMAS,
+            reasoning={"summary": "auto"},
+        )
+    except OpenAIError as error:
+        raise RuntimeError(str(error))
 
-    return data
+    return response.model_dump(exclude_none=True)
 
 
 def run_tool_call(call):

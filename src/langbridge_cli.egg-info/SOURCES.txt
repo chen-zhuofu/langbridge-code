@@ -1,7 +1,13 @@
 README.md
 pyproject.toml
 src/langbridge_cli/__init__.py
+src/langbridge_cli/agent.py
+src/langbridge_cli/config.py
+src/langbridge_cli/logging.py
 src/langbridge_cli/main.py
+src/langbridge_cli/parse.py
+src/langbridge_cli/prompt.py
+src/langbridge_cli/session.py
 src/langbridge_cli.egg-info/PKG-INFO
 src/langbridge_cli.egg-info/SOURCES.txt
 src/langbridge_cli.egg-info/dependency_links.txt
@@ -15,3 +21,4 @@ src/langbridge_cli/tools/packages.py
 src/langbridge_cli/tools/testing.py
 tests/test_execution_tool.py
 tests/test_main.py
+tests/test_session.py

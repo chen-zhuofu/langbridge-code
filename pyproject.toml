@@ -5,6 +5,7 @@ description = "A tiny interactive coding agent CLI backed by a Codex model."
 requires-python = ">=3.11"
 dependencies = [
     "numpy>=2.4.6",
+    "openai>=2.41.1",
     "prompt-toolkit>=3.0.52",
 ]
 

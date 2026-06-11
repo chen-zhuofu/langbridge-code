@@ -3,7 +3,6 @@ import json
 from pathlib import Path
 
 
-API_URL = "https://api.openai.com/v1/responses"
 DEFAULT_MODEL = "gpt-5.1-codex"
 CONFIG_DIR = Path.home() / ".langbridge"
 CONFIG_PATH = CONFIG_DIR / "config.json"
