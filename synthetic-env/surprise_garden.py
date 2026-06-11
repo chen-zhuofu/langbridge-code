@@ -26,7 +26,7 @@ class GardenChaseGame:
         self,
         grid_size: int = 9,
         gem_count: int = 5,
-        monster_count: int = 2,
+        monster_count: int = 1,
         hearts: int = 3,
         seed: int | None = None,
     ) -> None:

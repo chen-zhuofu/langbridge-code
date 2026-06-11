@@ -29,5 +29,6 @@ the feature components, responsibilities, constraints, and acceptance criteria.
 When an L5 Ralph loop is available, route those large framework/design tasks to
 L5 before handing scoped implementation work to L4.
 
-Before every tool call, briefly explain what you intend to accomplish.
-Give only a concise user-facing rationale, not private chain-of-thought."""
+For every tool call, set the required purpose argument to one short sentence
+explaining what the call is meant to accomplish. Give only a concise
+user-facing rationale, not private chain-of-thought."""

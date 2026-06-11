@@ -1,4 +1,5 @@
-from langbridge_cli.agent import add_hidden_tool_context, append_pm_l3_review
+import langbridge_cli.agent as agent_module
+from langbridge_cli.agent import add_hidden_tool_context, append_pm_l3_review, run_tool_call
 from langbridge_cli.multi_agent import L4_TOOL_SCHEMAS, max_steps_report, run_specialist_agent, run_specialist_tool_call
 from langbridge_cli.tools import MAIN_TOOL_SCHEMAS, MAIN_TOOLS, TOOL_SCHEMAS, TOOLS
 from langbridge_cli.multi_agent import l3_review_passed
@@ -19,6 +20,9 @@ def test_l3_test_engineer_tool_is_registered():
         "search_files",
         "ask_l4_engineer",
     ]
+    for schema in MAIN_TOOL_SCHEMAS + L4_TOOL_SCHEMAS:
+        assert "purpose" in schema["parameters"]["properties"]
+        assert "purpose" in schema["parameters"]["required"]
 
 
 def test_hidden_tool_context_is_passed_only_when_supported():
@@ -28,6 +32,25 @@ def test_hidden_tool_context_is_passed_only_when_supported():
     arguments = add_hidden_tool_context(specialist_tool, {"task": "verify tests"}, "key", "model")
 
     assert arguments == {"task": "verify tests", "api_key": "key", "model": "model"}
+
+
+def test_pm_tool_strips_purpose_before_execution(monkeypatch):
+    monkeypatch.setitem(agent_module.MAIN_TOOLS, "read_file", lambda **arguments: sorted(arguments))
+
+    result = run_tool_call(
+        {
+            "type": "function_call",
+            "name": "read_file",
+            "call_id": "call_1",
+            "arguments": '{"purpose":"Inspect the target file.","path":"README.md"}',
+        }
+    )
+
+    assert result == {
+        "type": "function_call_output",
+        "call_id": "call_1",
+        "output": ["path"],
+    }
 
 
 def test_l3_tool_uses_runner(monkeypatch):
@@ -105,6 +128,27 @@ def test_l4_write_tool_runs_after_approval(monkeypatch):
         "type": "function_call_output",
         "call_id": "call_1",
         "output": "created x.py",
+    }
+
+
+def test_specialist_tool_strips_purpose_before_execution(monkeypatch):
+    monkeypatch.setattr("langbridge_cli.multi_agent.approve_l4_write_tool", lambda name, arguments: True)
+
+    result = run_specialist_tool_call(
+        {
+            "type": "function_call",
+            "name": "create_file",
+            "call_id": "call_1",
+            "arguments": '{"purpose":"Create the target file.","path":"x.py","content":"print(1)"}',
+        },
+        {"create_file": lambda **arguments: sorted(arguments)},
+        "L4 engineer",
+    )
+
+    assert result == {
+        "type": "function_call_output",
+        "call_id": "call_1",
+        "output": ["content", "path"],
     }
 
 

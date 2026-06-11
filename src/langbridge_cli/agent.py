@@ -14,6 +14,7 @@ from langbridge_cli.logging import (
     write_tool_calls_result_log,
 )
 from langbridge_cli.parse import extract_output_text, print_step_trace
+from langbridge_cli.tool_schema import strip_tool_purpose
 from langbridge_cli.tools import MAIN_TOOL_SCHEMAS, MAIN_TOOLS
 
 
@@ -66,7 +67,7 @@ def run_tool_call(call, api_key=None, model=None):
     call_id = call.get("call_id")
 
     try:
-        arguments = json.loads(call.get("arguments") or "{}")
+        arguments = strip_tool_purpose(json.loads(call.get("arguments") or "{}"))
         if name not in MAIN_TOOLS:
             raise ValueError(f"Unknown tool: {name}")
         if name in WRITE_TOOLS and not approve_write_tool(name, arguments):

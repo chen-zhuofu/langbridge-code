@@ -1,7 +1,8 @@
 import json
 import os
 
-from langbridge_cli.parse import extract_output_text, extract_reasoning_summaries, truncate_text
+from langbridge_cli.parse import extract_output_text, truncate_text
+from langbridge_cli.tool_schema import TOOL_PURPOSE_ARGUMENT
 
 
 DEFAULT_DEBUG_MAX_CHARS = 200
@@ -28,10 +29,7 @@ def limit_debug_line(text):
 
 
 def print_llm_request(label, model, messages, tool_schemas=None):
-    if not should_print_llm_debug(label):
-        return
-
-    print(limit_debug_line(f"[LLM DEBUG] {label} input: {format_input(messages)}"))
+    return
 
 
 def print_llm_response(label, response):
@@ -45,29 +43,13 @@ def should_print_llm_debug(label):
     return llm_debug_enabled() and label in DEBUG_AGENT_LABELS
 
 
-def format_input(messages):
-    return " | ".join(format_input_item(index, message) for index, message in enumerate(messages))
-
-
 def format_output(output):
-    return " | ".join(format_output_item(index, item) for index, item in enumerate(output))
-
-
-def format_input_item(index, message):
-    if "role" in message:
-        role = message.get("role", "unknown")
-        content = truncate_text(message.get("content", ""), debug_max_chars())
-        return limit_debug_line(f"{index}. {role}: {content}")
-    if message.get("type") == "function_call":
-        arguments = truncate_text(message.get("arguments", "{}"), debug_max_chars())
-        return limit_debug_line(
-            f"{index}. function_call {message.get('name', 'unknown')}"
-            f"({arguments}) call_id={message.get('call_id', '')}"
-        )
-    if message.get("type") == "function_call_output":
-        output = truncate_text(message.get("output", ""), debug_max_chars())
-        return limit_debug_line(f"{index}. function_call_output call_id={message.get('call_id', '')}: {output}")
-    return limit_debug_line(f"{index}. {truncate_text(json.dumps(message, ensure_ascii=False), debug_max_chars())}")
+    items = [
+        format_output_item(index, item)
+        for index, item in enumerate(output)
+        if item.get("type") in {"function_call", "message"}
+    ]
+    return " | ".join(items)
 
 
 def format_output_item(index, item):
@@ -75,19 +57,30 @@ def format_output_item(index, item):
     if item_type == "message":
         return limit_debug_line(f"{index}. message: {truncate_text(extract_output_text([item]), debug_max_chars())}")
     if item_type == "function_call":
-        arguments = truncate_text(item.get("arguments", "{}"), debug_max_chars())
-        return limit_debug_line(
-            f"{index}. function_call {item.get('name', 'unknown')}"
-            f"({arguments}) call_id={item.get('call_id', '')}"
-        )
-    if item_type == "function_call_output":
-        output = truncate_text(item.get("output", ""), debug_max_chars())
-        return limit_debug_line(f"{index}. function_call_output call_id={item.get('call_id', '')}: {output}")
-    if item_type == "reasoning":
-        summaries = extract_reasoning_summaries([item])
-        if summaries:
-            return limit_debug_line(f"{index}. reasoning: {truncate_text(' '.join(summaries), debug_max_chars())}")
-        return limit_debug_line(f"{index}. reasoning")
-    return limit_debug_line(
-        f"{index}. {item_type}: {truncate_text(json.dumps(item, ensure_ascii=False), debug_max_chars())}"
+        return limit_debug_line(format_function_call(index, item))
+    return ""
+
+
+def format_function_call(index, item):
+    arguments = parse_arguments(item.get("arguments") or "{}")
+    purpose = ""
+    if isinstance(arguments, dict):
+        purpose = arguments.pop(TOOL_PURPOSE_ARGUMENT, "")
+        rendered_arguments = json.dumps(arguments, ensure_ascii=False, separators=(",", ":"))
+    else:
+        rendered_arguments = str(arguments)
+
+    call = (
+        f"function_call {item.get('name', 'unknown')}"
+        f"({truncate_text(rendered_arguments, debug_max_chars())}) call_id={item.get('call_id', '')}"
     )
+    if purpose:
+        return f"{index}. purpose: {truncate_text(purpose, debug_max_chars())} -> {call}"
+    return f"{index}. {call}"
+
+
+def parse_arguments(text):
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        return text

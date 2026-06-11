@@ -7,15 +7,18 @@ from langbridge_cli.config import MAX_SPECIALIST_AGENT_STEPS
 from langbridge_cli.debug import print_llm_request, print_llm_response
 from langbridge_cli.parse import extract_output_text
 from langbridge_cli.roles import L3_TEST_ENGINEER_PROMPT, L4_ENGINEER_PROMPT
+from langbridge_cli.tool_schema import strip_tool_purpose, with_tool_purpose
 from langbridge_cli.tools import execution, filesystem, testing
 
 
 L3_TOOL_NAMES = {"list_dir", "find_files", "read_file", "search_files", "run_tests"}
-L3_TOOL_SCHEMAS = [
-    schema
-    for schema in filesystem.TOOL_SCHEMAS + testing.TOOL_SCHEMAS
-    if schema["name"] in L3_TOOL_NAMES
-]
+L3_TOOL_SCHEMAS = with_tool_purpose(
+    [
+        schema
+        for schema in filesystem.TOOL_SCHEMAS + testing.TOOL_SCHEMAS
+        if schema["name"] in L3_TOOL_NAMES
+    ]
+)
 L3_TOOLS = {name: tool for name, tool in (filesystem.TOOLS | testing.TOOLS).items() if name in L3_TOOL_NAMES}
 
 L4_TOOL_NAMES = {
@@ -29,11 +32,13 @@ L4_TOOL_NAMES = {
     "run_tests",
     "execute_program",
 }
-L4_TOOL_SCHEMAS = [
-    schema
-    for schema in filesystem.TOOL_SCHEMAS + testing.TOOL_SCHEMAS + execution.TOOL_SCHEMAS
-    if schema["name"] in L4_TOOL_NAMES
-]
+L4_TOOL_SCHEMAS = with_tool_purpose(
+    [
+        schema
+        for schema in filesystem.TOOL_SCHEMAS + testing.TOOL_SCHEMAS + execution.TOOL_SCHEMAS
+        if schema["name"] in L4_TOOL_NAMES
+    ]
+)
 L4_TOOLS = {
     name: tool
     for name, tool in (filesystem.TOOLS | testing.TOOLS | execution.TOOLS).items()
@@ -143,7 +148,7 @@ def run_specialist_tool_call(call, tools, label):
     call_id = call.get("call_id")
 
     try:
-        arguments = json.loads(call.get("arguments") or "{}")
+        arguments = strip_tool_purpose(json.loads(call.get("arguments") or "{}"))
         if name not in tools:
             raise ValueError(f"Unknown {label} tool: {name}")
         if label == "L4 engineer" and name in L4_WRITE_TOOLS and not approve_l4_write_tool(name, arguments):

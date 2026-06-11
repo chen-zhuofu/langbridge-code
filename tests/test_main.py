@@ -8,7 +8,7 @@ def test_system_prompt_defines_pm_routing_role():
     assert "clarify requirements" in SYSTEM_PROMPT
     assert "Send that task brief to the L4 engineer" in SYSTEM_PROMPT
     assert "When an L5 Ralph loop is available" in SYSTEM_PROMPT
-    assert "Before every tool call" in SYSTEM_PROMPT
+    assert "required purpose argument" in SYSTEM_PROMPT
 
 
 def test_engineering_guidelines_live_in_specialist_prompts():

@@ -29,3 +29,9 @@ def test_game_initialization_completes():
     assert game.state == "playing"
     assert game.gems
     assert all(game._in_bounds(gem) for gem in game.gems)
+
+
+def test_default_game_has_single_monster():
+    game = GardenChaseGame()
+
+    assert len(game.monsters) == 1
