@@ -18,7 +18,6 @@ from langbridge_cli.config import (
 from langbridge_cli.logging import write_session_summary
 from langbridge_cli.prompt import SYSTEM_PROMPT
 from langbridge_cli.session import (
-    append_turn_messages,
     create_run_log_path,
     last_turn_id,
     read_session_records,
@@ -65,10 +64,8 @@ def main():
 
         turn_id += 1
         messages.append({"role": "user", "content": text})
-        reply, steps = run_agent(api_key, model, messages, run_log_path, turn_id)
+        run_agent(api_key, model, messages, run_log_path, turn_id)
         write_session_summary(api_key, model, run_log_path)
-        append_turn_messages(messages, steps, reply)
-        print(f"\n{reply}\n")
 
 
 def create_prompt_session():

@@ -1,9 +1,15 @@
-import copy
 import json
 import sys
 from datetime import datetime
 
-from langbridge_cli.config import MAX_SESSION_CHOICES, MAX_TOOL_SUMMARY_OUTPUT_CHARS, RUNS_DIR
+from langbridge_cli.config import (
+    COMPACT_WHEN_TOKENS_OVER,
+    MAX_SESSION_CHOICES,
+    MAX_TOOL_SUMMARY_OUTPUT_CHARS,
+    RECENT_CONTEXT_TOKENS,
+    RUNS_DIR,
+    SUMMARY_TARGET_CHARS,
+)
 from langbridge_cli.parse import truncate_text
 
 
@@ -79,6 +85,14 @@ def restore_session_messages(records):
     if not records:
         return []
 
+    messages = restore_full_session_messages(records)
+    if estimate_tokens(messages) <= COMPACT_WHEN_TOKENS_OVER:
+        return messages
+
+    return restore_compacted_session_messages(records)
+
+
+def restore_full_session_messages(records):
     messages = initial_messages_from_record(records[0])
     for record in records:
         user = record.get("user")
@@ -89,13 +103,90 @@ def restore_session_messages(records):
 
 
 def initial_messages_from_record(record):
-    messages = copy.deepcopy(record.get("input") or record.get("agent_input") or [])
+    messages = clone(record.get("input") or record.get("agent_input") or [])
     initial = []
     for message in messages:
         if message.get("role") == "user":
             break
         initial.append(message)
     return initial
+
+
+def restore_compacted_session_messages(records):
+    initial = initial_messages_from_record(records[0])
+    recent_records = select_recent_records(records)
+    older_records = records[: len(records) - len(recent_records)]
+
+    messages = list(initial)
+    summary = summarize_old_records(older_records)
+    if summary:
+        messages.append({"role": "assistant", "content": summary})
+
+    for record in recent_records:
+        user = record.get("user")
+        if user:
+            messages.append({"role": "user", "content": user})
+        append_turn_messages(messages, record.get("steps", []), record.get("assistant", ""))
+    return messages
+
+
+def select_recent_records(records):
+    selected = []
+    for record in reversed(records):
+        candidate = [record] + selected
+        if selected and estimate_tokens(records_to_messages(candidate)) > RECENT_CONTEXT_TOKENS:
+            break
+        selected = candidate
+    return selected or records[-1:]
+
+
+def records_to_messages(records):
+    messages = []
+    for record in records:
+        user = record.get("user")
+        if user:
+            messages.append({"role": "user", "content": user})
+        append_turn_messages(messages, record.get("steps", []), record.get("assistant", ""))
+    return messages
+
+
+def summarize_old_records(records):
+    if not records:
+        return ""
+
+    lines = ["Older session summary:"]
+    for record in records:
+        user = record.get("user")
+        assistant = record.get("assistant")
+        if user:
+            lines.append(f"- User: {truncate_text(user, 300)}")
+        tool_activity = summarize_record_tool_activity(record)
+        if tool_activity:
+            lines.append(f"  Tools: {tool_activity}")
+        if assistant:
+            lines.append(f"  Assistant: {truncate_text(assistant, 300)}")
+    return truncate_text("\n".join(lines), SUMMARY_TARGET_CHARS)
+
+
+def summarize_record_tool_activity(record):
+    lines = []
+    for step in record.get("steps", []):
+        for item in step.get("action", []):
+            if item.get("name"):
+                lines.append(f"{item['name']}({json.dumps(item.get('arguments', {}), ensure_ascii=False)})")
+        if "output" in step:
+            for item in step["output"]:
+                if item.get("type") == "function_call":
+                    lines.append(f"{item.get('name', 'unknown')}({item.get('arguments', '{}')})")
+    return truncate_text("; ".join(lines), 500)
+
+
+def estimate_tokens(value):
+    return len(json.dumps(value, ensure_ascii=False)) // 4
+
+
+def clone(value):
+    return json.loads(json.dumps(value, ensure_ascii=False))
 
 
 def append_turn_messages(messages, steps, assistant_reply):
@@ -116,7 +207,7 @@ def tool_items_from_steps(steps):
 
 def tool_items_from_output(output):
     return [
-        copy.deepcopy(item)
+        clone(item)
         for item in output
         if item.get("type") in {"reasoning", "function_call", "function_call_output"}
     ]
@@ -128,7 +219,7 @@ def tool_items_from_formatted_step(step):
         return previous_tool_activity_message(step)
 
     items = []
-    items.extend(copy.deepcopy(reasoning))
+    items.extend(clone(reasoning))
     action = step.get("action", [])
     if isinstance(action, dict):
         action = action.get("tool_calls", [])

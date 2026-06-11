@@ -5,40 +5,40 @@ import urllib.error
 import urllib.request
 
 from langbridge_cli.config import API_URL, MAX_AGENT_STEPS, WRITE_TOOLS
-from langbridge_cli.logging import write_turn_log
+from langbridge_cli.logging import (
+    write_finish_log,
+    write_input_log,
+    write_tool_calls_log,
+    write_tool_calls_result_log,
+)
 from langbridge_cli.parse import extract_output_text, print_step_trace
 from langbridge_cli.tools import TOOL_SCHEMAS, TOOLS
 
 
-def run_agent(api_key, model, messages, run_log_path, turn_id):
-    agent_input = list(messages)
-    initial_agent_input = copy.deepcopy(agent_input)
-    steps = []
-
+def run_agent(api_key, model, input, run_log_path, turn_id):
+    write_input_log(run_log_path, turn_id, input) # write current message into log
     for step in range(MAX_AGENT_STEPS):
-        data = create_response(api_key, model, agent_input)
-        output = data.get("output", [])
-        tool_calls = [item for item in output if item.get("type") == "function_call"]
-        step_output = copy.deepcopy(output)
-        print_step_trace(output, include_message=bool(tool_calls))
+        step_response = create_response(api_key, model, input).get("output", [])
+        tool_calls = [item for item in step_response if item.get("type") == "function_call"]
+        print_step_trace(step_response, include_message=bool(tool_calls))
 
-        if not tool_calls:
-            steps.append({"step": step, "output": step_output})
-            reply = extract_output_text(output)
-            write_turn_log(run_log_path, turn_id, initial_agent_input, steps, reply)
-            return reply, steps
-
-        agent_input.extend(output)
-        for call in tool_calls:
-            tool_output = run_tool_call(call)
-            agent_input.append(tool_output)
-            step_output.append(tool_output)
-
-        steps.append({"step": step, "output": step_output})
-
-    reply = "Agent stopped because it reached the maximum tool-call steps."
-    write_turn_log(run_log_path, turn_id, initial_agent_input, steps, reply)
-    return reply, steps
+        if tool_calls:
+            input.extend(step_response)
+            write_tool_calls_log(run_log_path, turn_id, step, step_response) # write step_response or socalled "action" into log
+            for call in tool_calls:
+                tool_output = run_tool_call(call)
+                input.append(tool_output)
+                write_tool_calls_result_log(run_log_path, turn_id, step, tool_output) # write tool_output or socalled "observation" into log
+        else:
+            finished = extract_output_text(step_response)
+            input.append({"role": "assistant", "content": finished})
+            write_finish_log(run_log_path, turn_id, finished) # write finished or socalled "agent loop ouput" into log
+            print(f"\n{finished}\n")
+            return
+    finished = "Agent stopped because it reached the maximum tool-call steps."
+    input.append({"role": "assistant", "content": finished})
+    write_finish_log(run_log_path, turn_id, finished) #write finished or socalled "agent loop ouput" into log
+    print(f"\n{finished}\n")
 
 
 def create_response(api_key, model, agent_input):

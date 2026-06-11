@@ -5,6 +5,7 @@ def main() -> None:
     print("hello new jersey")
     print("hello wuhan")
     print("hello california")
+    print("hello kitty")
 
 
 if __name__ == "__main__":
