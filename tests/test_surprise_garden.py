@@ -31,7 +31,7 @@ def test_game_initialization_completes():
     assert all(game._in_bounds(gem) for gem in game.gems)
 
 
-def test_default_game_has_three_monsters():
+def test_default_game_has_five_monsters():
     game = GardenChaseGame()
 
-    assert len(game.monsters) == 3
+    assert len(game.monsters) == 5

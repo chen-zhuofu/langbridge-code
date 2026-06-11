@@ -6,3 +6,4 @@ Requires-Python: >=3.11
 Requires-Dist: numpy>=2.4.6
 Requires-Dist: openai>=2.41.1
 Requires-Dist: prompt-toolkit>=3.0.52
+Requires-Dist: textual>=8.2.7

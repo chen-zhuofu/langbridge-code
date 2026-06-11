@@ -32,6 +32,12 @@ from langbridge_cli.session import (
 
 
 def main():
+    if os.environ.get("LANGBRIDGE_TUI", "").strip().lower() in {"1", "true", "yes", "on"}:
+        from langbridge_cli.ui import run_tui
+
+        run_tui()
+        return
+
     api_key = load_api_key()
     model = os.environ.get("LANGBRIDGE_MODEL", DEFAULT_MODEL)
     session = create_prompt_session() if sys.stdin.isatty() else None

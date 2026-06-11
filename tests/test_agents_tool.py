@@ -26,12 +26,31 @@ def test_l3_test_engineer_tool_is_registered():
 
 
 def test_hidden_tool_context_is_passed_only_when_supported():
-    def specialist_tool(task, api_key=None, model=None):
-        return task, api_key, model
+    def specialist_tool(task, api_key=None, model=None, trace_sink=None, approval_callback=None):
+        return task, api_key, model, trace_sink, approval_callback
 
-    arguments = add_hidden_tool_context(specialist_tool, {"task": "verify tests"}, "key", "model")
+    def trace_sink(event):
+        return event
 
-    assert arguments == {"task": "verify tests", "api_key": "key", "model": "model"}
+    def approval_callback(role, name, arguments):
+        return True
+
+    arguments = add_hidden_tool_context(
+        specialist_tool,
+        {"task": "verify tests"},
+        "key",
+        "model",
+        trace_sink,
+        approval_callback,
+    )
+
+    assert arguments == {
+        "task": "verify tests",
+        "api_key": "key",
+        "model": "model",
+        "trace_sink": trace_sink,
+        "approval_callback": approval_callback,
+    }
 
 
 def test_pm_tool_strips_purpose_before_execution(monkeypatch):
@@ -150,6 +169,66 @@ def test_specialist_tool_strips_purpose_before_execution(monkeypatch):
         "call_id": "call_1",
         "output": ["content", "path"],
     }
+
+
+def test_pm_write_tool_uses_approval_callback(monkeypatch):
+    approvals = []
+
+    def fake_l4(**arguments):
+        return "L4 report"
+
+    monkeypatch.setitem(agent_module.MAIN_TOOLS, "ask_l4_engineer", fake_l4)
+
+    result = run_tool_call(
+        {
+            "type": "function_call",
+            "name": "ask_l4_engineer",
+            "call_id": "call_1",
+            "arguments": '{"task":"implement feature","context":"repo"}',
+        },
+        approval_callback=lambda role, name, arguments: approvals.append((role, name, arguments)) or True,
+    )
+
+    assert approvals == [("PM agent", "ask_l4_engineer", {"task": "implement feature", "context": "repo"})]
+    assert result["output"] == "L4 report"
+
+
+def test_pm_write_tool_denied_without_approval_callback(monkeypatch):
+    monkeypatch.setattr(agent_module, "approve_write_tool", lambda name, arguments, approval_callback=None: False)
+
+    result = run_tool_call(
+        {
+            "type": "function_call",
+            "name": "ask_l4_engineer",
+            "call_id": "call_1",
+            "arguments": '{"task":"implement feature"}',
+        }
+    )
+
+    assert result == {
+        "type": "function_call_output",
+        "call_id": "call_1",
+        "output": "Tool error: ask_l4_engineer was not approved",
+    }
+
+
+def test_l4_write_tool_uses_approval_callback():
+    approvals = []
+
+    result = run_specialist_tool_call(
+        {
+            "type": "function_call",
+            "name": "create_file",
+            "call_id": "call_1",
+            "arguments": '{"path":"x.py","content":"print(1)"}',
+        },
+        {"create_file": lambda **arguments: f"created {arguments['path']}"},
+        "L4 engineer",
+        approval_callback=lambda role, name, arguments: approvals.append((role, name, arguments)) or True,
+    )
+
+    assert approvals == [("L4 engineer", "create_file", {"path": "x.py", "content": "print(1)"})]
+    assert result["output"] == "created x.py"
 
 
 def test_pm_appends_l3_review_when_l4_ready(monkeypatch):

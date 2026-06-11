@@ -66,16 +66,28 @@ def tool(name):
 
 
 @tool("ask_l3_test_engineer")
-def ask_l3_test_engineer(task, context="", api_key=None, model=None):
+def ask_l3_test_engineer(task, context="", api_key=None, model=None, trace_sink=None):
     api_key = api_key or load_api_key()
     model = model or os.environ.get("LANGBRIDGE_MODEL", DEFAULT_MODEL)
-    return run_l3_test_engineer(api_key, model, task, context)
+    if trace_sink is None:
+        return run_l3_test_engineer(api_key, model, task, context)
+    return run_l3_test_engineer(api_key, model, task, context, trace_sink=trace_sink)
 
 
 @tool("ask_l4_engineer")
-def ask_l4_engineer(task, context="", feedback="", api_key=None, model=None):
+def ask_l4_engineer(task, context="", feedback="", api_key=None, model=None, trace_sink=None, approval_callback=None):
     api_key = api_key or load_api_key()
     model = model or os.environ.get("LANGBRIDGE_MODEL", DEFAULT_MODEL)
-    return run_l4_engineer(api_key, model, task, context, feedback)
+    if trace_sink is None and approval_callback is None:
+        return run_l4_engineer(api_key, model, task, context, feedback)
+    return run_l4_engineer(
+        api_key,
+        model,
+        task,
+        context,
+        feedback,
+        trace_sink=trace_sink,
+        approval_callback=approval_callback,
+    )
 
 

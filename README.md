@@ -1,6 +1,6 @@
 # langbridge-cli
 
-A tiny interactive coding-agent CLI backed by a Codex model.
+An interactive coding-agent CLI backed by a Codex model.
 
 LangBridge runs a PM-led coding-agent loop. The PM can inspect the workspace,
 delegate implementation to specialist agents, resume previous JSON session
@@ -22,9 +22,9 @@ The CLI can call local tools in the current workspace:
 File tools are limited to the directory where you start the CLI. Write tools ask
 for approval before changing files or packages.
 
-Before each tool call, the CLI prints a concise user-facing rationale and the
-selected action. It can use an API reasoning summary as a fallback, but does
-not expose the model's raw chain-of-thought.
+Each tool call includes a required `purpose` field: a short, user-visible
+sentence explaining why the agent is calling that tool. This is not private
+chain-of-thought; it powers the live thought display in the CLI and TUI.
 
 The prompt uses `prompt_toolkit`, so deletion, cursor movement, and command
 history work like a normal interactive shell.
@@ -79,3 +79,54 @@ langbridge
 ```
 
 Inside the CLI, type `/exit` to quit.
+
+### Textual UI
+
+Use the Textual UI for a richer terminal experience: live agent thoughts,
+session management, and L4 write approvals.
+
+```bash
+LANGBRIDGE_TUI=1 uv run langbridge
+```
+
+While developing locally, prefer `uv run langbridge` (editable install) so code
+changes take effect immediately. Use `uv sync --reinstall-package langbridge-cli
+--no-editable` only when you need a non-editable install.
+
+**Session bar** (top):
+
+- **Session dropdown**: pick an existing session from `session-history/`.
+- **Resume**: load the selected session and continue appending to its log.
+- **Delete**: remove the selected session JSON file.
+- On launch, a new session is started automatically; use Resume to switch.
+
+**Thought display**:
+
+- Shows only the latest **thought** (`purpose`) from PM, L4, or L3 — not tool
+  calls — in muted text.
+- Clears when the assistant reply is shown.
+- **Ctrl+T** or click the thought bar to expand full thought + action history
+  for the current turn.
+
+**Approvals**:
+
+- **Always approve: off/on**: toggle to auto-approve all write tools.
+- When off, a yellow approval bar appears above the input for:
+  - PM delegate requests (`ask_l4_engineer`)
+  - L4 write tools (`edit_file`, `create_file`, `delete_file`)
+- Use **Approve** / **Deny**, or **Ctrl+A** / **Ctrl+D**.
+
+### Debug
+
+Print compact PM/L4/L3 output lines to stderr (one line per model response,
+`message` and `function_call` only):
+
+```bash
+LANGBRIDGE_DEBUG_LLM=1 uv run --no-editable langbridge
+```
+
+Optional line length cap (default `200`):
+
+```bash
+LANGBRIDGE_DEBUG_LLM=1 LANGBRIDGE_DEBUG_LLM_MAX_CHARS=500 uv run --no-editable langbridge
+```

@@ -47,7 +47,7 @@ L4_TOOLS = {
 L4_WRITE_TOOLS = {"create_file", "delete_file", "edit_file"}
 
 
-def run_l3_test_engineer(api_key, model, task, context=""):
+def run_l3_test_engineer(api_key, model, task, context="", trace_sink=None):
     return run_specialist_agent(
         api_key,
         model,
@@ -56,10 +56,11 @@ def run_l3_test_engineer(api_key, model, task, context=""):
         L3_TOOL_SCHEMAS,
         L3_TOOLS,
         "L3 test engineer",
+        trace_sink=trace_sink,
     )
 
 
-def run_l4_engineer(api_key, model, task, context="", feedback=""):
+def run_l4_engineer(api_key, model, task, context="", feedback="", trace_sink=None, approval_callback=None):
     return run_specialist_agent(
         api_key,
         model,
@@ -68,6 +69,8 @@ def run_l4_engineer(api_key, model, task, context="", feedback=""):
         L4_TOOL_SCHEMAS,
         L4_TOOLS,
         "L4 engineer",
+        trace_sink=trace_sink,
+        approval_callback=approval_callback,
     )
 
 
@@ -102,7 +105,17 @@ def l4_blocked(report):
     return first_line == "l4_status: blocked"
 
 
-def run_specialist_agent(api_key, model, system_prompt, user_prompt, tool_schemas, tools, label):
+def run_specialist_agent(
+    api_key,
+    model,
+    system_prompt,
+    user_prompt,
+    tool_schemas,
+    tools,
+    label,
+    trace_sink=None,
+    approval_callback=None,
+):
     messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_prompt},
@@ -114,13 +127,13 @@ def run_specialist_agent(api_key, model, system_prompt, user_prompt, tool_schema
         output = response.get("output", [])
         tool_calls = [item for item in output if item.get("type") == "function_call"]
         if tool_calls:
-            print_step_trace(output, include_message=True, label=label)
+            print_step_trace(output, include_message=True, label=label, sink=trace_sink)
         if not tool_calls:
             return extract_output_text(output)
 
         messages.extend(output)
         for call in tool_calls:
-            tool_output = run_specialist_tool_call(call, tools, label)
+            tool_output = run_specialist_tool_call(call, tools, label, approval_callback=approval_callback)
             tool_history.append({"call": call, "output": tool_output})
             messages.append(tool_output)
 
@@ -145,7 +158,7 @@ def create_specialist_response(api_key, model, messages, tool_schemas, label):
     return data
 
 
-def run_specialist_tool_call(call, tools, label):
+def run_specialist_tool_call(call, tools, label, approval_callback=None):
     name = call.get("name")
     call_id = call.get("call_id")
 
@@ -153,13 +166,23 @@ def run_specialist_tool_call(call, tools, label):
         arguments = strip_tool_purpose(json.loads(call.get("arguments") or "{}"))
         if name not in tools:
             raise ValueError(f"Unknown {label} tool: {name}")
-        if label == "L4 engineer" and name in L4_WRITE_TOOLS and not approve_l4_write_tool(name, arguments):
+        if label == "L4 engineer" and name in L4_WRITE_TOOLS and not approve_l4_tool_write(
+            name,
+            arguments,
+            approval_callback,
+        ):
             raise PermissionError(f"{name} was not approved")
         output = tools[name](**arguments)
     except Exception as error:
         output = f"Tool error: {error}"
 
     return {"type": "function_call_output", "call_id": call_id, "output": output}
+
+
+def approve_l4_tool_write(name, arguments, approval_callback=None):
+    if approval_callback is not None:
+        return approval_callback("L4 engineer", name, arguments)
+    return approve_l4_write_tool(name, arguments)
 
 
 def max_steps_report(label, tool_history):
