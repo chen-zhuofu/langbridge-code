@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 
 
-MODULE_PATH = Path(__file__).resolve().parents[2] / "synthetic-env" / "surprise_garden.py"
+MODULE_PATH = Path(__file__).resolve().parents[2] / "demo" / "surprise_garden.py"
 SPEC = importlib.util.spec_from_file_location("surprise_garden_module", MODULE_PATH)
 surprise_garden = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None

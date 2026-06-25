@@ -157,7 +157,7 @@ We are hiring more agent roles. Current openings:
 The next milestone turns LangBridge into a fuller PM-led team with an **L5
 senior engineer**, an explicit turn state machine, a neutral dispute jury, and
 clear escalation and recovery paths. The full design is captured in
-`synthetic-env/Thoughts.md`.
+`Thoughts.md`.
 
 ### Roles and loops
 
@@ -238,6 +238,12 @@ changes take effect immediately. Use `uv sync --reinstall-package langbridge-cli
 - **Resume**: load the selected session and continue appending to its log.
 - **Delete**: remove the selected session JSON file.
 - On launch, a new session is started automatically; use Resume to switch.
+
+**Input box** (multi-line):
+
+- **Enter** sends the message; **Shift+Enter** inserts a newline; or click **Send**.
+- Pasting keeps every line, so you can drop in a multi-paragraph task spec and it
+  is sent as one message (the old single-line box truncated paste to the first line).
 
 **Pause / resume** (soft hold):
 
