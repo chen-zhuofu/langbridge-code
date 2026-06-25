@@ -3,3 +3,10 @@ build/
 session-history/
 __pycache__/
 *.py[cod]
+
+# eval run artifacts (large/regenerable: cloned repos, agent logs, predictions)
+evals/swebench/out/
+evals/swebench/out_*/
+evals/swebench/*.log
+logs/
+/langbridge-*.json
