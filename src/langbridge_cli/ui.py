@@ -2,10 +2,12 @@ import json
 import os
 import threading
 
+from textual import events
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal, Vertical
-from textual.widgets import Button, Footer, Header, Input, RichLog, Select, Static
+from textual.widgets import Button, Footer, Header, RichLog, Select, Static, TextArea
 
+from langbridge_cli import control
 from langbridge_cli.agent import run_agent
 from langbridge_cli.config import COMPACT_WHEN_TOKENS_OVER, DEFAULT_MODEL, load_api_key
 from langbridge_cli.context import estimate_tokens, restore_compacted_session_messages, restore_session_messages
@@ -21,54 +23,99 @@ from langbridge_cli.session import (
 
 
 EMPTY_THOUGHT = " "
+THEME = "tokyo-night"
+
+
+class ChatInput(TextArea):
+    """Multi-line input where Enter sends and Shift+Enter inserts a newline.
+
+    Pasting keeps every line (TextArea handles paste as a single insert), which
+    fixes multi-line task prompts getting truncated to the first line.
+    """
+
+    async def _on_key(self, event: events.Key) -> None:
+        if event.key == "enter":
+            event.stop()
+            event.prevent_default()
+            self.app.submit_current_input()
+            return
+        if event.key in ("shift+enter", "ctrl+j"):
+            event.stop()
+            event.prevent_default()
+            self.insert("\n")
+            return
+        await super()._on_key(event)
 
 
 class LangBridgeTui(App):
     CSS = """
     Screen {
         layout: vertical;
+        background: $background;
     }
 
     #session_bar {
-        height: auto;
-        min-height: 3;
+        height: 3;
         padding: 0 1;
+        background: $panel;
+    }
+
+    #session_bar Button {
+        margin: 0 1 0 0;
+        min-width: 10;
+        height: 3;
     }
 
     #session_select {
         width: 1fr;
+        margin: 0 1 0 0;
     }
 
     #chat_log {
         height: 1fr;
-        border: round $surface;
+        background: $surface;
+        border: round $primary 40%;
+        padding: 0 1;
     }
 
     #thought_toggle {
         width: 100%;
-        height: 3;
+        height: 1;
+        border: none;
         text-align: left;
+        text-style: italic;
         color: $text-muted;
+        background: $surface-darken-1;
+    }
+
+    #thought_toggle:hover {
+        background: $boost;
+    }
+
+    #history_container {
+        height: auto;
     }
 
     #thought_history {
         height: 10;
-        border: round $surface;
+        background: $surface;
+        border: round $secondary 50%;
+        padding: 0 1;
     }
 
     #bottom_panel {
         dock: bottom;
         height: auto;
-        background: $surface;
+        background: $panel;
         border-top: tall $primary;
     }
 
     #approval_bar {
         height: auto;
         min-height: 5;
-        padding: 0 1;
+        padding: 1;
         background: $warning-darken-3;
-        border-bottom: tall $warning;
+        border: round $warning;
     }
 
     #approval_prompt {
@@ -80,11 +127,29 @@ class LangBridgeTui(App):
     #approve_button, #deny_button {
         width: 1fr;
         min-width: 12;
+        margin-left: 1;
+    }
+
+    #input_row {
+        height: auto;
+        padding: 1;
     }
 
     #input {
-        height: 3;
-        margin: 0 1 1 1;
+        height: 5;
+        width: 1fr;
+        border: round $primary;
+        background: $surface;
+    }
+
+    #input:focus {
+        border: round $accent;
+    }
+
+    #send_button {
+        height: 5;
+        width: 12;
+        margin-left: 1;
     }
     """
 
@@ -92,6 +157,8 @@ class LangBridgeTui(App):
         ("ctrl+t", "toggle_thought_history", "Thoughts"),
         ("ctrl+a", "approve_pending", "Approve"),
         ("ctrl+d", "deny_pending", "Deny"),
+        ("ctrl+p", "toggle_pause", "Pause"),
+        ("ctrl+s", "stop", "Stop"),
         ("ctrl+c", "quit", "Quit"),
     ]
 
@@ -106,6 +173,8 @@ class LangBridgeTui(App):
         self.history_visible = False
         self.pending_approval = None
         self.always_approve = False
+        self.turn_active = False
+        self.turn_snapshot = None
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -114,6 +183,8 @@ class LangBridgeTui(App):
             yield Button("Resume", id="resume_session_button")
             yield Button("Delete", id="delete_session_button", variant="error")
             yield Button("Always approve: off", id="always_approve_button")
+            yield Button("Pause", id="pause_button", variant="warning")
+            yield Button("Stop", id="stop_button", variant="error")
         yield RichLog(id="chat_log", wrap=True, highlight=True)
         yield Button(EMPTY_THOUGHT, id="thought_toggle")
         yield Container(RichLog(id="thought_history", wrap=True, highlight=True), id="history_container")
@@ -122,14 +193,23 @@ class LangBridgeTui(App):
                 yield Static("", id="approval_prompt")
                 yield Button("Approve", id="approve_button", variant="success")
                 yield Button("Deny", id="deny_button", variant="error")
-            yield Input(placeholder="Ask langbridge...", id="input")
+            with Horizontal(id="input_row"):
+                yield ChatInput(id="input")
+                yield Button("Send", id="send_button", variant="primary")
         yield Footer()
 
     def on_mount(self) -> None:
         self.title = "langbridge-cli"
+        self.theme = THEME
+        chat_log = self.query_one("#chat_log", RichLog)
+        chat_log.border_title = "Chat"
+        self.query_one("#thought_history", RichLog).border_title = "Thoughts & actions"
+        input_box = self.query_one("#input", ChatInput)
+        input_box.border_title = "Ask langbridge"
+        input_box.border_subtitle = "Enter = send · Shift+Enter = newline"
         self.query_one("#thought_history", RichLog).display = False
         self.query_one("#approval_bar", Horizontal).display = False
-        self.query_one("#chat_log", RichLog).write(f"langbridge-cli using {self.model}")
+        chat_log.write(f"langbridge-cli using {self.model}")
         self.start_new_session()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
@@ -141,6 +221,12 @@ class LangBridgeTui(App):
             self.resolve_approval(False)
         elif event.button.id == "always_approve_button":
             self.toggle_always_approve()
+        elif event.button.id == "pause_button":
+            self.action_toggle_pause()
+        elif event.button.id == "stop_button":
+            self.action_stop()
+        elif event.button.id == "send_button":
+            self.submit_current_input()
         elif event.button.id == "resume_session_button":
             self.resume_selected_session()
         elif event.button.id == "delete_session_button":
@@ -158,11 +244,36 @@ class LangBridgeTui(App):
         if self.pending_approval is not None:
             self.resolve_approval(False)
 
-    def on_input_submitted(self, event: Input.Submitted) -> None:
-        text = event.value.strip()
+    def action_toggle_pause(self) -> None:
+        if not self.turn_active:
+            return
+        if control.is_paused():
+            control.resume()
+            self.query_one("#pause_button", Button).label = "Pause"
+            self.add_chat_line("Resumed.")
+        else:
+            control.pause()
+            self.query_one("#pause_button", Button).label = "Resume"
+            self.add_chat_line("Paused. The agent stops at the next step; press Resume to continue.")
+
+    def action_stop(self) -> None:
+        if not self.turn_active:
+            return
+        control.request_stop()
+        # Unblock anything the worker is waiting on so it can unwind promptly.
+        if self.pending_approval is not None:
+            self.resolve_approval(False)
+        self.query_one("#pause_button", Button).label = "Pause"
+        self.add_chat_line("Stopping the agent...")
+
+    def submit_current_input(self) -> None:
+        if self.turn_active:
+            return
+        input_box = self.query_one("#input", ChatInput)
+        text = input_box.text.strip()
         if not text:
             return
-        event.input.value = ""
+        input_box.text = ""
         if text == "/exit":
             self.exit()
             return
@@ -170,7 +281,12 @@ class LangBridgeTui(App):
         self.query_one("#chat_log", RichLog).write(f"You: {text}")
         self.query_one("#thought_history", RichLog).clear()
         self.query_one("#thought_toggle", Button).label = EMPTY_THOUGHT
-        event.input.disabled = True
+        input_box.disabled = True
+        self.query_one("#send_button", Button).disabled = True
+        control.clear_stop()
+        control.resume()
+        self.turn_active = True
+        self.turn_snapshot = list(self.messages)
         self.run_worker(lambda: self.run_turn(text), thread=True)
 
     def run_turn(self, text):
@@ -180,16 +296,20 @@ class LangBridgeTui(App):
             self.call_from_thread(self.add_chat_line, "(compacted older context to stay under the token budget)")
 
         self.messages.append({"role": "user", "content": text})
-        reply = run_agent(
-            self.api_key,
-            self.model,
-            self.messages,
-            self.run_log_path,
-            self.turn_id,
-            trace_sink=self.post_trace_event,
-            print_reply=False,
-            approval_callback=self.request_approval,
-        )
+        try:
+            reply = run_agent(
+                self.api_key,
+                self.model,
+                self.messages,
+                self.run_log_path,
+                self.turn_id,
+                trace_sink=self.post_trace_event,
+                print_reply=False,
+                approval_callback=self.request_approval,
+            )
+        except control.StopRequested:
+            self.call_from_thread(self.finish_stopped)
+            return
         write_session_summary(self.api_key, self.model, self.run_log_path)
         self.call_from_thread(self.finish_turn, reply or "")
 
@@ -245,11 +365,28 @@ class LangBridgeTui(App):
     def finish_turn(self, reply):
         if reply:
             self.add_chat_line(f"Assistant: {reply}")
+        self.reset_after_turn()
+
+    def finish_stopped(self):
+        # Discard the partial turn so the model history stays valid.
+        if self.turn_snapshot is not None:
+            self.messages = self.turn_snapshot
+        self.add_chat_line("Stopped.")
+        self.reset_after_turn()
+
+    def reset_after_turn(self):
+        self.turn_active = False
+        self.turn_snapshot = None
+        control.clear_stop()
+        control.resume()
+        self.query_one("#pause_button", Button).label = "Pause"
         self.query_one("#thought_toggle", Button).label = EMPTY_THOUGHT
         self.query_one("#approval_bar", Horizontal).display = False
         self.query_one("#approval_prompt", Static).update("")
-        self.query_one("#input", Input).disabled = False
-        self.query_one("#input", Input).focus()
+        self.query_one("#send_button", Button).disabled = False
+        input_box = self.query_one("#input", ChatInput)
+        input_box.disabled = False
+        input_box.focus()
 
     def session_options(self):
         return [(label_session(path), str(path)) for path in self.session_logs]

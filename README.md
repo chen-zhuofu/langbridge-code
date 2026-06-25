@@ -215,33 +215,14 @@ votes:
 
 ## Run
 
-```bash
-uv run --no-editable langbridge
-```
+On first run, `langbridge-cli` asks for your Codex API key and saves it to
+`~/.langbridge/config.json`. You can still override it with `OPENAI_API_KEY`.
+Use `LANGBRIDGE_MODEL` to override the default model.
 
-On first run, `langbridge-cli` asks for your Codex API key and saves it to `~/.langbridge/config.json`.
-You can still override it with `OPENAI_API_KEY`.
+### Textual UI (recommended)
 
-Use `LANGBRIDGE_MODEL` to override the default model:
-
-```bash
-LANGBRIDGE_MODEL=gpt-5.1-codex uv run --no-editable langbridge
-```
-
-Install locally to get the `langbridge` command:
-
-```bash
-uv sync --no-editable
-source .venv/bin/activate
-langbridge
-```
-
-Inside the CLI, type `/exit` to quit.
-
-### Textual UI
-
-Use the Textual UI for a richer terminal experience: live agent thoughts,
-session management, and L4 write approvals.
+Use the Textual UI for the richest terminal experience: live agent thoughts,
+session management, write approvals, and pause / stop controls.
 
 ```bash
 LANGBRIDGE_TUI=1 uv run langbridge
@@ -258,6 +239,26 @@ changes take effect immediately. Use `uv sync --reinstall-package langbridge-cli
 - **Delete**: remove the selected session JSON file.
 - On launch, a new session is started automatically; use Resume to switch.
 
+**Pause / resume** (soft hold):
+
+- **Pause** (top bar) or **Ctrl+P**: hold the agent at the next step boundary.
+  The button toggles to **Resume**; press it (or **Ctrl+P** again) to continue the
+  same run where it left off.
+- Pause takes effect *between* steps, so an in-flight model call or tool finishes
+  first. It also works while the PM is delegating to L4/L3.
+
+**Stop** (hard abort):
+
+- **Stop** (top bar) or **Ctrl+S**: abort the current turn and hand control back,
+  like Cursor's stop. It cancels the in-flight model request (it is abandoned in
+  the background) instead of waiting for it, so control returns almost
+  immediately.
+- The half-finished turn is discarded so the conversation history stays valid;
+  type a new message to continue.
+- If a tool (e.g. `run_tests`) is mid-execution, Stop waits for that one tool to
+  return before unwinding — it never leaves a write half-applied.
+- Both Pause and Stop reset automatically when the turn ends.
+
 **Thought display**:
 
 - Shows only the latest **thought** (`purpose`) from PM, L4, or L3 — not tool
@@ -273,6 +274,45 @@ changes take effect immediately. Use `uv sync --reinstall-package langbridge-cli
   - PM delegate requests (`ask_l4_engineer`)
   - L4 write tools (`edit_file`, `create_file`, `delete_file`)
 - Use **Approve** / **Deny**, or **Ctrl+A** / **Ctrl+D**.
+
+### Plain CLI
+
+```bash
+uv run --no-editable langbridge
+```
+
+Override the default model:
+
+```bash
+LANGBRIDGE_MODEL=gpt-5.1-codex uv run --no-editable langbridge
+```
+
+Install locally to get the `langbridge` command:
+
+```bash
+uv sync --no-editable
+source .venv/bin/activate
+langbridge
+```
+
+Inside the CLI, type `/exit` to quit. The plain REPL has no pause button; use
+**Ctrl+C** to interrupt.
+
+### One-shot (headless)
+
+Run the agent on a single task without the interactive prompt. It reads the task
+from the first argument (or stdin), auto-approves write tools, and exits when the
+loop finishes. This is the path the SWE-bench eval drives.
+
+```bash
+uv run python -m langbridge_cli.headless "fix the failing test in foo/bar.py"
+```
+
+Or pipe the task in on stdin:
+
+```bash
+echo "add a --verbose flag to the CLI" | uv run python -m langbridge_cli.headless
+```
 
 ### Debug
 
