@@ -5,7 +5,7 @@ from langbridge_cli.roles import L3_TEST_ENGINEER_PROMPT, L4_ENGINEER_PROMPT, SY
 def test_system_prompt_defines_pm_ralph_loop_role():
     assert "the PM for a multi-agent coding team" in SYSTEM_PROMPT
     assert "You run as an agentic outer loop (Ralph-style)" in SYSTEM_PROMPT
-    assert "Always check the plan first" in SYSTEM_PROMPT
+    assert "Always check the todo_list first" in SYSTEM_PROMPT
     assert "update_plan" in SYSTEM_PROMPT
     assert "RALPH_STATUS: DONE" in SYSTEM_PROMPT
     assert "RALPH_STATUS: CONTINUE" in SYSTEM_PROMPT

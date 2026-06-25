@@ -5,10 +5,10 @@ import sys
 
 from openai import OpenAI, OpenAIError
 
-from langbridge_cli.config import MAX_AGENT_STEPS, MAX_RALPH_LOOPS, WRITE_TOOLS
+from langbridge_cli.config import MAX_AGENT_STEPS, MAX_L4_L3_TURNS, MAX_RALPH_LOOPS, WRITE_TOOLS
 from langbridge_cli.debug import print_llm_request, print_llm_response
 from langbridge_cli.roles import SYSTEM_PROMPT
-from langbridge_cli.tools.plan import read_handover
+from langbridge_cli.tools.plan import read_todo_list
 from langbridge_cli.logging import (
     write_finish_log,
     write_input_log,
@@ -23,6 +23,7 @@ from langbridge_cli.trajectory import (
     write_trajectory_observation,
     write_trajectory_step,
 )
+from langbridge_cli.worklog import append_worklog_entry, start_worklog
 
 
 def run_ralph_loop(
@@ -39,7 +40,7 @@ def run_ralph_loop(
     for _ in range(MAX_RALPH_LOOPS):
         round_input = [
             {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": ralph_round_prompt(target, read_handover())},
+            {"role": "user", "content": ralph_round_prompt(target, read_todo_list())},
         ]
         finished = run_agent(
             api_key,
@@ -56,12 +57,12 @@ def run_ralph_loop(
     return finished
 
 
-def ralph_round_prompt(target, handover):
+def ralph_round_prompt(target, todo_list):
     parts = [f"Task from the user:\n{target}"]
-    if handover:
-        parts.append(f"Current handover plan:\n{handover}")
+    if todo_list:
+        parts.append(f"Current todo_list:\n{todo_list}")
     else:
-        parts.append("There is no handover plan yet.")
+        parts.append("There is no todo_list yet.")
     return "\n\n".join(parts)
 
 
@@ -146,34 +147,79 @@ def run_tool_call(call, api_key=None, model=None, trace_sink=None, approval_call
         tool_arguments = add_hidden_tool_context(MAIN_TOOLS[name], arguments, api_key, model, trace_sink, approval_callback, run_log_path, turn_id)
         output = MAIN_TOOLS[name](**tool_arguments)
         if name == "ask_l4_engineer":
-            output = append_pm_l3_review(api_key, model, arguments, output, trace_sink, run_log_path, turn_id)
+            output = append_pm_l3_review(api_key, model, arguments, output, trace_sink, run_log_path, turn_id, approval_callback)
     except Exception as error:
         output = f"Tool error: {error}"
 
     return {"type": "function_call_output", "call_id": call_id, "output": output}
 
 
-def append_pm_l3_review(api_key, model, arguments, l4_output, trace_sink=None, run_log_path=None, turn_id=None):
+def append_pm_l3_review(api_key, model, arguments, l4_output, trace_sink=None, run_log_path=None, turn_id=None, approval_callback=None):
     if not l4_output.startswith("L4_STATUS: READY_FOR_REVIEW"):
         return l4_output
 
-    from langbridge_cli.multi_agent import l3_review_passed, run_l3_test_engineer
+    from langbridge_cli.multi_agent import l3_review_passed, l4_ready_for_review
 
-    l3_context = pm_l3_review_context(arguments.get("context", ""), l4_output)
+    task = arguments.get("task", "")
+    context = arguments.get("context", "")
+    start_worklog(run_log_path, task)
+
+    l4_report = l4_output
+    append_worklog_entry(run_log_path, "L4 engineer", l4_report, "ready")
+
+    l3_report = ""
+    for _ in range(MAX_L4_L3_TURNS):
+        l3_report = run_l3_review(api_key, model, task, pm_l3_review_context(context, l4_report), trace_sink, run_log_path, turn_id)
+        if l3_review_passed(l3_report):
+            append_worklog_entry(run_log_path, "L3 test engineer", l3_report, "pass")
+            return pm_review_result(l4_report, l3_report, "OK")
+        append_worklog_entry(run_log_path, "L3 test engineer", l3_report, "concern exist")
+
+        l4_report = run_l4_fix(api_key, model, task, context, l3_report, trace_sink, run_log_path, turn_id, approval_callback)
+        if not l4_ready_for_review(l4_report):
+            append_worklog_entry(run_log_path, "L4 engineer", l4_report, "needs pm")
+            return pm_review_result(l4_report, l3_report, "NEEDS_WORK")
+        append_worklog_entry(run_log_path, "L4 engineer", l4_report, "ready")
+
+    return pm_review_result(l4_report, l3_report, "NEEDS_WORK")
+
+
+def run_l3_review(api_key, model, task, l3_context, trace_sink, run_log_path, turn_id):
+    from langbridge_cli.multi_agent import run_l3_test_engineer
+
     if trace_sink is None and run_log_path is None:
-        l3_report = run_l3_test_engineer(api_key, model, arguments.get("task", ""), l3_context)
-    else:
-        l3_report = run_l3_test_engineer(
-            api_key,
-            model,
-            arguments.get("task", ""),
-            l3_context,
-            trace_sink=trace_sink,
-            run_log_path=run_log_path,
-            turn_id=turn_id,
-        )
-    pm_status = "OK" if l3_review_passed(l3_report) else "NEEDS_WORK"
-    return f"{l4_output}\n\nPM_DETERMINISTIC_L3_REVIEW:\n{l3_report}\n\nPM_REVIEW_STATUS: {pm_status}"
+        return run_l3_test_engineer(api_key, model, task, l3_context)
+    return run_l3_test_engineer(
+        api_key,
+        model,
+        task,
+        l3_context,
+        trace_sink=trace_sink,
+        run_log_path=run_log_path,
+        turn_id=turn_id,
+    )
+
+
+def run_l4_fix(api_key, model, task, context, feedback, trace_sink, run_log_path, turn_id, approval_callback):
+    from langbridge_cli.multi_agent import run_l4_engineer
+
+    if trace_sink is None and run_log_path is None and approval_callback is None:
+        return run_l4_engineer(api_key, model, task, context, feedback)
+    return run_l4_engineer(
+        api_key,
+        model,
+        task,
+        context,
+        feedback,
+        trace_sink=trace_sink,
+        approval_callback=approval_callback,
+        run_log_path=run_log_path,
+        turn_id=turn_id,
+    )
+
+
+def pm_review_result(l4_report, l3_report, pm_status):
+    return f"{l4_report}\n\nPM_DETERMINISTIC_L3_REVIEW:\n{l3_report}\n\nPM_REVIEW_STATUS: {pm_status}"
 
 
 def pm_l3_review_context(context, l4_output):
