@@ -5,7 +5,16 @@ import sys
 
 from openai import OpenAI, OpenAIError
 
-from langbridge_cli.config import MAX_AGENT_STEPS, MAX_L4_L3_TURNS, MAX_RALPH_LOOPS, WRITE_TOOLS
+from langbridge_cli.config import (
+    MAX_AGENT_CONTEXT_TOKENS,
+    MAX_AGENT_SECONDS,
+    MAX_AGENT_STEPS,
+    MAX_L4_L3_SECONDS,
+    MAX_L4_L3_TURNS,
+    MAX_RALPH_LOOPS,
+    MAX_RALPH_SECONDS,
+    WRITE_TOOLS,
+)
 from langbridge_cli.debug import print_llm_request, print_llm_response
 from langbridge_cli.roles import SYSTEM_PROMPT
 from langbridge_cli.tools.plan import read_todo_list
@@ -24,6 +33,7 @@ from langbridge_cli.trajectory import (
     write_trajectory_step,
 )
 from langbridge_cli.worklog import append_worklog_entry, start_worklog
+from langbridge_cli.limits import now, over_context_budget, over_time_budget
 
 
 def run_ralph_loop(
@@ -37,7 +47,10 @@ def run_ralph_loop(
     approval_callback=None,
 ):
     finished = ""
+    start_time = now()
     for _ in range(MAX_RALPH_LOOPS):
+        if over_time_budget(start_time, MAX_RALPH_SECONDS):
+            break
         round_input = [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": ralph_round_prompt(target, read_todo_list())},
@@ -85,7 +98,12 @@ def run_agent(
     approval_callback=None,
 ):
     write_input_log(run_log_path, turn_id, input) # write current message into log
+    start_time = now()
     for step in range(MAX_AGENT_STEPS):
+        if over_time_budget(start_time, MAX_AGENT_SECONDS):
+            return finish_pm(input, "Agent stopped because it ran out of time.", run_log_path, turn_id, print_reply)
+        if over_context_budget(input, MAX_AGENT_CONTEXT_TOKENS):
+            return finish_pm(input, "Agent stopped because it exceeded the context budget.", run_log_path, turn_id, print_reply)
         step_response = create_response(api_key, model, input).get("output", [])
         tool_calls = [item for item in step_response if item.get("type") == "function_call"]
         print_step_trace(step_response, include_message=bool(tool_calls), label="PM agent", sink=trace_sink)
@@ -100,16 +118,13 @@ def run_agent(
                 write_tool_calls_result_log(run_log_path, turn_id, step, tool_output) # write tool_output or socalled "observation" into log
                 write_trajectory_observation(run_log_path, "PM agent", turn_id, step, tool_output)
         else:
-            finished = extract_output_text(step_response)
-            input.append({"role": "assistant", "content": finished})
-            write_finish_log(run_log_path, turn_id, finished) # write finished or socalled "agent loop ouput" into log
-            write_trajectory_finish(run_log_path, "PM agent", turn_id, finished)
-            if print_reply:
-                print(f"\n{finished}\n")
-            return finished
-    finished = "Agent stopped because it reached the maximum tool-call steps."
+            return finish_pm(input, extract_output_text(step_response), run_log_path, turn_id, print_reply)
+    return finish_pm(input, "Agent stopped because it reached the maximum tool-call steps.", run_log_path, turn_id, print_reply)
+
+
+def finish_pm(input, finished, run_log_path, turn_id, print_reply):
     input.append({"role": "assistant", "content": finished})
-    write_finish_log(run_log_path, turn_id, finished) #write finished or socalled "agent loop ouput" into log
+    write_finish_log(run_log_path, turn_id, finished)
     write_trajectory_finish(run_log_path, "PM agent", turn_id, finished)
     if print_reply:
         print(f"\n{finished}\n")
@@ -168,7 +183,10 @@ def append_pm_l3_review(api_key, model, arguments, l4_output, trace_sink=None, r
     append_worklog_entry(run_log_path, "L4 engineer", l4_report, "ready")
 
     l3_report = ""
+    start_time = now()
     for _ in range(MAX_L4_L3_TURNS):
+        if over_time_budget(start_time, MAX_L4_L3_SECONDS):
+            break
         l3_report = run_l3_review(api_key, model, task, pm_l3_review_context(context, l4_report), trace_sink, run_log_path, turn_id)
         if l3_review_passed(l3_report):
             append_worklog_entry(run_log_path, "L3 test engineer", l3_report, "pass")

@@ -3,7 +3,11 @@ import sys
 
 from openai import OpenAI, OpenAIError
 
-from langbridge_cli.config import MAX_SPECIALIST_AGENT_STEPS
+from langbridge_cli.config import (
+    MAX_SPECIALIST_AGENT_STEPS,
+    MAX_SPECIALIST_CONTEXT_TOKENS,
+    MAX_SPECIALIST_SECONDS,
+)
 from langbridge_cli.debug import print_llm_request, print_llm_response
 from langbridge_cli.parse import extract_output_text, print_step_trace
 from langbridge_cli.roles import L3_TEST_ENGINEER_PROMPT, L4_ENGINEER_PROMPT
@@ -14,6 +18,7 @@ from langbridge_cli.trajectory import (
     write_trajectory_observation,
     write_trajectory_step,
 )
+from langbridge_cli.limits import now, over_context_budget, over_time_budget
 
 
 L3_TOOL_NAMES = {"list_dir", "find_files", "read_file", "search_files", "run_tests"}
@@ -138,7 +143,16 @@ def run_specialist_agent(
     ]
     tool_history = []
 
+    start_time = now()
     for step in range(MAX_SPECIALIST_AGENT_STEPS):
+        if over_time_budget(start_time, MAX_SPECIALIST_SECONDS):
+            report = stopped_report(label, "ran out of time", tool_history)
+            write_trajectory_finish(run_log_path, label, turn_id, report)
+            return report
+        if over_context_budget(messages, MAX_SPECIALIST_CONTEXT_TOKENS):
+            report = stopped_report(label, "exceeded the context budget", tool_history)
+            write_trajectory_finish(run_log_path, label, turn_id, report)
+            return report
         response = create_specialist_response(api_key, model, messages, tool_schemas, label)
         output = response.get("output", [])
         tool_calls = [item for item in output if item.get("type") == "function_call"]
@@ -208,7 +222,11 @@ def approve_l4_tool_write(name, arguments, approval_callback=None):
 
 
 def max_steps_report(label, tool_history):
-    header = f"{label} stopped because it reached the maximum specialist tool-call steps."
+    return stopped_report(label, "reached the maximum specialist tool-call steps", tool_history)
+
+
+def stopped_report(label, reason, tool_history):
+    header = f"{label} stopped because it {reason}."
     if label == "L4 engineer":
         header = "L4_STATUS: IN_PROGRESS\nSummary: " + header
     if not tool_history:

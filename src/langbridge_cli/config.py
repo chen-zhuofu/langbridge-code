@@ -12,6 +12,15 @@ MAX_AGENT_STEPS = 50
 MAX_SPECIALIST_AGENT_STEPS = 30
 MAX_RALPH_LOOPS = 20
 MAX_L4_L3_TURNS = 5
+# Per-loop wall-clock budgets (seconds). Generous on purpose: they exist to stop
+# a runaway loop, not to cut short a normal run.
+MAX_RALPH_SECONDS = 3600
+MAX_AGENT_SECONDS = 1800
+MAX_SPECIALIST_SECONDS = 900
+MAX_L4_L3_SECONDS = 1800
+# Hard context-size caps (estimated tokens) for the LLM step loops.
+MAX_AGENT_CONTEXT_TOKENS = 120_000
+MAX_SPECIALIST_CONTEXT_TOKENS = 120_000
 MAX_TOOL_SUMMARY_OUTPUT_CHARS = 300
 MAX_SESSION_CHOICES = 10
 MAX_SESSION_SUMMARY_INPUT_CHARS = 4_000
