@@ -9,6 +9,11 @@ from langbridge_cli.parse import extract_output_text, print_step_trace
 from langbridge_cli.roles import L3_TEST_ENGINEER_PROMPT, L4_ENGINEER_PROMPT
 from langbridge_cli.tool_schema import strip_tool_purpose, with_tool_purpose
 from langbridge_cli.tools import execution, filesystem, testing
+from langbridge_cli.trajectory import (
+    write_trajectory_finish,
+    write_trajectory_observation,
+    write_trajectory_step,
+)
 
 
 L3_TOOL_NAMES = {"list_dir", "find_files", "read_file", "search_files", "run_tests"}
@@ -47,7 +52,7 @@ L4_TOOLS = {
 L4_WRITE_TOOLS = {"create_file", "delete_file", "edit_file"}
 
 
-def run_l3_test_engineer(api_key, model, task, context="", trace_sink=None):
+def run_l3_test_engineer(api_key, model, task, context="", trace_sink=None, run_log_path=None, turn_id=None):
     return run_specialist_agent(
         api_key,
         model,
@@ -57,10 +62,12 @@ def run_l3_test_engineer(api_key, model, task, context="", trace_sink=None):
         L3_TOOLS,
         "L3 test engineer",
         trace_sink=trace_sink,
+        run_log_path=run_log_path,
+        turn_id=turn_id,
     )
 
 
-def run_l4_engineer(api_key, model, task, context="", feedback="", trace_sink=None, approval_callback=None):
+def run_l4_engineer(api_key, model, task, context="", feedback="", trace_sink=None, approval_callback=None, run_log_path=None, turn_id=None):
     return run_specialist_agent(
         api_key,
         model,
@@ -71,6 +78,8 @@ def run_l4_engineer(api_key, model, task, context="", feedback="", trace_sink=No
         "L4 engineer",
         trace_sink=trace_sink,
         approval_callback=approval_callback,
+        run_log_path=run_log_path,
+        turn_id=turn_id,
     )
 
 
@@ -115,6 +124,8 @@ def run_specialist_agent(
     label,
     trace_sink=None,
     approval_callback=None,
+    run_log_path=None,
+    turn_id=None,
 ):
     messages = [
         {"role": "system", "content": system_prompt},
@@ -122,22 +133,28 @@ def run_specialist_agent(
     ]
     tool_history = []
 
-    for _ in range(MAX_SPECIALIST_AGENT_STEPS):
+    for step in range(MAX_SPECIALIST_AGENT_STEPS):
         response = create_specialist_response(api_key, model, messages, tool_schemas, label)
         output = response.get("output", [])
         tool_calls = [item for item in output if item.get("type") == "function_call"]
         if tool_calls:
             print_step_trace(output, include_message=True, label=label, sink=trace_sink)
+            write_trajectory_step(run_log_path, label, turn_id, step, output)
         if not tool_calls:
-            return extract_output_text(output)
+            finished = extract_output_text(output)
+            write_trajectory_finish(run_log_path, label, turn_id, finished)
+            return finished
 
         messages.extend(output)
         for call in tool_calls:
             tool_output = run_specialist_tool_call(call, tools, label, approval_callback=approval_callback)
             tool_history.append({"call": call, "output": tool_output})
             messages.append(tool_output)
+            write_trajectory_observation(run_log_path, label, turn_id, step, tool_output)
 
-    return max_steps_report(label, tool_history)
+    report = max_steps_report(label, tool_history)
+    write_trajectory_finish(run_log_path, label, turn_id, report)
+    return report
 
 
 def create_specialist_response(api_key, model, messages, tool_schemas, label):
