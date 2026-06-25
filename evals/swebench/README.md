@@ -9,6 +9,62 @@ L5 and L4+L5 evals come later.
 One SWE-bench **instance** = one real issue: a repo, a `base_commit`, the issue
 text, and hidden tests. The eval runs in two stages.
 
+## Datasets by difficulty
+
+Both runners take `--difficulty {lite,verified,pro}` (default `lite`). It just
+selects the Hugging Face dataset; `--dataset <id>` still overrides it.
+
+| `--difficulty` | Dataset | Size | Notes |
+| --- | --- | --- | --- |
+| `lite` (easy) | `princeton-nlp/SWE-bench_Lite` | ~300 | Self-contained tasks; cheap, fast iteration. |
+| `verified` (medium) | `princeton-nlp/SWE-bench_Verified` | 500 | Human-validated; cleanest set for comparisons. |
+| `pro` (hard) | `ScaleAI/SWE-bench_Pro` | 731 public | Enterprise, long-horizon tasks. |
+
+### Commands per benchmark
+
+Each benchmark = Stage 1 (generate predictions) + Stage 2 (grade). Bump
+`--count` once a smoke run looks good.
+
+**Lite (easy):**
+
+```bash
+# Stage 1 — generate
+sg docker -c "uv run python evals/swebench/run_eval_docker.py --difficulty lite --count 10"
+# Stage 2 — grade
+uv run python -m swebench.harness.run_evaluation \
+  --dataset_name princeton-nlp/SWE-bench_Lite \
+  --predictions_path evals/swebench/out/predictions.jsonl \
+  --max_workers 4 --run_id langbridge-l4-lite
+```
+
+**Verified (medium):**
+
+```bash
+# Stage 1 — generate
+sg docker -c "uv run python evals/swebench/run_eval_docker.py --difficulty verified --count 10"
+# Stage 2 — grade
+uv run python -m swebench.harness.run_evaluation \
+  --dataset_name princeton-nlp/SWE-bench_Verified \
+  --predictions_path evals/swebench/out/predictions.jsonl \
+  --max_workers 4 --run_id langbridge-l4-verified
+```
+
+**Pro (hard):**
+
+```bash
+# Stage 1 — generate (host runner; see Pro caveat below)
+uv run python evals/swebench/run_eval.py --difficulty pro --count 10
+# Stage 2 — grade with Scale's harness, not the swebench grader
+# https://github.com/scaleapi/SWE-bench_Pro-os
+```
+
+**Pro caveat:** prediction generation works the same (it follows the Verified
+schema), but Pro is graded with Scale's own harness and per-instance images
+(each row carries a `dockerhub_tag`), **not** the `swebench` Docker namespace.
+So `run_eval_docker.py --difficulty pro` won't resolve images and the Stage 2
+`swebench` grader doesn't apply to Pro; use the host runner for predictions and
+grade via [scaleapi/SWE-bench_Pro-os](https://github.com/scaleapi/SWE-bench_Pro-os).
+
 ### Stage 1 — generate predictions
 
 There are two runners. Prefer the Docker one.

@@ -37,6 +37,13 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 SRC_PATH = PROJECT_ROOT / "src"
 MODEL_NAME = "langbridge-l4"
 
+# SWE-bench variants ordered easy -> hard. Pick one with --difficulty.
+DATASETS = {
+    "lite": "princeton-nlp/SWE-bench_Lite",          # ~300 self-contained tasks (easy)
+    "verified": "princeton-nlp/SWE-bench_Verified",  # 500 human-validated tasks (medium)
+    "pro": "ScaleAI/SWE-bench_Pro",                   # enterprise long-horizon tasks (hard)
+}
+
 # Inside the container.
 CONTAINER_SRC = "/opt/langbridge/src"
 CONTAINER_ARTIFACTS = "/root/lb_artifacts"
@@ -195,7 +202,13 @@ def run_instance(instance, namespace, artifacts_root, api_key, model, timeout):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--dataset", default="princeton-nlp/SWE-bench_Lite")
+    parser.add_argument(
+        "--difficulty",
+        choices=list(DATASETS),
+        default="lite",
+        help="SWE-bench variant by difficulty (lite=easy, verified=medium, pro=hard).",
+    )
+    parser.add_argument("--dataset", default=None, help="Explicit HF dataset id; overrides --difficulty.")
     parser.add_argument("--split", default="test")
     parser.add_argument("--count", type=int, default=10)
     parser.add_argument("--namespace", default="swebench", help="Docker Hub namespace for prebuilt images.")
@@ -212,12 +225,14 @@ def main():
     if not api_key:
         sys.exit("No API key found. Set OPENAI_API_KEY or create ~/.langbridge/config.json.")
 
+    dataset = args.dataset or DATASETS[args.difficulty]
+
     out_dir = Path(args.out)
     artifacts_root = out_dir / "artifacts"
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    instances = load_instances(args.dataset, args.split, args.count)
-    print(f"Loaded {len(instances)} instances from {args.dataset} [{args.split}].")
+    instances = load_instances(dataset, args.split, args.count)
+    print(f"Loaded {len(instances)} instances from {dataset} [{args.split}].")
 
     predictions = []
     summaries = []
@@ -239,7 +254,7 @@ def main():
         for prediction in predictions:
             handle.write(json.dumps(prediction) + "\n")
     (out_dir / "run_summary.json").write_text(
-        json.dumps({"dataset": args.dataset, "split": args.split, "summaries": summaries}, indent=2),
+        json.dumps({"dataset": dataset, "split": args.split, "summaries": summaries}, indent=2),
         encoding="utf-8",
     )
 

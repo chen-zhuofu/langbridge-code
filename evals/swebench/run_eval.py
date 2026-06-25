@@ -25,6 +25,13 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 SRC_PATH = PROJECT_ROOT / "src"
 MODEL_NAME = "langbridge-l4"
 
+# SWE-bench variants ordered easy -> hard. Pick one with --difficulty.
+DATASETS = {
+    "lite": "princeton-nlp/SWE-bench_Lite",          # ~300 self-contained tasks (easy)
+    "verified": "princeton-nlp/SWE-bench_Verified",  # 500 human-validated tasks (medium)
+    "pro": "ScaleAI/SWE-bench_Pro",                   # enterprise long-horizon tasks (hard)
+}
+
 
 def load_instances(dataset_name, split, count, instance_ids=None):
     rows = list(load_dataset(dataset_name, split=split))
@@ -160,7 +167,13 @@ def evaluate_instance(instance, work_dir, artifacts_root, model, timeout):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--dataset", default="princeton-nlp/SWE-bench_Lite")
+    parser.add_argument(
+        "--difficulty",
+        choices=list(DATASETS),
+        default="lite",
+        help="SWE-bench variant by difficulty (lite=easy, verified=medium, pro=hard).",
+    )
+    parser.add_argument("--dataset", default=None, help="Explicit HF dataset id; overrides --difficulty.")
     parser.add_argument("--split", default="test")
     parser.add_argument("--count", type=int, default=10)
     parser.add_argument(
@@ -180,13 +193,15 @@ def main():
             "before running the eval (headless runs cannot prompt for a key)."
         )
 
+    dataset = args.dataset or DATASETS[args.difficulty]
+
     out_dir = Path(args.out)
     work_dir = out_dir / "repos"
     artifacts_root = out_dir / "artifacts"
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    instances = load_instances(args.dataset, args.split, args.count, args.instance_ids)
-    print(f"Loaded {len(instances)} instances from {args.dataset} [{args.split}].")
+    instances = load_instances(dataset, args.split, args.count, args.instance_ids)
+    print(f"Loaded {len(instances)} instances from {dataset} [{args.split}].")
 
     predictions = []
     summaries = []
@@ -204,7 +219,7 @@ def main():
         for prediction in predictions:
             handle.write(json.dumps(prediction) + "\n")
     (out_dir / "run_summary.json").write_text(
-        json.dumps({"dataset": args.dataset, "split": args.split, "summaries": summaries}, indent=2),
+        json.dumps({"dataset": dataset, "split": args.split, "summaries": summaries}, indent=2),
         encoding="utf-8",
     )
 
