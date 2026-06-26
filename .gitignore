@@ -13,3 +13,6 @@ evals/swebench/out_*/
 evals/swebench/logs/
 evals/swebench/*.log
 /langbridge-*.json
+
+# imported/personal Cursor skills & rules (not project-specific)
+.cursor/rules/imported/
