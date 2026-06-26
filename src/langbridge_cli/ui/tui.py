@@ -114,6 +114,13 @@ class LangBridgeTui(App):
         background: $background;
     }
 
+    #thinking {
+        height: auto;
+        margin: 0 2;
+        padding: 0 1;
+        display: none;
+    }
+
     #input_row {
         height: auto;
         margin: 0 2;
@@ -186,6 +193,7 @@ class LangBridgeTui(App):
     def compose(self) -> ComposeResult:
         yield Static(id="banner")
         yield RichLog(id="chat_log", wrap=True, markup=False)
+        yield Static("", id="thinking")
         with Horizontal(id="input_row"):
             yield Static("\u276f", id="prompt_gutter")
             yield ChatInput(id="input")
@@ -218,18 +226,25 @@ class LangBridgeTui(App):
         line.append(text)
         self._log().write(line)
 
-    def write_reasoning(self, role, text):
+    def _thinking(self) -> Static:
+        return self.query_one("#thinking", Static)
+
+    def set_thinking(self, role, text):
+        flat = " ".join(str(text).split())
+        if len(flat) > 200:
+            flat = flat[:197] + "..."
         line = Text()
-        line.append("  \u2026 ", style=f"dim {ACCENT}")
+        line.append("\u2026 ", style=f"dim {ACCENT}")
         line.append(f"{role} thinking", style=f"italic {ACCENT}")
-        line.append(f": {text}", style="dim italic")
-        self._log().write(line)
+        line.append(f": {flat}", style="dim italic")
+        widget = self._thinking()
+        widget.update(line)
+        widget.display = True
 
-    def write_thought(self, role, text):
-        self._log().write(Text(f"  {role}: {text}", style="dim italic"))
-
-    def write_action(self, role, text):
-        self._log().write(Text(f"  \u21b3 {role}: {text}", style="dim"))
+    def clear_thinking(self):
+        widget = self._thinking()
+        widget.update("")
+        widget.display = False
 
     def write_system(self, text, style="dim"):
         self._log().write(Text(text, style=style))
@@ -321,14 +336,10 @@ class LangBridgeTui(App):
         self.call_from_thread(self.add_trace_event, event)
 
     def add_trace_event(self, event):
-        if event.kind == "reasoning":
-            self.write_reasoning(event.role, event.text)
-            self.state = "thinking"
-        elif event.kind == "thought":
-            self.write_thought(event.role, event.text)
+        if event.kind in ("reasoning", "thought"):
+            self.set_thinking(event.role, event.text)
             self.state = "thinking"
         else:
-            self.write_action(event.role, event.text)
             self.state = "working"
         self.update_status()
 
@@ -420,6 +431,7 @@ class LangBridgeTui(App):
         self.reset_after_turn()
 
     def reset_after_turn(self):
+        self.clear_thinking()
         self.turn_active = False
         self.turn_snapshot = None
         self.state = "ready"
