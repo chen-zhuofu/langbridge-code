@@ -991,6 +991,7 @@ name = "langbridge-cli"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "httpx" },
     { name = "numpy" },
     { name = "openai" },
     { name = "prompt-toolkit" },
@@ -1009,6 +1010,7 @@ eval = [
 
 [package.metadata]
 requires-dist = [
+    { name = "httpx", specifier = ">=0.28.1" },
     { name = "numpy", specifier = ">=2.4.6" },
     { name = "openai", specifier = ">=2.41.1" },
     { name = "prompt-toolkit", specifier = ">=3.0.52" },

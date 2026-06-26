@@ -48,12 +48,6 @@ def test_extract_reasoning_summaries():
 def test_print_step_trace_uses_message_rationale(capsys):
     output = [
         {
-            "type": "reasoning",
-            "summary": [
-                {"type": "summary_text", "text": "Reasoning fallback."},
-            ],
-        },
-        {
             "type": "message",
             "content": [
                 {"type": "output_text", "text": "Read the target file."},
@@ -70,6 +64,30 @@ def test_print_step_trace_uses_message_rationale(capsys):
 
     assert capsys.readouterr().out == (
         f"\n{DIM}Agent: Read the target file.{RESET}\n"
+        f'{DIM}Agent: ↳ read_file({{"path":"README.md"}}){RESET}\n'
+    )
+
+
+def test_print_step_trace_surfaces_reasoning_with_tool_calls(capsys):
+    output = [
+        {
+            "type": "reasoning",
+            "summary": [
+                {"type": "summary_text", "text": "I should read the file first."},
+            ],
+        },
+        {
+            "type": "function_call",
+            "name": "read_file",
+            "arguments": '{"purpose":"Inspect the README.","path":"README.md"}',
+        },
+    ]
+
+    print_step_trace(output, include_message=True)
+
+    assert capsys.readouterr().out == (
+        f"\n{DIM}Agent: I should read the file first.{RESET}\n"
+        f"\n{DIM}Agent: Inspect the README.{RESET}\n"
         f'{DIM}Agent: ↳ read_file({{"path":"README.md"}}){RESET}\n'
     )
 

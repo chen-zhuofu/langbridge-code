@@ -29,7 +29,7 @@ def print_step_trace(output, include_message=False, label="Agent", sink=None):
         if sink is not None:
             sink(event)
             continue
-        prefix = "\n" if event.kind == "thought" else ""
+        prefix = "" if event.kind == "action" else "\n"
         marker = "↳ " if event.kind == "action" else ""
         print(f"{prefix}{dim_text(f'{event.role}: {marker}{event.text}')}")
 

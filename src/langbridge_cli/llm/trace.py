@@ -14,6 +14,12 @@ class ThoughtEvent:
 
 
 def extract_trace_events(output, label="Agent", include_message=False):
+    # The model's own reasoning summary ("what it is thinking") is surfaced on
+    # every step, ahead of the tool purpose and the action it leads to.
+    reasoning_events = [
+        ThoughtEvent(role=label, kind="reasoning", text=summary)
+        for summary in extract_reasoning_summaries(output)
+    ]
     thought_events = []
     action_events = []
     for item in output:
@@ -34,21 +40,18 @@ def extract_trace_events(output, label="Agent", include_message=False):
         )
 
     if action_events:
-        if not thought_events and include_message:
+        if not thought_events and not reasoning_events and include_message:
             message = extract_output_text(output)
             if message:
                 thought_events.append(ThoughtEvent(role=label, kind="thought", text=message))
-        return thought_events + action_events
+        return reasoning_events + thought_events + action_events
 
     if include_message:
         message = extract_output_text(output)
         if message:
-            return [ThoughtEvent(role=label, kind="thought", text=message)]
+            return reasoning_events + [ThoughtEvent(role=label, kind="thought", text=message)]
 
-    return [
-        ThoughtEvent(role=label, kind="thought", text=summary)
-        for summary in extract_reasoning_summaries(output)
-    ]
+    return reasoning_events
 
 
 def extract_tool_purpose(item):

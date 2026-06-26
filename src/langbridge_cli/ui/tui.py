@@ -34,6 +34,18 @@ GREEN = "#9ece6a"
 YELLOW = "#e0af68"
 RED = "#f7768e"
 
+
+def strip_bug_status(text):
+    """Drop the PM's trailing BUG_STATUS control line before showing the reply.
+
+    BUG_STATUS is a loop-control token the PM appends to every round; it drives
+    pm_should_continue, not the user, so it should not surface in the chat.
+    """
+    lines = text.rstrip().splitlines()
+    if lines and lines[-1].strip().upper().startswith("BUG_STATUS:"):
+        lines = lines[:-1]
+    return "\n".join(lines).rstrip()
+
 try:
     from importlib.metadata import PackageNotFoundError, version
 
@@ -206,6 +218,13 @@ class LangBridgeTui(App):
         line.append(text)
         self._log().write(line)
 
+    def write_reasoning(self, role, text):
+        line = Text()
+        line.append("  \u2026 ", style=f"dim {ACCENT}")
+        line.append(f"{role} thinking", style=f"italic {ACCENT}")
+        line.append(f": {text}", style="dim italic")
+        self._log().write(line)
+
     def write_thought(self, role, text):
         self._log().write(Text(f"  {role}: {text}", style="dim italic"))
 
@@ -302,7 +321,10 @@ class LangBridgeTui(App):
         self.call_from_thread(self.add_trace_event, event)
 
     def add_trace_event(self, event):
-        if event.kind == "thought":
+        if event.kind == "reasoning":
+            self.write_reasoning(event.role, event.text)
+            self.state = "thinking"
+        elif event.kind == "thought":
             self.write_thought(event.role, event.text)
             self.state = "thinking"
         else:
@@ -386,8 +408,9 @@ class LangBridgeTui(App):
     # --- turn lifecycle ---------------------------------------------------
 
     def finish_turn(self, reply):
-        if reply:
-            self.write_assistant(reply)
+        cleaned = strip_bug_status(reply) if reply else ""
+        if cleaned:
+            self.write_assistant(cleaned)
         self.reset_after_turn()
 
     def finish_stopped(self):

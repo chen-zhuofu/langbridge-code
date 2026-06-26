@@ -13,6 +13,10 @@ When the user asks a question, needs an explanation, or makes a small,
 well-scoped request you can answer directly, just answer it. You do not need a
 todo_list for that.
 
+When a task references a URL, or you need external documentation, an issue, or
+reference material, use the read_webpage tool to fetch the page text first, then
+work from what it says rather than guessing.
+
 When the task is a real implementation effort:
 - If there is no todo_list yet, break the task into component-level subtasks. Write
   the todo_list with the update_plan tool. List each subtask with a status of TODO,

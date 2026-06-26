@@ -1,4 +1,4 @@
-from langbridge_cli.tools import agents, execution, filesystem, packages, plan, testing
+from langbridge_cli.tools import agents, execution, filesystem, packages, plan, testing, web
 from langbridge_cli.llm.tool_schema import with_tool_purpose
 
 TOOL_SCHEMAS = with_tool_purpose(
@@ -8,20 +8,21 @@ TOOL_SCHEMAS = with_tool_purpose(
     + execution.TOOL_SCHEMAS
     + agents.TOOL_SCHEMAS
     + plan.TOOL_SCHEMAS
+    + web.TOOL_SCHEMAS
 )
-TOOLS = filesystem.TOOLS | testing.TOOLS | packages.TOOLS | execution.TOOLS | agents.TOOLS | plan.TOOLS
+TOOLS = filesystem.TOOLS | testing.TOOLS | packages.TOOLS | execution.TOOLS | agents.TOOLS | plan.TOOLS | web.TOOLS
 
-MAIN_TOOL_NAMES = {"list_dir", "find_files", "read_file", "search_files", "execute_program", "ask_l4_engineer", "ask_l5_engineer", "update_plan"}
+MAIN_TOOL_NAMES = {"list_dir", "find_files", "read_file", "search_files", "execute_program", "read_webpage", "ask_l4_engineer", "ask_l5_engineer", "update_plan"}
 MAIN_TOOL_SCHEMAS = with_tool_purpose(
     [
         schema
-        for schema in filesystem.TOOL_SCHEMAS + execution.TOOL_SCHEMAS + agents.TOOL_SCHEMAS + plan.TOOL_SCHEMAS
+        for schema in filesystem.TOOL_SCHEMAS + execution.TOOL_SCHEMAS + web.TOOL_SCHEMAS + agents.TOOL_SCHEMAS + plan.TOOL_SCHEMAS
         if schema["name"] in MAIN_TOOL_NAMES
     ]
 )
 MAIN_TOOLS = {
     name: tool
-    for name, tool in (filesystem.TOOLS | execution.TOOLS | agents.TOOLS | plan.TOOLS).items()
+    for name, tool in (filesystem.TOOLS | execution.TOOLS | web.TOOLS | agents.TOOLS | plan.TOOLS).items()
     if name in MAIN_TOOL_NAMES
 }
 

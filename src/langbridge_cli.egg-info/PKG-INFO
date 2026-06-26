@@ -3,6 +3,7 @@ Name: langbridge-cli
 Version: 0.1.0
 Summary: A tiny interactive coding agent CLI backed by a Codex model.
 Requires-Python: >=3.11
+Requires-Dist: httpx>=0.28.1
 Requires-Dist: numpy>=2.4.6
 Requires-Dist: openai>=2.41.1
 Requires-Dist: prompt-toolkit>=3.0.52
