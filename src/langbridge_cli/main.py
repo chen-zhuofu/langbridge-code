@@ -25,7 +25,8 @@ from langbridge_cli.persistence.session import (
 
 
 def main():
-    if os.environ.get("LANGBRIDGE_TUI", "").strip().lower() in {"1", "true", "yes", "on"}:
+    # The Textual UI is the default; set LANGBRIDGE_TERMINAL=1 for the plain REPL.
+    if os.environ.get("LANGBRIDGE_TERMINAL", "").strip().lower() not in {"1", "true", "yes", "on"}:
         from langbridge_cli.ui.tui import run_tui
 
         run_tui()

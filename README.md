@@ -1,4 +1,4 @@
-# langbridge-cli
+<img src="assets/Langbridge_Logotype_Horizontal.svg" alt="langbridge-cli" width="360">
 
 An interactive coding-agent CLI backed by a Codex model.
 
@@ -7,6 +7,13 @@ workspace, plans the work, and delegates implementation to specialist agents
 (an L4 feature engineer and an L5 senior engineer), each verified by an L3 test
 engineer. It can resume previous JSON session history and compacts older context
 when the conversation gets long.
+
+Start it (the Textual UI launches by default):
+
+```bash
+uv run langbridge
+LANGBRIDGE_TERMINAL=1 uv run langbridge # plain terminal REPL
+```
 
 ## Loop Engineering
 
@@ -250,15 +257,17 @@ On first run, `langbridge-cli` asks for your Codex API key and saves it to
 `~/.langbridge/config.json`. You can still override it with `OPENAI_API_KEY`.
 Use `LANGBRIDGE_MODEL` to override the default model.
 
-### Textual UI (recommended)
+### Textual UI (default)
 
-Use the Textual UI for the richest terminal experience. It is a clean,
-command-driven layout (no button clutter): a welcome banner, a flowing
-conversation, a multi-line prompt, and a status bar.
+The Textual UI launches by default — a clean, command-driven layout (no button
+clutter): a welcome banner, a flowing conversation, a multi-line prompt, and a
+status bar.
 
 ```bash
-LANGBRIDGE_TUI=1 uv run langbridge
+uv run langbridge
 ```
+
+<img src="assets/tui-screenshot.png" alt="Textual UI" width="720">
 
 While developing locally, prefer `uv run langbridge` (editable install) so code
 changes take effect immediately. Use `uv sync --reinstall-package langbridge-cli
@@ -314,16 +323,18 @@ request for PM delegate calls (`ask_l4_engineer`, `ask_l5_engineer`) and for
 specialist write tools (`create_file`, `edit_file`, `delete_file`). Approve with
 `Ctrl+A` / `/approve` or deny with `Ctrl+D` / `/deny`.
 
-### Plain CLI
+### Plain terminal CLI
+
+Set `LANGBRIDGE_TERMINAL=1` to use the plain REPL instead of the Textual UI:
 
 ```bash
-uv run --no-editable langbridge
+LANGBRIDGE_TERMINAL=1 uv run --no-editable langbridge
 ```
 
 Override the default model:
 
 ```bash
-LANGBRIDGE_MODEL=gpt-5.1-codex uv run --no-editable langbridge
+LANGBRIDGE_TERMINAL=1 LANGBRIDGE_MODEL=gpt-5.1-codex uv run --no-editable langbridge
 ```
 
 Install locally to get the `langbridge` command:
@@ -331,7 +342,7 @@ Install locally to get the `langbridge` command:
 ```bash
 uv sync --no-editable
 source .venv/bin/activate
-langbridge
+LANGBRIDGE_TERMINAL=1 langbridge
 ```
 
 Inside the CLI, type `/exit` to quit. The plain REPL has no pause button; use
