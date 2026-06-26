@@ -8,7 +8,7 @@ agent.create_response (PM) and multi_agent.create_specialist_response (L4/L3).
 import copy
 import json
 
-from langbridge_cli.agent import run_pm_loop, run_tool_call
+from langbridge_cli.agents.agent import run_pm_loop, run_tool_call
 from langbridge_cli.config import MAX_PM_SECONDS
 
 
@@ -51,7 +51,7 @@ def test_pm_loop_iterates_until_bug_status_none(tmp_path, monkeypatch):
         calls["n"] += 1
         return {"output": rounds[calls["n"] - 1]}
 
-    monkeypatch.setattr("langbridge_cli.agent.create_response", fake)
+    monkeypatch.setattr("langbridge_cli.agents.agent.create_response", fake)
 
     finished = run_pm_loop("key", "model", "build a thing", tmp_path / "run.json", 1, print_reply=False)
 
@@ -66,7 +66,7 @@ def test_pm_loop_stops_after_single_bug_status_none_round(tmp_path, monkeypatch)
         calls["n"] += 1
         return {"output": [_message("Answered the question directly.\nBUG_STATUS: NONE")]}
 
-    monkeypatch.setattr("langbridge_cli.agent.create_response", fake)
+    monkeypatch.setattr("langbridge_cli.agents.agent.create_response", fake)
 
     run_pm_loop("key", "model", "what is 2 + 2?", tmp_path / "run.json", 1, print_reply=False)
 
@@ -79,7 +79,7 @@ def test_pm_update_plan_writes_todo_list(tmp_path, monkeypatch):
 
     plan = "- [TODO] implement parser\n- [TODO] e2e test the parser\n"
     monkeypatch.setattr(
-        "langbridge_cli.agent.create_response",
+        "langbridge_cli.agents.agent.create_response",
         _pm_responder(
             [
                 [_call("update_plan", {"content": plan, "purpose": "write the plan"})],
@@ -96,7 +96,7 @@ def test_pm_update_plan_writes_todo_list(tmp_path, monkeypatch):
 def test_pm_delegates_to_l4_then_l3_passes(tmp_path, monkeypatch):
     counts = {}
     monkeypatch.setattr(
-        "langbridge_cli.multi_agent.create_specialist_response",
+        "langbridge_cli.agents.multi_agent.create_specialist_response",
         _specialist_responder(
             {
                 "L4 engineer": ["L4_STATUS: READY_FOR_REVIEW\nSummary: built it"],
@@ -106,7 +106,7 @@ def test_pm_delegates_to_l4_then_l3_passes(tmp_path, monkeypatch):
         ),
     )
     monkeypatch.setattr(
-        "langbridge_cli.agent.create_response",
+        "langbridge_cli.agents.agent.create_response",
         _pm_responder(
             [
                 [_call("ask_l4_engineer", {"task": "build feature", "purpose": "delegate"})],
@@ -136,7 +136,7 @@ def test_pm_delegates_to_l4_then_l3_passes(tmp_path, monkeypatch):
 def test_l3_needs_work_then_l4_fix_passes(tmp_path, monkeypatch):
     counts = {}
     monkeypatch.setattr(
-        "langbridge_cli.multi_agent.create_specialist_response",
+        "langbridge_cli.agents.multi_agent.create_specialist_response",
         _specialist_responder(
             {
                 "L4 engineer": [
@@ -169,7 +169,7 @@ def test_l3_needs_work_then_l4_fix_passes(tmp_path, monkeypatch):
 def test_push_back_jury_both_pass_returns_ok(tmp_path, monkeypatch):
     counts = {}
     monkeypatch.setattr(
-        "langbridge_cli.multi_agent.create_specialist_response",
+        "langbridge_cli.agents.multi_agent.create_specialist_response",
         _specialist_responder(
             {
                 "L4 engineer": [
@@ -204,7 +204,7 @@ def test_push_back_jury_both_pass_returns_ok(tmp_path, monkeypatch):
 def test_push_back_jury_one_fail_returns_needs_work(tmp_path, monkeypatch):
     counts = {}
     monkeypatch.setattr(
-        "langbridge_cli.multi_agent.create_specialist_response",
+        "langbridge_cli.agents.multi_agent.create_specialist_response",
         _specialist_responder(
             {
                 "L4 engineer": [
@@ -237,14 +237,14 @@ def test_push_back_jury_one_fail_returns_needs_work(tmp_path, monkeypatch):
 
 
 def test_pm_loop_stops_at_max_pm_loops(tmp_path, monkeypatch):
-    monkeypatch.setattr("langbridge_cli.agent.MAX_PM_LOOPS", 3)
+    monkeypatch.setattr("langbridge_cli.agents.agent.MAX_PM_LOOPS", 3)
     calls = {"n": 0}
 
     def fake(*args, **kwargs):
         calls["n"] += 1
         return {"output": [_message("still working\nBUG_STATUS: OPEN")]}
 
-    monkeypatch.setattr("langbridge_cli.agent.create_response", fake)
+    monkeypatch.setattr("langbridge_cli.agents.agent.create_response", fake)
 
     run_pm_loop("key", "model", "never-ending task", tmp_path / "run.json", 1, print_reply=False)
 
@@ -252,14 +252,14 @@ def test_pm_loop_stops_at_max_pm_loops(tmp_path, monkeypatch):
 
 
 def test_pm_round_stops_at_max_agent_steps(tmp_path, monkeypatch):
-    monkeypatch.setattr("langbridge_cli.agent.MAX_AGENT_STEPS", 2)
+    monkeypatch.setattr("langbridge_cli.agents.agent.MAX_AGENT_STEPS", 2)
     calls = {"n": 0}
 
     def fake(*args, **kwargs):
         calls["n"] += 1
         return {"output": [_call("list_dir", {"path": ".", "purpose": "keep looping"})]}
 
-    monkeypatch.setattr("langbridge_cli.agent.create_response", fake)
+    monkeypatch.setattr("langbridge_cli.agents.agent.create_response", fake)
 
     finished = run_pm_loop("key", "model", "loops forever", tmp_path / "run.json", 1, print_reply=False)
 
@@ -274,9 +274,9 @@ def test_pm_loop_stops_on_time_budget(tmp_path, monkeypatch):
         calls["n"] += 1
         return {"output": [_message("still working\nBUG_STATUS: OPEN")]}
 
-    monkeypatch.setattr("langbridge_cli.agent.create_response", fake)
+    monkeypatch.setattr("langbridge_cli.agents.agent.create_response", fake)
     monkeypatch.setattr(
-        "langbridge_cli.agent.over_time_budget",
+        "langbridge_cli.agents.agent.over_time_budget",
         lambda start, max_seconds: max_seconds == MAX_PM_SECONDS,
     )
 
@@ -303,7 +303,7 @@ def test_todo_list_is_carried_into_the_next_round(tmp_path, monkeypatch):
         seen_inputs.append(copy.deepcopy(agent_input))
         return {"output": next(rounds)}
 
-    monkeypatch.setattr("langbridge_cli.agent.create_response", fake)
+    monkeypatch.setattr("langbridge_cli.agents.agent.create_response", fake)
 
     run_pm_loop("key", "model", "build a parser", tmp_path / "run.json", 1, print_reply=False)
 

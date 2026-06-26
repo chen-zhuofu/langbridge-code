@@ -1,4 +1,4 @@
-from langbridge_cli.debug import print_llm_request, print_llm_response
+from langbridge_cli.llm.debug import print_llm_request, print_llm_response
 
 
 def test_llm_debug_output_is_disabled_by_default(capsys, monkeypatch):

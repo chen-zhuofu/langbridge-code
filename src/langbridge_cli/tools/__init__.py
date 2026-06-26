@@ -1,5 +1,5 @@
 from langbridge_cli.tools import agents, execution, filesystem, packages, plan, testing
-from langbridge_cli.tool_schema import with_tool_purpose
+from langbridge_cli.llm.tool_schema import with_tool_purpose
 
 TOOL_SCHEMAS = with_tool_purpose(
     filesystem.TOOL_SCHEMAS

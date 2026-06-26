@@ -1,12 +1,15 @@
 build/
 .DS_Store
+# runtime agent state: session history, worklogs, component plans, todo_list
+agent-state/
+# stray session-history dirs from older runs (RUNS_DIR now lives under agent-state/)
 session-history/
 __pycache__/
 *.py[cod]
 
-# eval run artifacts (large/regenerable: cloned repos, agent logs, predictions)
+# eval run artifacts (large/regenerable: cloned repos, grader logs, predictions)
 evals/swebench/out/
 evals/swebench/out_*/
+evals/swebench/logs/
 evals/swebench/*.log
-logs/
 /langbridge-*.json

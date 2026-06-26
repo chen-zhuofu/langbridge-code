@@ -7,7 +7,7 @@ from langbridge_cli.config import (
     STALE_TOOL_OUTPUT_CHARS,
     SUMMARY_TARGET_CHARS,
 )
-from langbridge_cli.parse import truncate_text
+from langbridge_cli.llm.parse import truncate_text
 
 
 def restore_session_messages(records):

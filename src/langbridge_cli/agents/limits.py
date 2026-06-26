@@ -8,7 +8,7 @@ Three independent limits keep loops from running forever:
 
 import time
 
-from langbridge_cli.context import estimate_tokens
+from langbridge_cli.persistence.context import estimate_tokens
 
 
 def now():

@@ -9,8 +9,8 @@ from langbridge_cli.config import (
     MAX_SESSION_SUMMARY_INPUT_CHARS,
     RUNS_DIR,
 )
-from langbridge_cli.debug import print_llm_request, print_llm_response
-from langbridge_cli.parse import extract_output_text, truncate_text
+from langbridge_cli.llm.debug import print_llm_request, print_llm_response
+from langbridge_cli.llm.parse import extract_output_text, truncate_text
 
 
 def create_run_log_path():

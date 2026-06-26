@@ -1,8 +1,8 @@
 import json
 import os
 
-from langbridge_cli.parse import extract_output_text, truncate_text
-from langbridge_cli.tool_schema import TOOL_PURPOSE_ARGUMENT
+from langbridge_cli.llm.parse import extract_output_text, truncate_text
+from langbridge_cli.llm.tool_schema import TOOL_PURPOSE_ARGUMENT
 
 
 DEFAULT_DEBUG_MAX_CHARS = 200

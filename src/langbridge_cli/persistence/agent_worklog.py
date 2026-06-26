@@ -1,22 +1,43 @@
+"""Per-agent worklog: each role's own always-on trace of what it did this loop.
+
+For every agent (PM, L3, L4, L5) we append a human-readable record of its
+reasoning, the tool calls it made (action), and what came back (observation),
+plus its final report. It is an audit/debug record, never read back by an agent.
+
+This is distinct from the two other records:
+  - the shared worker<->L3 negotiation ledger (persistence/worklog.py), and
+  - the user<->PM session history (persistence/session.py).
+"""
+
 import json
 
-from langbridge_cli.debug import llm_debug_enabled
-from langbridge_cli.parse import extract_output_text, extract_reasoning_summaries
-from langbridge_cli.tool_schema import TOOL_PURPOSE_ARGUMENT
+from langbridge_cli import config
+from langbridge_cli.llm.parse import extract_output_text, extract_reasoning_summaries
+from langbridge_cli.llm.tool_schema import TOOL_PURPOSE_ARGUMENT
 
 
-def trajectory_enabled():
-    return llm_debug_enabled()
+_WORKLOG_FILE_BY_LABEL = {
+    "PM agent": ("PM_WORKLOG_DIR", "pm_worklog.md"),
+    "L3 test engineer": ("L3_WORKLOG_DIR", "l3_worklog.md"),
+    "L4 engineer": ("L4_WORKLOG_DIR", "l4_worklog.md"),
+    "L5 engineer": ("L5_WORKLOG_DIR", "l5_worklog.md"),
+}
 
 
-def trajectory_path(run_log_path):
+def worklog_path(run_log_path, label):
+    # No active run (e.g. unit tests passing run_log_path=None) -> no-op, so the writer
+    # never litters when there is no real loop in flight.
     if run_log_path is None:
         return None
-    return run_log_path.with_name(f"{run_log_path.stem}.trajectory.md")
+    entry = _WORKLOG_FILE_BY_LABEL.get(label)
+    if entry is None:
+        return None
+    dir_attr, name = entry
+    return getattr(config, dir_attr) / name
 
 
-def write_trajectory_step(run_log_path, label, turn_id, step, output):
-    path = _active_path(run_log_path)
+def write_worklog_step(run_log_path, label, turn_id, step, output):
+    path = worklog_path(run_log_path, label)
     if path is None:
         return
 
@@ -34,8 +55,8 @@ def write_trajectory_step(run_log_path, label, turn_id, step, output):
     _append(path, lines)
 
 
-def write_trajectory_observation(run_log_path, label, turn_id, step, tool_output):
-    path = _active_path(run_log_path)
+def write_worklog_observation(run_log_path, label, turn_id, step, tool_output):
+    path = worklog_path(run_log_path, label)
     if path is None:
         return
 
@@ -50,18 +71,12 @@ def write_trajectory_observation(run_log_path, label, turn_id, step, tool_output
     _append(path, lines)
 
 
-def write_trajectory_finish(run_log_path, label, turn_id, finished):
-    path = _active_path(run_log_path)
+def write_worklog_finish(run_log_path, label, turn_id, finished):
+    path = worklog_path(run_log_path, label)
     if path is None:
         return
 
     _append(path, [f"### [{label}] turn {turn_id} · FINAL", "", finished, ""])
-
-
-def _active_path(run_log_path):
-    if not trajectory_enabled():
-        return None
-    return trajectory_path(run_log_path)
 
 
 def _render_actions(output):
@@ -97,5 +112,6 @@ def _render_function_call(item):
 
 
 def _append(path, lines):
+    path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as handle:
         handle.write("\n".join(lines) + "\n")

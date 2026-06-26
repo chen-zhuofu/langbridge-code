@@ -30,10 +30,10 @@ Each benchmark = Stage 1 (generate predictions) + Stage 2 (grade). Bump
 ```bash
 # Stage 1 — generate
 sg docker -c "uv run python evals/swebench/run_eval_docker.py --difficulty lite --count 10"
-# Stage 2 — grade
-uv run python -m swebench.harness.run_evaluation \
+# Stage 2 — grade (run from evals/swebench so grader logs land in the eval area)
+cd evals/swebench && uv run python -m swebench.harness.run_evaluation \
   --dataset_name princeton-nlp/SWE-bench_Lite \
-  --predictions_path evals/swebench/out/predictions.jsonl \
+  --predictions_path out/predictions.jsonl \
   --max_workers 4 --run_id langbridge-l4-lite
 ```
 
@@ -42,10 +42,10 @@ uv run python -m swebench.harness.run_evaluation \
 ```bash
 # Stage 1 — generate
 sg docker -c "uv run python evals/swebench/run_eval_docker.py --difficulty verified --count 10"
-# Stage 2 — grade
-uv run python -m swebench.harness.run_evaluation \
+# Stage 2 — grade (run from evals/swebench so grader logs land in the eval area)
+cd evals/swebench && uv run python -m swebench.harness.run_evaluation \
   --dataset_name princeton-nlp/SWE-bench_Verified \
-  --predictions_path evals/swebench/out/predictions.jsonl \
+  --predictions_path out/predictions.jsonl \
   --max_workers 4 --run_id langbridge-l4-verified
 ```
 
@@ -111,18 +111,20 @@ Eval artifacts (session logs, `todo_list.md`) are redirected out of the repo via
 ### Stage 2 — grade (needs Docker)
 
 The official SWE-bench grader runs each repo's hidden tests inside per-instance
-Docker images. Install Docker first, then:
+Docker images. Install Docker first, then run it **from `evals/swebench/`** so the
+grader's `logs/run_evaluation/` land in the eval area instead of the repo root:
 
 ```bash
-uv run python -m swebench.harness.run_evaluation \
+cd evals/swebench && uv run python -m swebench.harness.run_evaluation \
   --dataset_name princeton-nlp/SWE-bench_Lite \
-  --predictions_path evals/swebench/out/predictions.jsonl \
+  --predictions_path out/predictions.jsonl \
   --max_workers 4 \
   --run_id langbridge-l4-run1
 ```
 
 This writes a report with how many instances were **resolved** (FAIL_TO_PASS now
-pass and PASS_TO_PASS still pass).
+pass and PASS_TO_PASS still pass). The per-instance logs go to
+`evals/swebench/logs/run_evaluation/<run_id>/...` (gitignored).
 
 ## Known limitation (legacy host runner only)
 

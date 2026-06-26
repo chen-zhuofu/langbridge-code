@@ -32,11 +32,26 @@ RECENT_CONTEXT_TOKENS = 40_000
 SUMMARY_TARGET_CHARS = 8_000
 STALE_TOOL_OUTPUT_CHARS = 500
 WORKSPACE_ROOT = Path.cwd().resolve()
-RUNS_DIR = Path(os.environ.get("LANGBRIDGE_RUNS_DIR", WORKSPACE_ROOT / "session-history"))
-TODO_LIST_PATH = Path(os.environ.get("LANGBRIDGE_TODO_LIST_PATH", WORKSPACE_ROOT / "todo_list.md"))
+# All agent state lives under one root, split by agent role. The PM keeps its
+# todo_list and the user<->PM session history; L5 keeps its component_task_plans.
+# Every role gets a worklog/ dir (see below).
+AGENT_STATE_DIR = Path(os.environ.get("LANGBRIDGE_AGENT_STATE_DIR", WORKSPACE_ROOT / "agent-state"))
+PM_STATE_DIR = AGENT_STATE_DIR / "pm"
+L3_STATE_DIR = AGENT_STATE_DIR / "l3"
+L4_STATE_DIR = AGENT_STATE_DIR / "l4"
+L5_STATE_DIR = AGENT_STATE_DIR / "l5"
+RUNS_DIR = Path(os.environ.get("LANGBRIDGE_RUNS_DIR", PM_STATE_DIR / "session-history"))
+TODO_LIST_PATH = Path(os.environ.get("LANGBRIDGE_TODO_LIST_PATH", PM_STATE_DIR / "todo_list.md"))
 # One component_task_plan file per HARD component_task; uniquely named so the next
 # L5 Ralph turn can find the plan it left behind and continue where it stopped.
-COMPONENT_PLAN_DIR = Path(os.environ.get("LANGBRIDGE_COMPONENT_PLAN_DIR", WORKSPACE_ROOT / "component-plans"))
+COMPONENT_PLAN_DIR = Path(os.environ.get("LANGBRIDGE_COMPONENT_PLAN_DIR", L5_STATE_DIR / "component-plans"))
+# Per-role worklog dir. The L4<->L3 review negotiation is recorded under L4 and
+# the L5<->L3 one under L5 (the worker that drives the review); pm/ and l3/ hold
+# each role's own run output.
+PM_WORKLOG_DIR = PM_STATE_DIR / "worklog"
+L3_WORKLOG_DIR = L3_STATE_DIR / "worklog"
+L4_WORKLOG_DIR = L4_STATE_DIR / "worklog"
+L5_WORKLOG_DIR = L5_STATE_DIR / "worklog"
 WRITE_TOOLS = {
     "create_file",
     "delete_file",

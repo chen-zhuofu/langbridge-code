@@ -8,14 +8,14 @@ from prompt_toolkit.history import FileHistory
 if __package__ in (None, ""):
     sys.path.append(str(Path(__file__).resolve().parents[1]))
 
-from langbridge_cli.agent import run_pm_loop
+from langbridge_cli.agents.agent import run_pm_loop
 from langbridge_cli.config import (
     CONFIG_DIR,
     DEFAULT_MODEL,
     HISTORY_PATH,
     load_api_key,
 )
-from langbridge_cli.session import (
+from langbridge_cli.persistence.session import (
     create_run_log_path,
     last_turn_id,
     read_session_records,
@@ -26,7 +26,7 @@ from langbridge_cli.session import (
 
 def main():
     if os.environ.get("LANGBRIDGE_TUI", "").strip().lower() in {"1", "true", "yes", "on"}:
-        from langbridge_cli.ui import run_tui
+        from langbridge_cli.ui.tui import run_tui
 
         run_tui()
         return

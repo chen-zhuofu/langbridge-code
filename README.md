@@ -125,7 +125,7 @@ chain-of-thought; it powers the live thought display in the CLI and TUI.
 The prompt uses `prompt_toolkit`, so deletion, cursor movement, and command
 history work like a normal interactive shell.
 
-Each CLI run writes readable JSON history under `session-history/`. On startup,
+Each CLI run writes readable JSON history under `agent-state/pm/session-history/`. On startup,
 you can resume a previous session or start a new one.
 
 ## LangBridge Coding Team
@@ -221,8 +221,9 @@ Use `LANGBRIDGE_MODEL` to override the default model.
 
 ### Textual UI (recommended)
 
-Use the Textual UI for the richest terminal experience: live agent thoughts,
-session management, write approvals, and pause / stop controls.
+Use the Textual UI for the richest terminal experience. It is a clean,
+command-driven layout (no button clutter): a welcome banner, a flowing
+conversation, a multi-line prompt, and a status bar.
 
 ```bash
 LANGBRIDGE_TUI=1 uv run langbridge
@@ -232,54 +233,54 @@ While developing locally, prefer `uv run langbridge` (editable install) so code
 changes take effect immediately. Use `uv sync --reinstall-package langbridge-cli
 --no-editable` only when you need a non-editable install.
 
-**Session bar** (top):
+**Layout**:
 
-- **Session dropdown**: pick an existing session from `session-history/`.
-- **Resume**: load the selected session and continue appending to its log.
-- **Delete**: remove the selected session JSON file.
-- On launch, a new session is started automatically; use Resume to switch.
+- **Welcome banner** (top): directory, current session, model, and version.
+- **Conversation**: your message is marked `✦`, the assistant reply `●`, and the
+  agent's live thoughts / tool actions appear inline in dim text.
+- **Status bar** (bottom): `model · state · cwd · git branch` on the left, and a
+  **context-usage meter** `context X% (used/max)` on the right. The state shows
+  `ready`, `thinking`, `working`, `paused`, `waiting for approval`, or `stopping`.
 
 **Input box** (multi-line):
 
-- **Enter** sends the message; **Shift+Enter** inserts a newline; or click **Send**.
+- **Enter** sends the message; **Shift+Enter** inserts a newline.
 - Pasting keeps every line, so you can drop in a multi-paragraph task spec and it
   is sent as one message (the old single-line box truncated paste to the first line).
 
-**Pause / resume** (soft hold):
+**Commands** (type in the prompt):
 
-- **Pause** (top bar) or **Ctrl+P**: hold the agent at the next step boundary.
-  The button toggles to **Resume**; press it (or **Ctrl+P** again) to continue the
-  same run where it left off.
-- Pause takes effect *between* steps, so an in-flight model call or tool finishes
-  first. It also works while the PM is delegating to L4/L3.
+| Command | Action |
+| --- | --- |
+| `/help` | show all commands |
+| `/new` | start a new session |
+| `/sessions` | list saved sessions (numbered) |
+| `/resume <n>` | resume session number `<n>` |
+| `/delete <n>` | delete session number `<n>` |
+| `/approve [on\|off]` | approve a pending action, or toggle auto-approve |
+| `/deny` | deny a pending action |
+| `/pause` | pause / resume the running agent |
+| `/stop` | stop the current turn |
+| `/exit` | quit |
 
-**Stop** (hard abort):
+**Keys**: `Ctrl+A` approve · `Ctrl+D` deny · `Ctrl+P` pause · `Ctrl+S` stop ·
+`Ctrl+C` quit.
 
-- **Stop** (top bar) or **Ctrl+S**: abort the current turn and hand control back,
-  like Cursor's stop. It cancels the in-flight model request (it is abandoned in
-  the background) instead of waiting for it, so control returns almost
-  immediately.
-- The half-finished turn is discarded so the conversation history stays valid;
-  type a new message to continue.
-- If a tool (e.g. `run_tests`) is mid-execution, Stop waits for that one tool to
-  return before unwinding — it never leaves a write half-applied.
-- Both Pause and Stop reset automatically when the turn ends.
+**Pause** (soft hold): holds the agent at the next step boundary and resumes the
+same run in place. It takes effect *between* steps, so an in-flight model call or
+tool finishes first; it also works while the PM is delegating to L4/L3.
 
-**Thought display**:
+**Stop** (hard abort): aborts the current turn and hands control back, like
+Cursor's stop. It cancels the in-flight model request (abandoned in the
+background) instead of waiting for it, so control returns almost immediately. The
+half-finished turn is discarded so the conversation history stays valid. If a
+tool (e.g. `run_tests`) is mid-execution, Stop waits for that one tool to return
+before unwinding — it never leaves a write half-applied.
 
-- Shows only the latest **thought** (`purpose`) from PM, L4, or L3 — not tool
-  calls — in muted text.
-- Clears when the assistant reply is shown.
-- **Ctrl+T** or click the thought bar to expand full thought + action history
-  for the current turn.
-
-**Approvals**:
-
-- **Always approve: off/on**: toggle to auto-approve all write tools.
-- When off, a yellow approval bar appears above the input for:
-  - PM delegate requests (`ask_l4_engineer`)
-  - L4 write tools (`edit_file`, `create_file`, `delete_file`)
-- Use **Approve** / **Deny**, or **Ctrl+A** / **Ctrl+D**.
+**Approvals**: when auto-approve is off, the agent posts an inline approval
+request for PM delegate calls (`ask_l4_engineer`) and L4 write tools
+(`edit_file`, `create_file`, `delete_file`). Approve with `Ctrl+A` / `/approve`
+or deny with `Ctrl+D` / `/deny`.
 
 ### Plain CLI
 

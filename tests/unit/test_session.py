@@ -1,4 +1,4 @@
-from langbridge_cli import context as context_module
+from langbridge_cli.persistence import context as context_module
 
 
 def make_record(turn_id, user, assistant, tool_output=""):

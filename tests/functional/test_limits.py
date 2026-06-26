@@ -1,7 +1,7 @@
-from langbridge_cli import limits
-from langbridge_cli.agent import append_pm_l3_review, run_agent
-from langbridge_cli.limits import over_context_budget, over_time_budget
-from langbridge_cli.multi_agent import run_specialist_agent
+from langbridge_cli.agents import limits
+from langbridge_cli.agents.agent import run_agent, run_l4_component
+from langbridge_cli.agents.limits import over_context_budget, over_time_budget
+from langbridge_cli.agents.multi_agent import run_specialist_agent
 
 READY = "L4_STATUS: READY_FOR_REVIEW\nSummary: implemented"
 
@@ -31,8 +31,8 @@ def test_specialist_stops_on_context_budget(monkeypatch):
     def fake_response(api_key, model, messages, tool_schemas, label):
         raise AssertionError("model should not be called once the context budget is gone")
 
-    monkeypatch.setattr("langbridge_cli.multi_agent.create_specialist_response", fake_response)
-    monkeypatch.setattr("langbridge_cli.multi_agent.MAX_SPECIALIST_CONTEXT_TOKENS", 1)
+    monkeypatch.setattr("langbridge_cli.agents.multi_agent.create_specialist_response", fake_response)
+    monkeypatch.setattr("langbridge_cli.agents.multi_agent.MAX_SPECIALIST_CONTEXT_TOKENS", 1)
 
     report = run_specialist_agent("k", "m", "system", "user", [], {}, "L4 engineer")
 
@@ -44,8 +44,8 @@ def test_specialist_stops_on_time_budget(monkeypatch):
     def fake_response(api_key, model, messages, tool_schemas, label):
         raise AssertionError("model should not be called once the time budget is gone")
 
-    monkeypatch.setattr("langbridge_cli.multi_agent.create_specialist_response", fake_response)
-    monkeypatch.setattr("langbridge_cli.multi_agent.MAX_SPECIALIST_SECONDS", 0)
+    monkeypatch.setattr("langbridge_cli.agents.multi_agent.create_specialist_response", fake_response)
+    monkeypatch.setattr("langbridge_cli.agents.multi_agent.MAX_SPECIALIST_SECONDS", 0)
 
     report = run_specialist_agent("k", "m", "system", "user", [], {}, "L3 test engineer")
 
@@ -53,7 +53,7 @@ def test_specialist_stops_on_time_budget(monkeypatch):
 
 
 def test_pm_agent_stops_on_time_budget(tmp_path, monkeypatch):
-    monkeypatch.setattr("langbridge_cli.agent.MAX_AGENT_SECONDS", 0)
+    monkeypatch.setattr("langbridge_cli.agents.agent.MAX_AGENT_SECONDS", 0)
 
     finished = run_agent(
         "k",
@@ -71,9 +71,13 @@ def test_l4_l3_loop_stops_on_time_budget(monkeypatch):
     def fake_l3(*args, **kwargs):
         raise AssertionError("L3 should not run once the time budget is gone")
 
-    monkeypatch.setattr("langbridge_cli.multi_agent.run_l3_test_engineer", fake_l3)
-    monkeypatch.setattr("langbridge_cli.agent.MAX_L4_L3_SECONDS", 0)
+    def fake_l4(api_key, model, task, context, feedback="", **kwargs):
+        return READY
 
-    output = append_pm_l3_review("k", "m", {"task": "t", "context": "c"}, READY)
+    monkeypatch.setattr("langbridge_cli.agents.multi_agent.run_l3_test_engineer", fake_l3)
+    monkeypatch.setattr("langbridge_cli.agents.multi_agent.run_l4_engineer", fake_l4)
+    monkeypatch.setattr("langbridge_cli.agents.agent.MAX_L4_L3_SECONDS", 0)
+
+    output = run_l4_component("k", "m", {"task": "t", "context": "c"})
 
     assert "PM_REVIEW_STATUS: NEEDS_WORK" in output

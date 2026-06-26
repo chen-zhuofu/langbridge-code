@@ -38,6 +38,7 @@ def tool(name):
 
 @tool("update_plan")
 def update_plan(content):
+    TODO_LIST_PATH.parent.mkdir(parents=True, exist_ok=True)
     TODO_LIST_PATH.write_text(content, encoding="utf-8")
     return f"Updated todo_list ({len(content)} chars) at {TODO_LIST_PATH.name}."
 

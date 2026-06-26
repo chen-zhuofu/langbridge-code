@@ -1,9 +1,5 @@
-from langbridge_cli.trace import ThoughtEvent, extract_trace_events
-from langbridge_cli.ui import (
-    format_approval_request,
-    format_current_thought,
-    format_trace_event,
-)
+from langbridge_cli.llm.trace import ThoughtEvent, extract_trace_events
+from langbridge_cli.ui.tui import format_approval_request
 
 
 def test_extract_trace_events_prefers_tool_purpose_and_hides_it_from_action():
@@ -31,28 +27,6 @@ def test_extract_trace_events_prefers_tool_purpose_and_hides_it_from_action():
             arguments='{"path":"README.md"}',
         ),
     ]
-
-
-def test_format_trace_event_marks_actions():
-    event = ThoughtEvent(
-        role="L4 engineer",
-        kind="action",
-        text='edit_file({"path":"x.py"})',
-    )
-
-    assert format_trace_event(event) == 'L4 engineer: ↳ edit_file({"path":"x.py"})'
-
-
-def test_format_current_thought_ignores_actions():
-    thought = ThoughtEvent(role="PM agent", kind="thought", text="Inspect the repository.")
-    action = ThoughtEvent(
-        role="PM agent",
-        kind="action",
-        text='list_dir({"path":"."})',
-    )
-
-    assert format_current_thought(thought) == "PM agent: Inspect the repository."
-    assert format_current_thought(action) == ""
 
 
 def test_format_approval_request_includes_role_tool_and_path():

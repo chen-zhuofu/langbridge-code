@@ -1,6 +1,6 @@
-from langbridge_cli.agent import pm_should_continue
-from langbridge_cli.parse import DIM, RESET, extract_reasoning_summaries, print_step_trace
-from langbridge_cli.roles import L3_TEST_ENGINEER_PROMPT, L4_ENGINEER_PROMPT, SYSTEM_PROMPT
+from langbridge_cli.agents.agent import pm_should_continue
+from langbridge_cli.llm.parse import DIM, RESET, extract_reasoning_summaries, print_step_trace
+from langbridge_cli.agents.roles import L3_TEST_ENGINEER_PROMPT, L4_ENGINEER_PROMPT, SYSTEM_PROMPT
 
 
 def test_pm_loop_continues_only_while_bug_open():

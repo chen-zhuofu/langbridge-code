@@ -1,8 +1,8 @@
-import langbridge_cli.agent as agent_module
-from langbridge_cli.agent import add_hidden_tool_context, append_pm_l3_review, run_tool_call
-from langbridge_cli.multi_agent import L4_TOOL_SCHEMAS, max_steps_report, run_specialist_agent, run_specialist_tool_call
+import langbridge_cli.agents.agent as agent_module
+from langbridge_cli.agents.agent import add_hidden_tool_context, run_l4_component, run_tool_call
+from langbridge_cli.agents.multi_agent import L4_TOOL_SCHEMAS, max_steps_report, run_specialist_agent, run_specialist_tool_call
 from langbridge_cli.tools import MAIN_TOOL_SCHEMAS, MAIN_TOOLS, TOOL_SCHEMAS, TOOLS
-from langbridge_cli.multi_agent import l3_review_passed
+from langbridge_cli.agents.multi_agent import l3_review_passed
 from langbridge_cli.tools.agents import ask_l3_test_engineer, ask_l4_engineer
 
 
@@ -90,19 +90,10 @@ def test_l3_tool_uses_runner(monkeypatch):
     assert calls == [("key", "model", "verify tests", "changed tests/test_x.py")]
 
 
-def test_l4_tool_uses_runner(monkeypatch):
-    calls = []
-
-    def fake_runner(api_key, model, task, context, feedback):
-        calls.append((api_key, model, task, context, feedback))
-        return "L4 report"
-
-    monkeypatch.setattr("langbridge_cli.tools.agents.run_l4_engineer", fake_runner)
-
-    result = ask_l4_engineer("implement feature", "context", "feedback", api_key="key", model="model")
-
-    assert result == "L4 report"
-    assert calls == [("key", "model", "implement feature", "context", "feedback")]
+def test_l4_tool_is_a_placeholder_handled_by_the_runtime():
+    # The living L4<->L3 loop runs in the PM runtime (run_tool_call -> run_l4_component);
+    # the registered tool itself is just a placeholder that returns nothing.
+    assert ask_l4_engineer("implement feature", "context", "feedback") == ""
 
 
 def test_l3_review_passed_requires_pass_verdict():
@@ -112,7 +103,7 @@ def test_l3_review_passed_requires_pass_verdict():
 
 
 def test_l4_write_tool_requires_approval(monkeypatch):
-    monkeypatch.setattr("langbridge_cli.multi_agent.approve_l4_write_tool", lambda name, arguments: False)
+    monkeypatch.setattr("langbridge_cli.agents.multi_agent.approve_l4_write_tool", lambda name, arguments: False)
 
     result = run_specialist_tool_call(
         {
@@ -133,7 +124,7 @@ def test_l4_write_tool_requires_approval(monkeypatch):
 
 
 def test_l4_write_tool_runs_after_approval(monkeypatch):
-    monkeypatch.setattr("langbridge_cli.multi_agent.approve_l4_write_tool", lambda name, arguments: True)
+    monkeypatch.setattr("langbridge_cli.agents.multi_agent.approve_l4_write_tool", lambda name, arguments: True)
 
     result = run_specialist_tool_call(
         {
@@ -154,7 +145,7 @@ def test_l4_write_tool_runs_after_approval(monkeypatch):
 
 
 def test_specialist_tool_strips_purpose_before_execution(monkeypatch):
-    monkeypatch.setattr("langbridge_cli.multi_agent.approve_l4_write_tool", lambda name, arguments: True)
+    monkeypatch.setattr("langbridge_cli.agents.multi_agent.approve_l4_write_tool", lambda name, arguments: True)
 
     result = run_specialist_tool_call(
         {
@@ -177,10 +168,7 @@ def test_specialist_tool_strips_purpose_before_execution(monkeypatch):
 def test_pm_write_tool_uses_approval_callback(monkeypatch):
     approvals = []
 
-    def fake_l4(**arguments):
-        return "L4 report"
-
-    monkeypatch.setitem(agent_module.MAIN_TOOLS, "ask_l4_engineer", fake_l4)
+    monkeypatch.setattr(agent_module, "run_l4_component", lambda *args, **kwargs: "L4 report")
 
     result = run_tool_call(
         {
@@ -237,17 +225,20 @@ def test_l4_write_tool_uses_approval_callback():
 def test_pm_appends_l3_review_when_l4_ready(monkeypatch):
     calls = []
 
-    def fake_l3(api_key, model, task, context):
+    def fake_l3(api_key, model, task, context, **kwargs):
         calls.append((api_key, model, task, context))
         return "REVIEW_VERDICT: PASS\nEvidence: tests pass"
 
-    monkeypatch.setattr("langbridge_cli.multi_agent.run_l3_test_engineer", fake_l3)
+    def fake_l4(api_key, model, task, context, feedback="", **kwargs):
+        return "L4_STATUS: READY_FOR_REVIEW\nSummary: calculator implemented"
 
-    output = append_pm_l3_review(
+    monkeypatch.setattr("langbridge_cli.agents.multi_agent.run_l3_test_engineer", fake_l3)
+    monkeypatch.setattr("langbridge_cli.agents.multi_agent.run_l4_engineer", fake_l4)
+
+    output = run_l4_component(
         "key",
         "model",
         {"task": "implement calculator", "context": "repo context"},
-        "L4_STATUS: READY_FOR_REVIEW\nSummary: calculator implemented",
     )
 
     assert "PM_DETERMINISTIC_L3_REVIEW:" in output
@@ -260,16 +251,19 @@ def test_pm_appends_l3_review_when_l4_ready(monkeypatch):
 
 
 def test_pm_does_not_review_l4_when_not_ready(monkeypatch):
-    def fake_l3(api_key, model, task, context):
+    def fake_l3(api_key, model, task, context, **kwargs):
         raise AssertionError("L3 should not run unless L4 is ready for review")
 
-    monkeypatch.setattr("langbridge_cli.multi_agent.run_l3_test_engineer", fake_l3)
+    def fake_l4(api_key, model, task, context, feedback="", **kwargs):
+        return "L4_STATUS: IN_PROGRESS\nSummary: still writing tests"
 
-    output = append_pm_l3_review(
+    monkeypatch.setattr("langbridge_cli.agents.multi_agent.run_l3_test_engineer", fake_l3)
+    monkeypatch.setattr("langbridge_cli.agents.multi_agent.run_l4_engineer", fake_l4)
+
+    output = run_l4_component(
         "key",
         "model",
         {"task": "implement calculator"},
-        "L4_STATUS: IN_PROGRESS\nSummary: still writing tests",
     )
 
     assert output.startswith("L4_STATUS: IN_PROGRESS")
@@ -316,9 +310,9 @@ def test_specialist_max_steps_fallback_reports_tool_history(monkeypatch):
             ]
         }
 
-    monkeypatch.setattr("langbridge_cli.multi_agent.MAX_SPECIALIST_AGENT_STEPS", 1)
-    monkeypatch.setattr("langbridge_cli.multi_agent.create_specialist_response", fake_response)
-    monkeypatch.setattr("langbridge_cli.multi_agent.approve_l4_write_tool", lambda name, arguments: True)
+    monkeypatch.setattr("langbridge_cli.agents.multi_agent.MAX_SPECIALIST_AGENT_STEPS", 1)
+    monkeypatch.setattr("langbridge_cli.agents.multi_agent.create_specialist_response", fake_response)
+    monkeypatch.setattr("langbridge_cli.agents.multi_agent.approve_l4_write_tool", lambda name, arguments: True)
 
     report = run_specialist_agent(
         "key",

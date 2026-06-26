@@ -1,7 +1,7 @@
 import os
 
 from langbridge_cli.config import DEFAULT_MODEL, load_api_key
-from langbridge_cli.multi_agent import run_l3_test_engineer, run_l4_engineer
+from langbridge_cli.agents.multi_agent import run_l3_test_engineer
 
 
 TOOL_SCHEMAS = [
@@ -112,22 +112,10 @@ def ask_l3_test_engineer(task, context="", api_key=None, model=None, trace_sink=
 
 
 @tool("ask_l4_engineer")
-def ask_l4_engineer(task, context="", feedback="", api_key=None, model=None, trace_sink=None, approval_callback=None, run_log_path=None, turn_id=None):
-    api_key = api_key or load_api_key()
-    model = model or os.environ.get("LANGBRIDGE_MODEL", DEFAULT_MODEL)
-    if trace_sink is None and approval_callback is None and run_log_path is None:
-        return run_l4_engineer(api_key, model, task, context, feedback)
-    return run_l4_engineer(
-        api_key,
-        model,
-        task,
-        context,
-        feedback,
-        trace_sink=trace_sink,
-        approval_callback=approval_callback,
-        run_log_path=run_log_path,
-        turn_id=turn_id,
-    )
+def ask_l4_engineer(task, context="", feedback=""):
+    # The living L4<->L3 review loop runs in the PM runtime; run_tool_call dispatches
+    # to agent.run_l4_component and overrides this placeholder output.
+    return ""
 
 
 @tool("ask_l5_engineer")

@@ -1,12 +1,12 @@
 import json
 
-from langbridge_cli.parse import (
+from langbridge_cli.llm.parse import (
     extract_output_text,
     extract_reasoning_items,
     extract_turn_user_input,
     parse_json_string,
 )
-from langbridge_cli.session import read_session_log
+from langbridge_cli.persistence.session import read_session_log
 
 
 def write_input_log(run_log_path, turn_id, messages):
@@ -15,11 +15,24 @@ def write_input_log(run_log_path, turn_id, messages):
         {
             "turn_id": turn_id,
             "user": extract_turn_user_input(messages),
-            "input": messages,
+            "input": setup_messages(messages),
             "steps": [],
             "assistant": "",
         },
     )
+
+
+def setup_messages(messages):
+    # Keep only the leading non-user messages (the system prompt). The rest of the
+    # turn's input is the prior conversation, which the session log already holds as
+    # per-turn user/steps/assistant; storing it again just bloats the file. Resume
+    # rebuilds the conversation from those fields plus this system-prompt prefix.
+    setup = []
+    for message in messages:
+        if message.get("role") == "user":
+            break
+        setup.append(message)
+    return setup
 
 
 def write_tool_calls_log(run_log_path, turn_id, step, step_response):
