@@ -5,7 +5,23 @@ import tempfile
 import pytest
 
 
-def test_metrics_l4_and_l3_and_loop():
+def test_l3_cases_from_specs():
+    from langbridge_cli.training.l3_cases import l3_cases_from_specs
+
+    specs = [{"task_id": "t1", "base_commit": "abc", "problem_statement": "fix bug",
+               "gold_code_patch": "FIX", "test_patch": "tests", "test_files": ["t.py"]}]
+
+    def grade(task_id, diff):
+        return {"resolved": "FIX" in (diff or "")}
+
+    cases = l3_cases_from_specs(specs, grade)
+    assert len(cases) == 2
+    gold = next(c for c in cases if c["case"] == "gold")
+    bad = next(c for c in cases if c["case"] == "no_fix")
+    assert gold["gt_pass"] is True and gold["diff"] == "FIX"
+    assert bad["gt_pass"] is False and bad["diff"] == ""
+
+
     from langbridge_cli.training import metrics
 
     l4_rows = [

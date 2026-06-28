@@ -242,7 +242,17 @@ def make_callables(workspaces, model=None, timeout=1800):
         repo_dir, py = workspaces.prepare(case)
         workspaces.reset(repo_dir)
         ref = _ref()
-        ref.apply_patch(repo_dir, case.get("diff", case.get("gold_code_patch", "")))
+        if case.get("test_patch"):
+            ok, _ = ref.apply_patch(repo_dir, case["test_patch"])
+            if not ok:
+                workspaces.reset(repo_dir)
+                return {"approved": False}
+        diff = case.get("diff", "")
+        if diff.strip():
+            ok, _ = ref.apply_patch(repo_dir, diff)
+            if not ok:
+                workspaces.reset(repo_dir)
+                return {"approved": False}
         out = _run_layer(py, repo_dir, "l3", case["problem_statement"],
                          context="A change was made; verify it.", model=model, timeout=timeout)
         workspaces.reset(repo_dir)

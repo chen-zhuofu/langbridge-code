@@ -38,6 +38,8 @@ Pure, unit-tested logic (no API/model needed — see `tests/unit/test_training_*
   penalty score; reward-hacking is the worst outcome).
 - `evals/runner.py` — the five eval runners as pure orchestration over injected
   agent callables.
+- `l3_cases.py` — expands each task spec into gold / no-fix reviewer cases with
+  test-based `gt_pass` labels for `eval --role l3`.
 - `evolver.py` — the outer self-play loop (run batch → grade → mine → propose →
   apply → gate → checkpoint).
 
@@ -73,6 +75,7 @@ python -m langbridge_cli.training.cli specs --issues training/issues.json
 
 # 2. Evaluate one role under the current policy
 python -m langbridge_cli.training.cli eval --role l4 --limit 5
+python -m langbridge_cli.training.cli eval --role l3 --limit 5   # reviewer: gold + no-fix per task
 
 # 3. Run the evolver (self-play) for one epoch
 python -m langbridge_cli.training.cli train --epochs 1 --batch-size 2

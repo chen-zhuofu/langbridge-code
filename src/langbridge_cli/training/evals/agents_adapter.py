@@ -125,10 +125,14 @@ def make_callables(repo=None, model=None, timeout=1800):
     def review_fn(case):
         wt = bench._make_worktree(repo, case["base_commit"])
         try:
-            # Stage the case's diff so L3 reviews a real tree.
-            bench._apply(wt, case.get("diff", ""))
+            if case.get("test_patch"):
+                if not bench._apply(wt, case["test_patch"]):
+                    return {"approved": False}
+            diff = case.get("diff", "")
+            if diff.strip() and not bench._apply(wt, diff):
+                return {"approved": False}
             out = _run_layer(wt, "l3", case["problem_statement"],
-                             context=f"A change was made:\n{case.get('diff','')[:4000]}",
+                             context=f"A change was made:\n{diff[:4000]}",
                              model=model, timeout=timeout)
             return {"approved": bool(out.get("approved"))}
         finally:

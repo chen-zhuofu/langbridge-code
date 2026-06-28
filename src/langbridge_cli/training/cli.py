@@ -20,6 +20,7 @@ from langbridge_cli import policy
 from langbridge_cli.config import DEFAULT_MODEL, load_api_key
 from langbridge_cli.training import bench, evolver, metrics, swebench
 from langbridge_cli.training.evals import agents_adapter, runner
+from langbridge_cli.training.l3_cases import l3_cases_from_specs
 
 
 def _build(args, model):
@@ -62,7 +63,10 @@ def cmd_eval(args):
     elif args.role == "l5":
         rows = runner.eval_l5(_limit(specs_for(hard=True), args), coder_fn=calls["l5_fn"], grade=grade)
     elif args.role == "l3":
-        rows = runner.eval_l3(_limit(specs_for(), args), review_fn=calls["review_fn"])
+        specs = _limit(specs_for(), args)
+        cases = l3_cases_from_specs(specs, grade)
+        print(f"L3 reviewer: {len(cases)} cases ({len(specs)} tasks × gold + no_fix)")
+        rows = runner.eval_l3(cases, review_fn=calls["review_fn"])
     elif args.role == "loop":
         rows, _traces = runner.eval_loop(_limit(specs_for(), args), loop_fn=calls["loop_fn"], grade=grade)
     elif args.role == "pm":
