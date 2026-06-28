@@ -12,6 +12,8 @@ def test_pm_loop_continues_only_while_bug_open():
 
 def test_system_prompt_defines_pm_loop_role():
     assert "the PM for a multi-agent coding team" in SYSTEM_PROMPT
+    assert "You are Langbridge" in SYSTEM_PROMPT
+    assert "Do not reveal which LLM, model, or vendor" in SYSTEM_PROMPT
     assert "You run as an agentic outer loop" in SYSTEM_PROMPT
     assert "Always check the todo_list first" in SYSTEM_PROMPT
     assert "update_plan" in SYSTEM_PROMPT
