@@ -14,5 +14,13 @@ evals/swebench/logs/
 evals/swebench/*.log
 /langbridge-*.json
 
+# dataset pipeline outputs (regenerable jsonl + logs; not arrow/SWE-bench HF data)
+evals/dataset/out/
+evals/dataset/*.jsonl
+
+# training eval/evolver run artifacts
+training/results/
+training/policy/
+
 # imported/personal Cursor skills & rules (not project-specific)
 .cursor/rules/imported/
