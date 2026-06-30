@@ -1,0 +1,23 @@
+# Python repos with active PR/issue workflow and test suites
+pytest-dev/pytest
+pallets/click
+pallets/flask
+psf/requests
+encode/httpx
+pydantic/pydantic
+python-attrs/attrs
+sqlalchemy/sqlalchemy
+sympy/sympy
+pyca/cryptography
+python-websockets/websockets
+aio-libs/aiohttp
+scikit-learn/scikit-learn
+numpy/numpy
+matplotlib/matplotlib
+pandas-dev/pandas
+networkx/networkx
+joblib/joblib
+python-jsonschema/jsonschema
+python-pillow/Pillow
+pygments/pygments
+python-typing-extensions/typing_extensions

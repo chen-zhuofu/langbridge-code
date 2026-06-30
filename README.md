@@ -2,7 +2,7 @@
 
 A self-evolving, multi-agent coding CLI backed by a Codex model.
 
-LangBridge runs a PM-led, multi-agent coding loop. The PM inspects the
+Langbridge runs a PM-led, multi-agent coding loop. The PM inspects the
 workspace, plans the work, and delegates implementation to specialist agents
 (an L4 feature engineer and an L5 senior engineer), each verified by an L3 test
 engineer. It can resume previous session history and compacts older context
@@ -16,16 +16,16 @@ uv run langbridge
 
 ## Evolve (self-play training)
 
-LangBridge is **self-evolving**: an outer **evolver** improves the team over many
+Langbridge is **self-evolving**: an outer **evolver** improves the team over many
 tasks without editing Python source — by updating a shared **policy** (per-role
 guidance bullets and evolver-written skills) that each agent folds into its
 prompt on the next run. Code lives in `src/langbridge_cli/training/`.
 
 Two nested loops:
 
-- **Inner loop** (the CLI): for one task, L4 or L5 implements and L3 reviews
+- **Worker loop** (the CLI): for one task, L4 or L5 implements and L3 reviews
   until the work passes or limits trip.
-- **Outer loop** (the evolver / optimizer): across a batch of tasks, mine signals
+- **Optimizer loop** (the evolver / optimizer): across a batch of tasks, mine signals
   from traces, propose policy changes, and **gate** them — keep a change only if
   eval metrics improve and it does not reward-hack the reviewer.
 
@@ -59,7 +59,7 @@ For a local git repo + custom specs, set `LANGBRIDGE_TARGET_REPO` and use
 
 ## Loop Engineering
 
-LangBridge is built around **loop engineering**: instead of a single one-shot
+Langbridge is built around **loop engineering**: instead of a single one-shot
 model call, agents run in loops, and loops are nested inside loops. Each agent
 keeps thinking, calling tools, and reading results until it decides its job is
 done.
@@ -99,9 +99,9 @@ PM agentic loop                          (caps: MAX_AGENT_STEPS, MAX_PM_LOOPS)
   └─ ask_l5_engineer ─► L5 Ralph loop            (cap: MAX_L5_RALPH_TURNS)
                           └─ per sub-task: L5 ⇄ L3 review  (same jury rules)
 ```
-## LangBridge Coding Team
+## Langbridge Coding Team
 
-LangBridge is organized as a small coding-agent team. The current team has four
+Langbridge is organized as a small coding-agent team. The current team has four
 active roles:
 
 - **PM (outer loop)**: turns user needs into a `todo_list` of component-level
@@ -141,9 +141,9 @@ design notes are in `Thoughts.md`.
 - **L3:** the tester, shared inside both the L4 and L5 review loops.
 
 
-### How LangBridge works
+### How Langbridge works
 
-LangBridge is an engineered, multi-agent:
+Langbridge is an engineered, multi-agent:
 
 The PM works read-only on the workspace and delegates all writes to specialists.
 PM tools:
@@ -236,7 +236,7 @@ alone — that would be judging a complaint about its own test. Instead a **jury
 
 ## Eval (benchmarks & datasets)
 
-The `evals/` tree measures LangBridge on real issues and builds new task data.
+The `evals/` tree measures Langbridge on real issues and builds new task data.
 
 ### SWE-bench e2e (`evals/swebench/`)
 
