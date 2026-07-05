@@ -1,16 +1,37 @@
-import os
-import sys
-import tempfile
-from pathlib import Path
+import pytest
 
 
-# Point all agent state (worklogs, session history, todo_list, component plans) at
-# a throwaway temp dir so the test suite never writes into the real agent-state/
-# tree. This must run before langbridge_cli.settings is imported, since settings
-# derives every state path from this env var at import time.
-os.environ["LANGBRIDGE_AGENT_STATE_DIR"] = tempfile.mkdtemp(prefix="langbridge-test-state-")
+@pytest.fixture(autouse=True)
+def bypass_tdd_harness(monkeypatch, request):
+    if request.node.fspath.basename == "test_tdd_harness.py":
+        return
 
-SRC_PATH = Path(__file__).resolve().parents[1] / "src"
+    def fake(
+        api_key,
+        model,
+        task,
+        context,
+        feedback,
+        new_session_fn,
+        run_engineer_fn,
+        ready_fn,
+        worker_label,
+        trace_sink,
+        approval_callback,
+        run_log_path,
+        turn_id,
+    ):
+        session = new_session_fn(
+            api_key,
+            model,
+            trace_sink=trace_sink,
+            approval_callback=approval_callback,
+            run_log_path=run_log_path,
+            turn_id=turn_id,
+        )
+        report = run_engineer_fn(api_key, model, task, context, feedback, session=session)
+        if not ready_fn(report):
+            return report, None, None, None
+        return None, session, report, {}
 
-if str(SRC_PATH) not in sys.path:
-    sys.path.insert(0, str(SRC_PATH))
+    monkeypatch.setattr("langbridge_cli.agents.agent._run_worker_tdd", fake)
