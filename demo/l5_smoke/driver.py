@@ -3,7 +3,7 @@ import sys
 from pathlib import Path
 
 # Make langbridge_code importable from the repo checkout regardless of install state.
-REPO_SRC = Path("/home/seanlinux/langbridge-cli/src")
+REPO_SRC = Path(__file__).resolve().parents[2] / "src"
 if str(REPO_SRC) not in sys.path:
     sys.path.insert(0, str(REPO_SRC))
 

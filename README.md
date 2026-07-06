@@ -27,8 +27,7 @@ prompt on the next run. Code lives in `src/langbridge_code/training/`.
 
 Two nested loops:
 
-- **Worker loop** (the CLI): for one task, L4 or L5 implements and L3 reviews
-  until the work passes or limits trip.
+- **Worker loop** (one task): Coder implements and Reviewer verifies until pass or limits.
 - **Optimizer loop** (the evolver / optimizer): across a batch of tasks, mine signals
   from traces, propose policy changes, and **gate** them — keep a change only if
   eval metrics improve and it does not reward-hack the reviewer.
@@ -89,51 +88,20 @@ step caps, and context compaction.
 - **Presenter** — builds `.pptx` deliverables; `PRESENTER_STATUS: COMPLETE|IN_PROGRESS`.
 
 Legacy names (L4/L3/L5/PM) remain as aliases in policy and training for now.
-- **PM (cross-functional)**: collaboration with design, data science, product,
-  and marketing.
-- **L6 engineer**: large-scale, high-concurrency system design and cross-team
-  collaboration with other coding-agent teams.
-- **Manager**: keeps agents aligned, unblocks work, and improves team execution.
 
-## How the team works
+## How it works
 
-The PM leads a multi-agent loop with machine-checkable status tokens. The original
-design notes are in `Thoughts.md`.
+The **Router** handles chat or kicks off a task. The **Planner** maintains the
+`todo_list`. For each item, **Coder** and **Reviewer** run in separate sessions
+(git diff handoff, no shared worklog). **Presenter** handles slide tasks.
 
-### Roles and loops
+**Planner tools:** `list_dir`, `glob`, `read_file`, `grep`, `update_plan`
 
-- **PM (outer loop):** breaks the `user_task` into a `todo_list` of
-  `component_task`s (product-level, not deeply technical), routes each to L4 or
-  L5, verifies the delivery, and marks progress. The **last `component_task` is
-  always an e2e test** for the whole product.
-- **L4:** implements a normal `component_task` and its tests.
-- **L5 (Ralph loop):** implements a HARD `component_task` by divide-and-conquer.
-  It writes a `component_task_plan` (one file per component) that splits the work
-  into `technical_sub_task`s; the **last one is always an integration test**.
-  Each Ralph turn spawns a fresh L5 that reads the plan and continues from the
-  next unfinished sub-task. 
-- **L3:** the tester, shared inside both the L4 and L5 review loops.
+**Coder / Reviewer / Presenter tools:** filesystem tools, `bash`, `read_webpage`,
+`read_skill`, plus writes (`create_file`, `edit_file`, `delete_file`) for specialists.
 
-
-### How LangBridge Code works
-
-LangBridge Code is an engineered, multi-agent:
-
-The PM works read-only on the workspace and delegates all writes to specialists.
-PM tools:
-
-- `list_dir`, `glob`, `read_file`, `grep`: inspect the workspace (glob/grep use ripgrep)
-- `bash`: run a non-interactive shell command (installs, builds, git, scripts)
-- `read_webpage`: fetch the text of a URL (docs, an issue, reference material)
-- `update_plan`: write or update the `todo_list`
-- `ask_l4_engineer`: delegate a normal `component_task` to the L4 engineer
-- `ask_l5_engineer`: delegate a HARD `component_task` to the L5 senior engineer
-
-Specialists get the write and test tools. L4 and L5 share `edit_file`,
-`create_file`, `delete_file`, `run_tests`, `bash`, and `read_skill`
-on top of the read-only file tools; L3 gets the read-only file tools plus
-File tools are limited to the directory where you start the CLI. Write tools
-(`create_file`, `edit_file`, `delete_file`, `bash`) ask for approval first.
+File tools are limited to the directory where you start LangBridge Code. Write tools
+ask for approval first (unless auto-approve is on).
 
 On-demand skills: specialists see a catalog of playbooks in their prompt and can
 call `read_skill(name)` to load one. Bundled skills include Karpathy guidelines
@@ -141,66 +109,33 @@ and vendored [Superpowers](https://github.com/obra/superpowers) (`test-driven-de
 `verification-before-completion`, etc.) under `src/langbridge_code/skills/superpowers/`.
 Re-vendor with `scripts/vendor_superpowers.sh`.
 
-Each tool call includes a required `purpose` field: a short, user-visible
-sentence explaining why the agent is calling that tool. It is not private
-chain-of-thought; it feeds the live thinking line in the TUI.
+Each tool call includes a required `purpose` field: a short, user-visible sentence
+explaining why the agent is calling that tool. It feeds the live thinking line in the TUI.
 
-The prompt uses `prompt_toolkit`, so deletion, cursor movement, and command
-history work like a normal interactive shell.
-
-Each CLI run writes readable JSON history under `agent-state/pm/session-history/`. On startup,
-you can resume a previous session or start a new one.
+Each run writes readable JSON history under `agent-state/pm/session-history/`. On
+startup, you can resume a previous session or start a new one.
 
 ### Living agents vs. worklogs (memory)
 
-Within one loop an agent stays **alive**: an L4 (or L5, or L3) keeps its full
-message history across the review rounds, so it remembers its own tool calls and
-the prior exchange. A new loop spawns a **fresh** agent with no memory of the
-previous one, and jurors are always fresh.
+Within one specialist session an agent stays **alive** across tool steps. Coder and
+Reviewer are **fresh sessions** each handoff — they do not share message history.
 
 Worklogs are an audit/debug trail on disk, **not** the agents' working memory:
 
-- **Per-instance worklog** — `agent-state/<role>/worklog/<run>/<role>_<n>.md`:
-  each agent instance's own audit record (not shared between Coder and Reviewer).
-- **Optimizer trace** — next to each session as `*.optimizer_trace.jsonl` (and
-  `agent-state/workflow/optimizer-traces/` when no session dir is set).
-- **Session state** — `agent-state/pm/session-history/`, per-session
-  `*.todo_list.md`, and planner/presenter worklogs.
+- **Per-instance worklog** — `agent-state/<role>/worklog/<run>/<role>_<n>.md`
+- **Optimizer trace** — `*.optimizer_trace.jsonl` next to each session
+- **Session state** — `agent-state/pm/session-history/`, per-session `*.todo_list.md`
 
-### Status tokens (machine-checkable, not prose)
+### Status tokens (machine-checkable)
 
-Reports start with a fixed status line so a loop can act on them deterministically:
+- **Coder:** `CODER_STATUS: READY_FOR_REVIEW | IN_PROGRESS`
+- **Reviewer:** `REVIEW_VERDICT: PASS | NEEDS_WORK | FAIL`
+- **Presenter:** `PRESENTER_STATUS: COMPLETE | IN_PROGRESS`
 
-- **L4 / L5:** `L4_STATUS:` / `L5_STATUS:` — one of `READY_FOR_REVIEW`,
-  `IN_PROGRESS`, `BLOCKED`, `PUSH_BACK`.
-- **L3:** `REVIEW_VERDICT:` — one of `PASS`, `FAIL`, `NEEDS_WORK`.
-- The runtime appends `PM_REVIEW_STATUS: OK | NEEDS_WORK` to a delivery, and the
-  PM ends each round with `BUG_STATUS: OPEN | NONE`, which drives the outer loop.
+### Limits
 
-The shared ledger tracks the negotiation with its own `WORKLOG_TOKEN`s: `ready`,
-`concern exist`, `push back`, `pass`, `needs pm` (escalate to PM), and `failure`.
-
-### Disputes: a neutral jury, not a self-judge
-
-When the worker posts `push back` and L3 still objects, L3 does **not** decide
-alone — that would be judging a complaint about its own test. Instead a **jury of
-2 fresh, independent testers** each verifies the implementation and votes:
-
-- **Both PASS** → `pass` (deliver, or mark the sub-task done).
-- **Otherwise** → `failure`.
-
-### Limits, escalation, and recovery
-
-- **Bounded everywhere:** each loop has a step cap, a wall-clock timeout, and
-  (for LLM loops) a context cap — `MAX_AGENT_STEPS` / `MAX_PM_LOOPS` for the PM,
-  `MAX_SPECIALIST_AGENT_STEPS` for one specialist turn, `MAX_L4_L3_TURNS` for a
-  review, and `MAX_L5_RALPH_TURNS` for L5. Whichever trips first ends the loop.
-- **Escalation:** an L4 or L5 failure returns to the PM (retry, re-scope, or
-  reassign). When the PM exhausts its own limits, it reports a clear blocker to
-  the user.
-- **Final check:** after all `component_task`s pass, if the project is runnable
-  the PM brings it up and debugs by hand. A bug found this way becomes a **new
-  `component_task`**; a clean run ships to the user.
+Bounded by `max_workflow_seconds`, `max_coder_reviewer_rounds`, specialist step caps,
+and context compaction. On failure the Planner can split the failed todo into smaller tasks.
 
 ## Eval (benchmarks & datasets)
 
@@ -209,7 +144,7 @@ The `evals/` tree measures LangBridge Code on real issues and builds new task da
 ### SWE-bench e2e (`evals/swe-bench/`)
 
 End-to-end benchmark on published SWE-bench instances: checkout the repo at
-`base_commit`, run the headless CLI on the issue text, capture `git diff` as the
+`base_commit`, run headless LangBridge Code on the issue text, capture `git diff` as the
 patch, then grade with the official harness (hidden tests in Docker).
 
 ```bash
@@ -340,48 +275,18 @@ sessions — move with `↑`/`↓`, `Enter` to resume, `Esc` to cancel.
 
 **Pause** (soft hold): holds the agent at the next step boundary and resumes the
 same run in place. It takes effect *between* steps, so an in-flight model call or
-tool finishes first; it also works while the PM is delegating to L4/L3.
+tool finishes first; it also works during planner/coder/reviewer steps.
 
 **Stop** (hard abort): aborts the current turn and hands control back, like
 Cursor's stop. It cancels the in-flight model request (abandoned in the
 background) instead of waiting for it, so control returns almost immediately. The
 half-finished turn is discarded so the conversation history stays valid. If a
-tool (e.g. `run_tests`) is mid-execution, Stop waits for that one tool to return
+tool (e.g. `bash`) is mid-execution, Stop waits for that one tool to return
 before unwinding — it never leaves a write half-applied.
 
 **Approvals**: when auto-approve is off, the agent posts an inline approval
-request for PM delegate calls (`ask_l4_engineer`, `ask_l5_engineer`) and for
-specialist write tools (`create_file`, `edit_file`, `delete_file`). Approve with
-`Ctrl+A` / `/approve` or deny with `Ctrl+D` / `/deny`.
-
-### Plain terminal CLI
-
-Set `LANGBRIDGE_TERMINAL=1` to use the plain REPL instead of the Textual UI:
-
-```bash
-LANGBRIDGE_TERMINAL=1 uv run --no-editable langbridge
-```
-
-Override the model or provider:
-
-```bash
-LANGBRIDGE_TERMINAL=1 LANGBRIDGE_MODEL=kimi-k2.7-code uv run langbridge-code
-LANGBRIDGE_TERMINAL=1 LANGBRIDGE_API_PROVIDER=openai LANGBRIDGE_MODEL=gpt-5.1-codex uv run langbridge-code
-```
-
-Install locally to get the `langbridge-code` command:
-
-```bash
-uv sync --no-editable
-source .venv/bin/activate
-LANGBRIDGE_TERMINAL=1 langbridge-code
-```
-
-The plain REPL runs the exact same agent loop as the Textual UI — one growing
-conversation (compacted when long) plus the PM review loop — so the two behave
-identically apart from the UI. At an approval prompt, answering `N` stops the
-current turn and returns you to the prompt for the next message. Type `/exit` to
-quit; the plain REPL has no pause button, so use **Ctrl+C** to interrupt.
+request for specialist write tools (`create_file`, `edit_file`, `delete_file`,
+`bash`). Approve with `Ctrl+A` / `/approve` or deny with `Ctrl+D` / `/deny`.
 
 ### One-shot (headless)
 
@@ -396,20 +301,19 @@ uv run python -m langbridge_code.headless "fix the failing test in foo/bar.py"
 Or pipe the task in on stdin:
 
 ```bash
-echo "add a --verbose flag to the CLI" | uv run python -m langbridge_code.headless
+echo "add a --verbose flag" | uv run python -m langbridge_code.headless
 ```
 
 ### Debug
 
-Print compact PM/L4/L5/L3 output lines to stderr (one line per model response,
-`message` and `function_call` only):
+Print compact model output lines to stderr (one line per model response):
 
 ```bash
-LANGBRIDGE_DEBUG_LLM=1 uv run --no-editable langbridge
+LANGBRIDGE_DEBUG_LLM=1 uv run --no-editable langbridge-code
 ```
 
 Optional line length cap (default `200`):
 
 ```bash
-LANGBRIDGE_DEBUG_LLM=1 LANGBRIDGE_DEBUG_LLM_MAX_CHARS=500 uv run --no-editable langbridge
+LANGBRIDGE_DEBUG_LLM=1 LANGBRIDGE_DEBUG_LLM_MAX_CHARS=500 uv run --no-editable langbridge-code
 ```
