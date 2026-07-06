@@ -19,7 +19,10 @@ src/langbridge_cli/agents/control.py
 src/langbridge_cli/agents/limits.py
 src/langbridge_cli/agents/multi_agent.py
 src/langbridge_cli/agents/roles.py
+src/langbridge_cli/agents/tdd_harness.py
+src/langbridge_cli/agents/workspace_git.py
 src/langbridge_cli/llm/__init__.py
+src/langbridge_cli/llm/client.py
 src/langbridge_cli/llm/debug.py
 src/langbridge_cli/llm/parse.py
 src/langbridge_cli/llm/tool_schema.py
@@ -45,6 +48,7 @@ src/langbridge_cli/training/bench.py
 src/langbridge_cli/training/cli.py
 src/langbridge_cli/training/evolver.py
 src/langbridge_cli/training/gate.py
+src/langbridge_cli/training/jury.py
 src/langbridge_cli/training/l3_cases.py
 src/langbridge_cli/training/langbridge_bench.py
 src/langbridge_cli/training/metrics.py

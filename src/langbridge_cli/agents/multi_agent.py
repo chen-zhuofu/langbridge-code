@@ -24,7 +24,7 @@ from langbridge_cli.agents.limits import now, over_context_budget, over_time_bud
 from langbridge_cli.agents import control
 
 
-L3_TOOL_NAMES = {"list_dir", "find_files", "read_file", "search_files", "run_tests"}
+L3_TOOL_NAMES = {"list_dir", "glob", "read_file", "grep", "run_tests"}
 L3_TOOL_SCHEMAS = with_tool_purpose(
     [
         schema
@@ -36,9 +36,9 @@ L3_TOOLS = {name: tool for name, tool in (filesystem.TOOLS | testing.TOOLS).item
 
 L4_TOOL_NAMES = {
     "list_dir",
-    "find_files",
+    "glob",
     "read_file",
-    "search_files",
+    "grep",
     "edit_file",
     "create_file",
     "delete_file",

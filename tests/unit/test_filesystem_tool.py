@@ -1,7 +1,39 @@
+import json
+
 import pytest
 
 from langbridge_cli.tools import TOOL_SCHEMAS, TOOLS
-from langbridge_cli.tools.filesystem import delete_file
+from langbridge_cli.tools.filesystem import delete_file, glob, grep
+
+
+def test_grep_and_glob_are_registered():
+    assert "glob" in TOOLS
+    assert "grep" in TOOLS
+    names = {schema["name"] for schema in TOOL_SCHEMAS}
+    assert {"glob", "grep"}.issubset(names)
+
+
+@pytest.mark.skipif(__import__("shutil").which("rg") is None, reason="ripgrep not installed")
+def test_glob_finds_files(tmp_path, monkeypatch):
+    monkeypatch.setattr("langbridge_cli.tools.filesystem.WORKSPACE_ROOT", tmp_path)
+    (tmp_path / "alpha.py").write_text("x = 1\n", encoding="utf-8")
+    (tmp_path / "beta.txt").write_text("y = 2\n", encoding="utf-8")
+
+    payload = json.loads(glob("*.py", path="."))
+
+    assert payload["matches"] == ["alpha.py"]
+
+
+@pytest.mark.skipif(__import__("shutil").which("rg") is None, reason="ripgrep not installed")
+def test_grep_finds_content(tmp_path, monkeypatch):
+    monkeypatch.setattr("langbridge_cli.tools.filesystem.WORKSPACE_ROOT", tmp_path)
+    (tmp_path / "sample.py").write_text("def hello():\n    return 'world'\n", encoding="utf-8")
+
+    payload = json.loads(grep("hello", path=".", output_mode="content"))
+
+    assert payload["matches"][0]["path"] == "sample.py"
+    assert payload["matches"][0]["line"] == 1
+    assert "def hello" in payload["matches"][0]["text"]
 
 
 def test_delete_file_is_registered():
