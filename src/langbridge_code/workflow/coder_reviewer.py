@@ -1,9 +1,9 @@
 """Coder↔Reviewer loop without shared agent context; optimizer trace only."""
 import subprocess
 
-from langbridge_cli.agents import workspace_git
-from langbridge_cli.agents.limits import now, over_time_budget
-from langbridge_cli.agents.multi_agent import (
+from langbridge_code.agents import workspace_git
+from langbridge_code.agents.limits import now, over_time_budget
+from langbridge_code.agents.multi_agent import (
     coder_ready_for_review,
     new_coder_session,
     new_reviewer_session,
@@ -11,8 +11,9 @@ from langbridge_cli.agents.multi_agent import (
     run_coder,
     run_reviewer,
 )
-from langbridge_cli.settings import MAX_CODER_REVIEWER_ROUNDS, MAX_CODER_REVIEWER_SECONDS, WORKSPACE_ROOT
-from langbridge_cli.workflow import optimizer_trace
+from langbridge_code.settings import MAX_CODER_REVIEWER_ROUNDS, MAX_CODER_REVIEWER_SECONDS, WORKSPACE_ROOT
+from langbridge_code.workflow import optimizer_trace
+from langbridge_code.workflow.phases import emit_phase
 
 
 def git_diff_since(snapshot: str | None) -> str:
@@ -42,6 +43,7 @@ def run_coder_reviewer_loop(
     run_log_path=None,
     turn_id=None,
     approval_callback=None,
+    phase_sink=None,
 ) -> tuple[bool, str]:
     """Return (passed, summary). On pass, changes are committed."""
     snapshot = workspace_git.snapshot_head()
@@ -104,14 +106,16 @@ def run_coder_reviewer_loop(
             )
             continue
 
-        diff = git_diff_since(snapshot)
-        reviewer_report = run_reviewer(
-            api_key,
-            model,
-            task,
-            reviewer_context(context, coder_report, diff),
-            session=reviewer,
-        )
+        if action == "reviewer":
+            emit_phase(phase_sink, "reviewing")
+            diff = git_diff_since(snapshot)
+            reviewer_report = run_reviewer(
+                api_key,
+                model,
+                task,
+                reviewer_context(context, coder_report, diff),
+                session=reviewer,
+            )
         optimizer_trace.append_event(
             run_log_path,
             {

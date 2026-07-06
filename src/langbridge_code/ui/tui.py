@@ -11,22 +11,22 @@ from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
 from textual.widgets import OptionList, RichLog, Static, TextArea
 
-from langbridge_cli.agents import control
-from langbridge_cli.workflow.run import run_workflow
-from langbridge_cli.settings import (
+from langbridge_code.agents import control
+from langbridge_code.workflow.run import run_workflow
+from langbridge_code.settings import (
     COMPACT_LOOP_FRACTION,
     DEFAULT_MODEL,
     MAX_AGENT_CONTEXT_TOKENS,
     load_api_key,
 )
-from langbridge_cli.persistence.context import (
+from langbridge_code.persistence.context import (
     compact_messages_if_needed,
     estimate_tokens,
     restore_full_session_messages,
     restore_session_messages,
 )
-from langbridge_cli.agents.roles import CHAT_SYSTEM_PROMPT as SYSTEM_PROMPT
-from langbridge_cli.persistence.session import (
+from langbridge_code.agents.roles import CHAT_SYSTEM_PROMPT as SYSTEM_PROMPT
+from langbridge_code.persistence.session import (
     create_run_log_path,
     label_session,
     last_turn_id,
@@ -59,9 +59,12 @@ try:
     from importlib.metadata import PackageNotFoundError, version
 
     try:
-        VERSION = version("langbridge-cli")
+        VERSION = version("langbridge-code")
     except PackageNotFoundError:
-        VERSION = "0.1.0"
+        try:
+            VERSION = version("langbridge-cli")
+        except PackageNotFoundError:
+            VERSION = "0.1.0"
 except Exception:  # noqa: BLE001
     VERSION = "0.1.0"
 
@@ -262,6 +265,7 @@ class LangBridgeTui(App):
         self.turn_snapshot = None
         self.state = "ready"
         self.streaming_phase = "idle"
+        self.workflow_step = ""
         self.cwd_display = self._short_cwd()
         self.git_branch = self._git_branch()
 
@@ -277,9 +281,9 @@ class LangBridgeTui(App):
             yield Static("", id="status_right")
 
     def on_mount(self) -> None:
-        self.title = "langbridge-cli"
+        self.title = "LangBridge Code"
         self.theme = THEME
-        self.query_one("#banner", Static).border_title = "Welcome to langbridge-cli"
+        self.query_one("#banner", Static).border_title = "LangBridge Code"
         self.start_new_session()
         self.update_status()
         self.query_one("#input", ChatInput).focus()
@@ -407,6 +411,7 @@ class LangBridgeTui(App):
                 self.run_log_path,
                 self.turn_id,
                 trace_sink=self.post_trace_event,
+                phase_sink=self.post_workflow_phase,
                 print_reply=False,
                 approval_callback=self.request_approval,
                 messages=self.messages,
@@ -421,6 +426,18 @@ class LangBridgeTui(App):
         self.call_from_thread(self.add_trace_event, event)
 
     def _sync_streaming_phase(self):
+        step_map = {
+            "routing": "thinking",
+            "planning": "composing",
+            "coding": "composing",
+            "reviewing": "thinking",
+            "presenting": "composing",
+            "refining": "composing",
+            "summarizing": "composing",
+        }
+        if self.workflow_step in step_map:
+            self.streaming_phase = step_map[self.workflow_step]
+            return
         mapping = {
             "ready": "idle",
             "thinking": "thinking",
@@ -430,6 +447,14 @@ class LangBridgeTui(App):
             "stopping": "shell",
         }
         self.streaming_phase = mapping.get(self.state, "composing")
+
+    def set_workflow_phase(self, phase):
+        self.workflow_step = getattr(phase, "step", str(phase))
+        self._sync_streaming_phase()
+        self.update_status()
+
+    def post_workflow_phase(self, phase):
+        self.call_from_thread(self.set_workflow_phase, phase)
 
     def add_trace_event(self, event):
         if event.kind in ("reasoning", "thought"):
@@ -540,6 +565,7 @@ class LangBridgeTui(App):
         self.turn_active = False
         self.turn_snapshot = None
         self.state = "ready"
+        self.workflow_step = ""
         self._sync_streaming_phase()
         control.clear_stop()
         control.resume()
@@ -652,6 +678,8 @@ class LangBridgeTui(App):
         left.append(self.model, style=ACCENT)
         left.append("  ")
         left.append(self.streaming_phase, style=self._state_style())
+        if self.workflow_step:
+            left.append(f" · {self.workflow_step}", style="dim")
         left.append("   ")
         left.append(self.cwd_display, style="dim")
         if self.git_branch:

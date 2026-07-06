@@ -1,15 +1,16 @@
 """Flat workflow entry: router → planner → todo loop → specialists."""
-from langbridge_cli.agents import control
-from langbridge_cli.agents.limits import now, over_time_budget
-from langbridge_cli.agents.roles import CHAT_SYSTEM_PROMPT
-from langbridge_cli.persistence.logging import write_finish_log, write_input_log
-from langbridge_cli.settings import MAX_WORKFLOW_SECONDS, WORKFLOW_OUTER_MULTIPLIER
-from langbridge_cli.tools.plan import read_todo_list
-from langbridge_cli.workflow import todo as todo_mod
-from langbridge_cli.workflow.coder_reviewer import run_coder_reviewer_loop
-from langbridge_cli.workflow.planner import initial_plan_prompt, refine_plan_prompt, run_planner
-from langbridge_cli.workflow.presenter import run_presenter_task
-from langbridge_cli.workflow.router import route
+from langbridge_code.agents import control
+from langbridge_code.agents.limits import now, over_time_budget
+from langbridge_code.agents.roles import CHAT_SYSTEM_PROMPT
+from langbridge_code.persistence.logging import write_finish_log, write_input_log
+from langbridge_code.settings import MAX_WORKFLOW_SECONDS, WORKFLOW_OUTER_MULTIPLIER
+from langbridge_code.tools.plan import read_todo_list
+from langbridge_code.workflow import todo as todo_mod
+from langbridge_code.workflow.coder_reviewer import run_coder_reviewer_loop
+from langbridge_code.workflow.planner import initial_plan_prompt, refine_plan_prompt, run_planner
+from langbridge_code.workflow.presenter import run_presenter_task
+from langbridge_code.workflow.phases import emit_phase
+from langbridge_code.workflow.router import route
 
 
 def run_workflow(
@@ -21,6 +22,7 @@ def run_workflow(
     trace_sink=None,
     print_reply=True,
     approval_callback=None,
+    phase_sink=None,
     messages=None,
 ):
     """Run one user turn through the flat workflow (runs to todo completion)."""
@@ -30,13 +32,16 @@ def run_workflow(
     write_input_log(run_log_path, turn_id, messages + [{"role": "user", "content": target}])
     workflow_start = now()
 
+    emit_phase(phase_sink, "routing")
     decision = route(api_key, model, target)
     if decision["kind"] == "chat":
+        emit_phase(phase_sink, "summarizing")
         reply = decision["reply"] or "Hello."
         return _finish_turn(messages, target, reply, run_log_path, turn_id, print_reply)
 
     user_task = decision["task_summary"] or target
     if decision["hard"]:
+        emit_phase(phase_sink, "planning")
         run_planner(
             api_key,
             model,
@@ -74,17 +79,20 @@ def run_workflow(
         detail = ""
 
         if task.task_type == "coding":
+            emit_phase(phase_sink, "coding")
             passed, detail = run_coder_reviewer_loop(
                 api_key,
                 model,
                 task.description,
                 context,
                 trace_sink=trace_sink,
+                phase_sink=phase_sink,
                 run_log_path=run_log_path,
                 turn_id=turn_id,
                 approval_callback=approval_callback,
             )
         elif task.task_type == "presentation":
+            emit_phase(phase_sink, "presenting")
             passed, detail = run_presenter_task(
                 api_key,
                 model,
@@ -102,6 +110,7 @@ def run_workflow(
             completed.append(f"[{task.task_type}] {task.description}")
             continue
 
+        emit_phase(phase_sink, "refining")
         run_planner(
             api_key,
             model,
@@ -111,6 +120,7 @@ def run_workflow(
             turn_id=turn_id,
         )
 
+    emit_phase(phase_sink, "summarizing")
     tasks = todo_mod.load_tasks(run_log_path)
     if todo_mod.unfinished_count(tasks) == 0 and completed:
         reply = "Workflow complete.\n\nFinished:\n" + "\n".join(f"- {item}" for item in completed)
