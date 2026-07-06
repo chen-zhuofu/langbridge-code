@@ -4,7 +4,7 @@ build/
 agent-state/
 # stray session-history dirs from older runs (RUNS_DIR now lives under agent-state/)
 session-history/
-__pycache__/
+*.egg-info/
 *.py[cod]
 
 # eval run artifacts (large/regenerable: cloned repos, grader logs, predictions)

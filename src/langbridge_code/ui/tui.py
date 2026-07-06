@@ -61,10 +61,7 @@ try:
     try:
         VERSION = version("langbridge-code")
     except PackageNotFoundError:
-        try:
-            VERSION = version("langbridge-cli")
-        except PackageNotFoundError:
-            VERSION = "0.1.0"
+        VERSION = "0.1.0"
 except Exception:  # noqa: BLE001
     VERSION = "0.1.0"
 
@@ -456,7 +453,20 @@ class LangBridgeTui(App):
     def post_workflow_phase(self, phase):
         self.call_from_thread(self.set_workflow_phase, phase)
 
+    def append_trace_line(self, event):
+        line = Text()
+        role = getattr(event, "role", "Agent")
+        text = getattr(event, "text", "")
+        if event.kind == "action":
+            line.append(f"{role}: ", style=f"dim italic {ACCENT}")
+            line.append(f"\u21b3 {text}", style="dim italic")
+        else:
+            line.append(f"{role}: ", style=f"dim italic {ACCENT}")
+            line.append(text, style="dim italic")
+        self._log().write(line)
+
     def add_trace_event(self, event):
+        self.append_trace_line(event)
         if event.kind in ("reasoning", "thought"):
             self.set_thinking(event.role, event.text)
             self.state = "thinking"

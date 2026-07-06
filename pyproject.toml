@@ -13,7 +13,6 @@ dependencies = [
 
 [project.scripts]
 langbridge-code = "langbridge_code.main:main"
-langbridge = "langbridge_code.main:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

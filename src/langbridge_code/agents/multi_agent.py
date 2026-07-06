@@ -203,6 +203,7 @@ class SpecialistSession:
             output = response.get("output", [])
             tool_calls = [item for item in output if item.get("type") == "function_call"]
             if not tool_calls:
+                print_step_trace(output, include_message=True, label=self.label, sink=self.trace_sink)
                 return self._finish(extract_output_text(output))
             print_step_trace(output, include_message=True, label=self.label, sink=self.trace_sink)
             write_worklog_step(self.run_log_path, self.label, self.worklog_id, self.turn_id, self.step, output)

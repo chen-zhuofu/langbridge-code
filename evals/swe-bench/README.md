@@ -1,8 +1,7 @@
 # SWE-bench e2e eval (L4)
 
-Measures the langbridge CLI end to end on real GitHub issues. Right now the CLI's
-only worker is the L4 engineer (with L3 review), so this is the **L4-only** eval.
-L5 and L4+L5 evals come later.
+Measures LangBridge Code end to end on real GitHub issues. The workflow runs
+coder↔reviewer on each task.
 
 ## How it works
 

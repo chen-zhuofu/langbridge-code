@@ -3,11 +3,11 @@
 <img src="assets/Langbridge_Logotype_Horizontal.svg" alt="LangBridge Code" width="360">
 
 A self-evolving coding agent with a **flat workflow** (router → planner → todo →
-coder↔reviewer). **Default backend: Moonshot Kimi** (`kimi-k2.7-code`); **also
+coder↔reviewer). **Default model: Moonshot Kimi** (`kimi-k2.7-code`); **also
 supports OpenAI** (e.g. `gpt-5.1-codex`). Configure in `~/.langbridge-code/config.json`
 (legacy `~/.langbridge/` still works) or via env vars — see [Models & providers](#models--providers).
 
-Langbridge runs a **flat workflow** pipeline: route chat vs task, plan when needed,
+LangBridge Code runs a **flat workflow** pipeline: route chat vs task, plan when needed,
 then execute todo items through a Coder↔Reviewer loop (or Presenter for slides).
 It can resume previous session history and compacts older context when the
 conversation gets long.
@@ -16,12 +16,11 @@ Start it:
 
 ```bash
 uv run langbridge-code
-# legacy alias: uv run langbridge
 ```
 
 ## Evolve (self-play training)
 
-Langbridge is **self-evolving**: an outer **evolver** improves the team over many
+LangBridge Code is **self-evolving**: an outer **evolver** improves the team over many
 tasks without editing Python source — by updating a shared **policy** (per-role
 guidance bullets and evolver-written skills) that each agent folds into its
 prompt on the next run. Code lives in `src/langbridge_code/training/`.
@@ -63,7 +62,7 @@ For a local git repo + custom specs, set `LANGBRIDGE_TARGET_REPO` and use
 
 ## Loop Engineering
 
-Langbridge is built around **loop engineering**: instead of a single one-shot
+LangBridge Code is built around **loop engineering**: instead of a single one-shot
 model call, agents run in loops until a task is done.
 
 **One user turn** runs the full workflow to completion:
@@ -81,7 +80,7 @@ User prompt
 
 Safety brakes: `max_workflow_seconds`, `max_coder_reviewer_rounds`, specialist
 step caps, and context compaction.
-## Langbridge Coding Team (workflow roles)
+## LangBridge Code team (workflow roles)
 
 - **Router** — classifies chat vs task (one-shot JSON).
 - **Planner** — breaks hard work into a markdown `todo_list`.
@@ -116,9 +115,9 @@ design notes are in `Thoughts.md`.
 - **L3:** the tester, shared inside both the L4 and L5 review loops.
 
 
-### How Langbridge works
+### How LangBridge Code works
 
-Langbridge is an engineered, multi-agent:
+LangBridge Code is an engineered, multi-agent:
 
 The PM works read-only on the workspace and delegates all writes to specialists.
 PM tools:
@@ -205,7 +204,7 @@ alone — that would be judging a complaint about its own test. Instead a **jury
 
 ## Eval (benchmarks & datasets)
 
-The `evals/` tree measures Langbridge on real issues and builds new task data.
+The `evals/` tree measures LangBridge Code on real issues and builds new task data.
 
 ### SWE-bench e2e (`evals/swe-bench/`)
 
@@ -245,7 +244,7 @@ Training eval/train reads `evals/langbridge-bench/specs/` by default. See
 
 ### Models & providers
 
-Langbridge is **not tied to a single vendor**. Package defaults in
+LangBridge Code is **not tied to a single vendor**. Package defaults in
 `src/langbridge_code/config.json` use **Moonshot Kimi**; you can switch to **OpenAI**
 (or point Moonshot at a compatible base URL) without changing agent code.
 
@@ -258,9 +257,9 @@ Switch provider:
 
 ```bash
 # one-off
-LANGBRIDGE_API_PROVIDER=openai LANGBRIDGE_MODEL=gpt-5.1-codex uv run langbridge
+LANGBRIDGE_API_PROVIDER=openai LANGBRIDGE_MODEL=gpt-5.1-codex uv run langbridge-code
 
-# or persist in ~/.langbridge/config.json
+# or persist in ~/.langbridge-code/config.json
 ```
 
 ```json
@@ -285,7 +284,7 @@ Back to Kimi (defaults):
 ### API keys
 
 On first run, `langbridge-code` asks for an API key for the **active** provider and
-saves it to `~/.langbridge/config.json` under `api_keys.<provider>`. Kimi and
+saves it to `~/.langbridge-code/config.json` under `api_keys.<provider>`. Kimi and
 OpenAI keys can live side by side:
 
 ```json
@@ -301,7 +300,7 @@ Environment overrides: `MOONSHOT_API_KEY` / `KIMI_API_KEY` (Kimi),
 `OPENAI_API_KEY` (OpenAI), `LANGBRIDGE_API_PROVIDER`, `LANGBRIDGE_MODEL`.
 
 Copy any section from `src/langbridge_code/config.json` into
-`~/.langbridge/config.json` to override limits, paths, or tool budgets.
+`~/.langbridge-code/config.json` to override limits, paths, or tool budgets.
 ### Textual UI (default)
 
 The Textual UI launches by default — a clean, command-driven layout (no button
@@ -309,12 +308,12 @@ clutter): a welcome banner, a flowing conversation, a multi-line prompt, and a
 status bar.
 
 ```bash
-uv run langbridge
+uv run langbridge-code
 ```
 
 <img src="assets/tui-screenshot.png" alt="Textual UI" width="720">
 
-While developing locally, prefer `uv run langbridge` (editable install) so code
+While developing locally, prefer `uv run langbridge-code` (editable install) so code
 changes take effect immediately. Use `uv sync --reinstall-package langbridge-code
 --no-editable` only when you need a non-editable install.
 
@@ -366,16 +365,16 @@ LANGBRIDGE_TERMINAL=1 uv run --no-editable langbridge
 Override the model or provider:
 
 ```bash
-LANGBRIDGE_TERMINAL=1 LANGBRIDGE_MODEL=kimi-k2.7-code uv run langbridge
-LANGBRIDGE_TERMINAL=1 LANGBRIDGE_API_PROVIDER=openai LANGBRIDGE_MODEL=gpt-5.1-codex uv run langbridge
+LANGBRIDGE_TERMINAL=1 LANGBRIDGE_MODEL=kimi-k2.7-code uv run langbridge-code
+LANGBRIDGE_TERMINAL=1 LANGBRIDGE_API_PROVIDER=openai LANGBRIDGE_MODEL=gpt-5.1-codex uv run langbridge-code
 ```
 
-Install locally to get the `langbridge` command:
+Install locally to get the `langbridge-code` command:
 
 ```bash
 uv sync --no-editable
 source .venv/bin/activate
-LANGBRIDGE_TERMINAL=1 langbridge
+LANGBRIDGE_TERMINAL=1 langbridge-code
 ```
 
 The plain REPL runs the exact same agent loop as the Textual UI — one growing

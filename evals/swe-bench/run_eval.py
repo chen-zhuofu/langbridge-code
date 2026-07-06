@@ -1,4 +1,4 @@
-"""Generate SWE-bench predictions by running the langbridge CLI (L4 path) on issues.
+"""Generate SWE-bench predictions by running LangBridge Code on issues.
 
 For each SWE-bench instance this:
   1. shallow-fetches the repo at base_commit into a work dir,
