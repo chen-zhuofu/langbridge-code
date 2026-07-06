@@ -22,8 +22,6 @@ WRITE_TOOLS = {
     "delete_file",
     "edit_file",
     "bash",
-    "ask_l4_engineer",
-    "ask_l5_engineer",
 }
 
 
@@ -82,15 +80,24 @@ def _bind(cfg):
         "API_PROVIDER": os.environ.get("LANGBRIDGE_API_PROVIDER", api.get("provider", "openai")),
         "API_BASE_URL": os.environ.get("LANGBRIDGE_API_BASE_URL", api.get("base_url", "")),
         "DEFAULT_MAX_GUIDANCE": cfg["max_guidance"],
-        "MAX_PM_LOOPS": agent["max_pm_loops"],
         "MAX_AGENT_STEPS": agent["max_agent_steps"],
         "MAX_SPECIALIST_AGENT_STEPS": agent["max_specialist_agent_steps"],
-        "MAX_L4_L3_TURNS": agent["max_l4_l3_turns"],
-        "MAX_L5_RALPH_TURNS": agent["max_l5_ralph_turns"],
-        "MAX_PM_SECONDS": agent["max_pm_seconds"],
-        "MAX_AGENT_SECONDS": agent["max_agent_seconds"],
         "MAX_SPECIALIST_SECONDS": agent["max_specialist_seconds"],
-        "MAX_L4_L3_SECONDS": agent["max_l4_l3_seconds"],
+        "MAX_WORKFLOW_SECONDS": agent.get("max_workflow_seconds", 3600),
+        "MAX_PLANNER_STEPS": agent.get("max_planner_steps", 30),
+        "MAX_PLANNER_SECONDS": agent.get("max_planner_seconds", 600),
+        "MAX_CODER_REVIEWER_ROUNDS": agent.get("max_coder_reviewer_rounds", 5),
+        "MAX_CODER_REVIEWER_SECONDS": agent.get("max_coder_reviewer_seconds", 1800),
+        "MAX_PRESENTER_STEPS": agent.get("max_presenter_steps", 30),
+        "MAX_PRESENTER_SECONDS": agent.get("max_presenter_seconds", 900),
+        "WORKFLOW_OUTER_MULTIPLIER": agent.get("workflow_outer_multiplier", 2),
+        # Back-compat aliases for training/eval until fully migrated.
+        "MAX_L4_L3_TURNS": agent.get("max_coder_reviewer_rounds", 5),
+        "MAX_L4_L3_SECONDS": agent.get("max_coder_reviewer_seconds", 1800),
+        "MAX_PM_LOOPS": 20,
+        "MAX_PM_SECONDS": agent.get("max_workflow_seconds", 3600),
+        "MAX_AGENT_SECONDS": agent.get("max_workflow_seconds", 3600),
+        "MAX_L5_RALPH_TURNS": 0,
         "MAX_AGENT_CONTEXT_TOKENS": context["max_agent_context_tokens"],
         "MAX_SPECIALIST_CONTEXT_TOKENS": context["max_specialist_context_tokens"],
         "MAX_TOOL_SUMMARY_OUTPUT_CHARS": context["max_tool_summary_output_chars"],
@@ -131,13 +138,19 @@ def _bind(cfg):
         workspace_root / "agent-state",
     )
     pm_state_dir = agent_state_dir / "pm"
+    workflow_state_dir = agent_state_dir / "workflow"
     globals().update({
         "WORKSPACE_ROOT": workspace_root,
         "AGENT_STATE_DIR": agent_state_dir,
+        "WORKFLOW_STATE_DIR": workflow_state_dir,
         "PM_STATE_DIR": pm_state_dir,
-        "L3_STATE_DIR": agent_state_dir / "l3",
-        "L4_STATE_DIR": agent_state_dir / "l4",
+        "L3_STATE_DIR": agent_state_dir / "reviewer",
+        "L4_STATE_DIR": agent_state_dir / "coder",
         "L5_STATE_DIR": agent_state_dir / "l5",
+        "CODER_STATE_DIR": agent_state_dir / "coder",
+        "REVIEWER_STATE_DIR": agent_state_dir / "reviewer",
+        "PLANNER_STATE_DIR": agent_state_dir / "planner",
+        "PRESENTER_STATE_DIR": agent_state_dir / "presenter",
         "RUNS_DIR": _path_override(
             "LANGBRIDGE_RUNS_DIR",
             paths.get("runs_dir"),
@@ -153,10 +166,15 @@ def _bind(cfg):
             paths.get("component_plan_dir"),
             agent_state_dir / "l5" / "component-plans",
         ),
-        "PM_WORKLOG_DIR": pm_state_dir / "worklog",
-        "L3_WORKLOG_DIR": agent_state_dir / "l3" / "worklog",
-        "L4_WORKLOG_DIR": agent_state_dir / "l4" / "worklog",
+        "PM_WORKLOG_DIR": workflow_state_dir / "worklog",
+        "L3_WORKLOG_DIR": agent_state_dir / "reviewer" / "worklog",
+        "L4_WORKLOG_DIR": agent_state_dir / "coder" / "worklog",
         "L5_WORKLOG_DIR": agent_state_dir / "l5" / "worklog",
+        "CODER_WORKLOG_DIR": agent_state_dir / "coder" / "worklog",
+        "REVIEWER_WORKLOG_DIR": agent_state_dir / "reviewer" / "worklog",
+        "PLANNER_WORKLOG_DIR": agent_state_dir / "planner" / "worklog",
+        "PRESENTER_WORKLOG_DIR": agent_state_dir / "presenter" / "worklog",
+        "OPTIMIZER_TRACE_DIR": workflow_state_dir / "optimizer-traces",
     })
 
 

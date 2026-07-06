@@ -10,15 +10,17 @@
   },
   "max_guidance": 12,
   "agent": {
-    "max_pm_loops": 20,
     "max_agent_steps": 50,
     "max_specialist_agent_steps": 30,
-    "max_l4_l3_turns": 5,
-    "max_l5_ralph_turns": 8,
-    "max_pm_seconds": 3600,
-    "max_agent_seconds": 1800,
     "max_specialist_seconds": 900,
-    "max_l4_l3_seconds": 1800
+    "max_workflow_seconds": 3600,
+    "max_planner_steps": 30,
+    "max_planner_seconds": 600,
+    "max_coder_reviewer_rounds": 5,
+    "max_coder_reviewer_seconds": 1800,
+    "max_presenter_steps": 30,
+    "max_presenter_seconds": 900,
+    "workflow_outer_multiplier": 2
   },
   "context": {
     "max_agent_context_tokens": 120000,
