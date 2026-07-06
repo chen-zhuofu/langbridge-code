@@ -26,6 +26,19 @@ uv run python -m langbridge_cli.training.cli eval --role l3 --limit 5
 # same as --source langbridge-bench (swebench is a backward-compat alias)
 ```
 
+### Parallel Docker eval (recommended for throughput)
+
+The host `training.cli eval` runner is **serial**. For parallel, isolated runs
+(one container per task, repo venv + pytest inside):
+
+```bash
+uv run python evals/langbridge-bench/run_eval_docker.py --role loop --workers 4 --limit 5
+```
+
+Options: `--role {loop,l4,l5,pm}`, `--workers`, `--limit`, `--model`, `--timeout`,
+`--out`. Results land in `evals/langbridge-bench/out/docker_run_summary.json` and
+`training/results/`.
+
 ## Pipeline
 
 | Step | What it does | Script |
