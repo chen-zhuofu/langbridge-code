@@ -5,11 +5,10 @@ A self-evolving, multi-agent coding CLI. **Default backend: Moonshot Kimi**
 agent loop. Pick the provider in `~/.langbridge/config.json` or with env vars —
 see [Models & providers](#models--providers) below.
 
-Langbridge runs a PM-led, multi-agent coding loop. The PM inspects the
-workspace, plans the work, and delegates implementation to specialist agents
-(an L4 feature engineer and an L5 senior engineer), each verified by an L3 test
-engineer. It can resume previous session history and compacts older context
-when the conversation gets long.
+Langbridge runs a **flat workflow** pipeline: route chat vs task, plan when needed,
+then execute todo items through a Coder↔Reviewer loop (or Presenter for slides).
+It can resume previous session history and compacts older context when the
+conversation gets long.
 
 Start it:
 
@@ -32,12 +31,11 @@ Two nested loops:
   from traces, propose policy changes, and **gate** them — keep a change only if
   eval metrics improve and it does not reward-hack the reviewer.
 
-**Today the evolver optimizes L4 and L3 only.** `train` reads **L4 ⇄ L3** inner-loop
-traces (from the shared L34 worklog), grades with hidden tests, and updates
-`l4` / `l3` guidance (and skills aimed at implementers/reviewers). **L5 and PM
-trace mining and policy optimization are still in development** — eval hooks exist
-(`eval --role l5`, `eval --role pm`), but `train` does not consume L5 Ralph or PM
-outer-loop traces yet.
+**Today the evolver optimizes Coder and Reviewer only.** `train` reads **coder↔reviewer**
+optimizer traces (`agent-state/workflow/optimizer-traces/*.jsonl`), grades with hidden
+tests, and updates `coder` / `reviewer` guidance (legacy policy keys `l4` / `l3` are
+mirrored for compatibility). Full workflow (`eval --role pm` / `workflow`) trace
+mining is still evolving.
 
 Per-role **eval** (hidden **FAIL_TO_PASS / PASS_TO_PASS** tests, **langbridge-bench**
 specs in `evals/langbridge-bench/specs/`):
@@ -63,61 +61,32 @@ For a local git repo + custom specs, set `LANGBRIDGE_TARGET_REPO` and use
 ## Loop Engineering
 
 Langbridge is built around **loop engineering**: instead of a single one-shot
-model call, agents run in loops, and loops are nested inside loops. Each agent
-keeps thinking, calling tools, and reading results until it decides its job is
-done.
+model call, agents run in loops until a task is done.
 
-There are three nested loops:
-
-- **Outer loop (PM):** The PM runs its own agentic loop. On each step it can
-  inspect the workspace or delegate work, read the result, and decide the next
-  move.
-- **Inner loop (L4 ⇄ L3):** When the PM delegates a normal task, that single
-  delegation is itself a full agentic loop. The L4 engineer reads files, edits
-  code, runs tests, fixes failures, and re-runs — many turns — then L3 verifies
-  it, and the two trade review turns until the work passes.
-- **Nested Ralph loop (L5 ⇄ L3):** For a HARD task the PM delegates to the L5
-  senior engineer, which splits the work into technical sub-tasks and conquers
-  them one at a time, each verified by L3 — a loop of loops.
-
-So one PM action can trigger an entire L4 or L5 run. An "agent tool" is a loop,
-not a single call.
-
-Every loop has safety brakes and quality controls:
-
-- **Step caps:** the PM loop is bounded by `MAX_AGENT_STEPS` / `MAX_PM_LOOPS`;
-  one specialist turn by `MAX_SPECIALIST_AGENT_STEPS`; a review by
-  `MAX_L4_L3_TURNS`; the L5 Ralph loop by `MAX_L5_RALPH_TURNS`. None can spin
-  forever (wall-clock and context caps back these up).
-- **Verification gate:** when L4 or L5 reports `READY_FOR_REVIEW`, the runtime
-  deterministically runs the L3 test engineer to verify the work before the PM
-  accepts it.
-- **Recovery path:** if L3 returns `NEEDS_WORK`, that feedback goes back to the
-  same (still-alive) L4/L5 so it can address it.
+**One user turn** runs the full workflow to completion:
 
 ```
-PM agentic loop                          (caps: MAX_AGENT_STEPS, MAX_PM_LOOPS)
-  ├─ ask_l4_engineer ─► L4 ⇄ L3 review loop      (cap: MAX_L4_L3_TURNS)
-  │                       └─ NEEDS_WORK ─► back to L4;  push-back ─► 2-juror jury
-  └─ ask_l5_engineer ─► L5 Ralph loop            (cap: MAX_L5_RALPH_TURNS)
-                          └─ per sub-task: L5 ⇄ L3 review  (same jury rules)
+User prompt
+  → Router (chat reply OR task)
+  → Planner (hard tasks) OR single todo item (easy)
+  → Outer loop over todo_list
+       [coding]      → Coder ↔ Reviewer (separate sessions, git diff handoff)
+       [presentation] → Presenter (.pptx)
+       on failure    → Planner refines (splits task)
+  → Summary reply
 ```
-## Langbridge Coding Team
 
-Langbridge is organized as a small coding-agent team. The current team has four
-active roles:
+Safety brakes: `max_workflow_seconds`, `max_coder_reviewer_rounds`, specialist
+step caps, and context compaction.
+## Langbridge Coding Team (workflow roles)
 
-- **PM (outer loop)**: turns user needs into a `todo_list` of component-level
-  subtasks, routes each to L4 or L5, verifies the delivery, and tracks progress.
-- **L4 feature engineer**: implements a normal `component_task` and its focused
-  unit tests.
-- **L5 senior engineer**: takes a HARD `component_task`, plans it into
-  technical sub-tasks, and builds them one at a time (a Ralph loop).
-- **L3 test engineer**: verifies L4/L5 work — reviews code and test quality and
-  runs the tests. Shared inside both the L4 and L5 loops.
+- **Router** — classifies chat vs task (one-shot JSON).
+- **Planner** — breaks hard work into a markdown `todo_list`.
+- **Coder** — implements a coding todo item; ends with `CODER_STATUS: READY_FOR_REVIEW`.
+- **Reviewer** — inspects git diff + coder summary; `REVIEW_VERDICT: PASS|NEEDS_WORK|FAIL`.
+- **Presenter** — builds `.pptx` deliverables; `PRESENTER_STATUS: COMPLETE|IN_PROGRESS`.
 
-We are hiring more agent roles. Current openings:
-- **Designer**: UI design and front-end specs.
+Legacy names (L4/L3/L5/PM) remain as aliases in policy and training for now.
 - **PM (cross-functional)**: collaboration with design, data science, product,
   and marketing.
 - **L6 engineer**: large-scale, high-concurrency system design and cross-team
@@ -191,16 +160,11 @@ previous one, and jurors are always fresh.
 Worklogs are an audit/debug trail on disk, **not** the agents' working memory:
 
 - **Per-instance worklog** — `agent-state/<role>/worklog/<run>/<role>_<n>.md`:
-  each agent instance's own record of what it received, the tools it called, what
-  came back, and its final report. A review can spin up several L3s (the reviewer
-  plus fresh jurors) and each PM round is a fresh PM, so every instance gets its
-  own file.
-- **Shared negotiation ledger** — `agent-state/l4/worklog/<run>/l34_share_<n>.md`
-  (and `l5/.../l45_share_<n>.md`): the L4↔L3 (or L5↔L3) conversation. Each turn
-  ends with a `WORKLOG_TOKEN`, which is what the loop routes on.
-- **Chat, task, component_task state** — session history (`agent-state/pm/session-history/`), the
-  per-session `todo_list` (`agent-state/pm/session-history/<run>.todo_list.md`, so a new
-  session starts fresh), and L5 component plans (`agent-state/l5/component-plans/`).
+  each agent instance's own audit record (not shared between Coder and Reviewer).
+- **Optimizer trace** — `agent-state/workflow/optimizer-traces/<run>.jsonl`:
+  append-only coder↔reviewer handoffs for offline training.
+- **Session state** — `agent-state/pm/session-history/`, per-session
+  `*.todo_list.md`, and planner/presenter worklogs.
 
 ### Status tokens (machine-checkable, not prose)
 
