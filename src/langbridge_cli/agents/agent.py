@@ -56,27 +56,61 @@ def run_pm_loop(
     approval_callback=None,
     messages=None,
 ):
-    """Run one user turn as the PM.
+    """Run one user turn as the PM agentic loop.
 
     Both entry points (the TUI and the plain REPL) drive turns through here so
     they behave identically apart from the UI. `messages` is the one growing
     conversation kept by the caller, so the PM remembers the whole session.
-    The PM agentic loop itself lives in `run_agent`, which keeps working while
-    the PM reports BUG_STATUS: OPEN, up to MAX_PM_LOOPS.
+    The PM keeps working while it reports BUG_STATUS: OPEN, up to MAX_PM_LOOPS.
     """
     if messages is None:
         messages = [{"role": "system", "content": policy.apply("pm", SYSTEM_PROMPT)}]
     messages.append({"role": "user", "content": pm_round_prompt(target, read_todo_list(run_log_path))})
-    return run_agent(
-        api_key,
-        model,
-        messages,
-        run_log_path,
-        turn_id,
-        trace_sink=trace_sink,
-        print_reply=print_reply,
-        approval_callback=approval_callback,
-    )
+
+    write_input_log(run_log_path, turn_id, messages)
+    worklog_id = new_worklog_id(run_log_path, "PM agent")
+    received = next((message.get("content", "") for message in reversed(messages) if message.get("role") == "user"), "")
+    write_worklog_received(run_log_path, "PM agent", worklog_id, turn_id, str(received))
+    turn_start = now()
+    episode_start = turn_start
+    file_store = RecentFileStore()
+    pm_round = 0
+    step = 0
+    while step < MAX_AGENT_STEPS:
+        control.checkpoint()
+        if over_time_budget(turn_start, MAX_PM_SECONDS):
+            return finish_pm(messages, "Agent stopped because it ran out of time.", run_log_path, turn_id, print_reply, worklog_id)
+        if over_time_budget(episode_start, MAX_AGENT_SECONDS):
+            return finish_pm(messages, "Agent stopped because it ran out of time.", run_log_path, turn_id, print_reply, worklog_id)
+        if over_context_budget(messages, MAX_AGENT_CONTEXT_TOKENS):
+            return finish_pm(messages, "Agent stopped because it exceeded the context budget.", run_log_path, turn_id, print_reply, worklog_id)
+        step_response = control.run_interruptible(lambda: create_response(api_key, model, messages)).get("output", [])
+        tool_calls = [item for item in step_response if item.get("type") == "function_call"]
+        print_step_trace(step_response, include_message=bool(tool_calls), label="PM agent", sink=trace_sink)
+
+        if tool_calls:
+            messages.extend(step_response)
+            write_tool_calls_log(run_log_path, turn_id, step, step_response)
+            write_worklog_step(run_log_path, "PM agent", worklog_id, turn_id, step, step_response)
+            for call in tool_calls:
+                tool_output = run_tool_call(call, api_key, model, trace_sink, approval_callback, run_log_path, turn_id)
+                record_tool_read(file_store, call.get("name"), call.get("arguments"), tool_output.get("output", ""))
+                messages.append(tool_output)
+                write_tool_calls_result_log(run_log_path, turn_id, step, tool_output)
+                write_worklog_observation(run_log_path, "PM agent", worklog_id, turn_id, step, tool_output)
+            compact_messages_if_needed(messages, max_context_tokens=MAX_AGENT_CONTEXT_TOKENS, file_store=file_store, api_key=api_key, model=model, label="PM compaction")
+            step += 1
+            continue
+
+        finished = extract_output_text(step_response)
+        if pm_should_continue(finished) and (pm_round + 1) < MAX_PM_LOOPS:
+            pm_round += 1
+            messages.append({"role": "assistant", "content": finished})
+            messages.append({"role": "user", "content": pm_continue_prompt(read_todo_list(run_log_path))})
+            episode_start = now()
+            continue
+        return finish_pm(messages, finished, run_log_path, turn_id, print_reply, worklog_id)
+    return finish_pm(messages, "Agent stopped because it reached the maximum tool-call steps.", run_log_path, turn_id, print_reply, worklog_id)
 
 
 def pm_round_prompt(target, todo_list):
@@ -122,69 +156,6 @@ def strip_bug_status(finished):
     inline, so we strip it from the end either way.
     """
     return _BUG_STATUS_RE.sub("", finished.rstrip()).rstrip()
-
-
-def run_agent(
-    api_key,
-    model,
-    input,
-    run_log_path,
-    turn_id,
-    trace_sink=None,
-    print_reply=True,
-    approval_callback=None,
-):
-    """PM agentic loop for one user turn.
-
-    One living PM instance (shared `input` messages) runs tool calls until it
-    replies without tools. If the reply ends with BUG_STATUS: OPEN, the loop
-    nudges the PM to keep working in the same session instead of starting a new
-    loop episode.
-    """
-    write_input_log(run_log_path, turn_id, input)
-    worklog_id = new_worklog_id(run_log_path, "PM agent")
-    received = next((message.get("content", "") for message in reversed(input) if message.get("role") == "user"), "")
-    write_worklog_received(run_log_path, "PM agent", worklog_id, turn_id, str(received))
-    turn_start = now()
-    episode_start = turn_start
-    file_store = RecentFileStore()
-    pm_round = 0
-    step = 0
-    while step < MAX_AGENT_STEPS:
-        control.checkpoint()
-        if over_time_budget(turn_start, MAX_PM_SECONDS):
-            return finish_pm(input, "Agent stopped because it ran out of time.", run_log_path, turn_id, print_reply, worklog_id)
-        if over_time_budget(episode_start, MAX_AGENT_SECONDS):
-            return finish_pm(input, "Agent stopped because it ran out of time.", run_log_path, turn_id, print_reply, worklog_id)
-        if over_context_budget(input, MAX_AGENT_CONTEXT_TOKENS):
-            return finish_pm(input, "Agent stopped because it exceeded the context budget.", run_log_path, turn_id, print_reply, worklog_id)
-        step_response = control.run_interruptible(lambda: create_response(api_key, model, input)).get("output", [])
-        tool_calls = [item for item in step_response if item.get("type") == "function_call"]
-        print_step_trace(step_response, include_message=bool(tool_calls), label="PM agent", sink=trace_sink)
-
-        if tool_calls:
-            input.extend(step_response)
-            write_tool_calls_log(run_log_path, turn_id, step, step_response)
-            write_worklog_step(run_log_path, "PM agent", worklog_id, turn_id, step, step_response)
-            for call in tool_calls:
-                tool_output = run_tool_call(call, api_key, model, trace_sink, approval_callback, run_log_path, turn_id)
-                record_tool_read(file_store, call.get("name"), call.get("arguments"), tool_output.get("output", ""))
-                input.append(tool_output)
-                write_tool_calls_result_log(run_log_path, turn_id, step, tool_output)
-                write_worklog_observation(run_log_path, "PM agent", worklog_id, turn_id, step, tool_output)
-            compact_messages_if_needed(input, max_context_tokens=MAX_AGENT_CONTEXT_TOKENS, file_store=file_store, api_key=api_key, model=model, label="PM compaction")
-            step += 1
-            continue
-
-        finished = extract_output_text(step_response)
-        if pm_should_continue(finished) and (pm_round + 1) < MAX_PM_LOOPS:
-            pm_round += 1
-            input.append({"role": "assistant", "content": finished})
-            input.append({"role": "user", "content": pm_continue_prompt(read_todo_list(run_log_path))})
-            episode_start = now()
-            continue
-        return finish_pm(input, finished, run_log_path, turn_id, print_reply, worklog_id)
-    return finish_pm(input, "Agent stopped because it reached the maximum tool-call steps.", run_log_path, turn_id, print_reply, worklog_id)
 
 
 def finish_pm(input, finished, run_log_path, turn_id, print_reply, worklog_id=None):

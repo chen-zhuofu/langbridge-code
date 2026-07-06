@@ -1,5 +1,5 @@
 from langbridge_cli.agents import limits
-from langbridge_cli.agents.agent import run_agent, run_l4_component
+from langbridge_cli.agents.agent import run_pm_loop, run_l4_component
 from langbridge_cli.agents.limits import over_context_budget, over_time_budget
 from langbridge_cli.agents.multi_agent import run_specialist_agent
 
@@ -55,10 +55,10 @@ def test_specialist_stops_on_time_budget(monkeypatch):
 def test_pm_agent_stops_on_time_budget(tmp_path, monkeypatch):
     monkeypatch.setattr("langbridge_cli.agents.agent.MAX_AGENT_SECONDS", 0)
 
-    finished = run_agent(
+    finished = run_pm_loop(
         "k",
         "m",
-        [{"role": "user", "content": "hi"}],
+        "hi",
         tmp_path / "run.json",
         1,
         print_reply=False,

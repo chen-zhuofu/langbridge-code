@@ -1,6 +1,6 @@
 """Functional tests that mock only the LLM boundary.
 
-These exercise the real loop wiring (run_pm_loop -> run_agent -> run_tool_call ->
+These exercise the real loop wiring (run_pm_loop -> run_tool_call ->
 the L4/L3 specialist loops) and stub just the two functions that call the model:
 agent.create_response (PM) and multi_agent.create_specialist_response (L4/L3).
 """
