@@ -3,13 +3,16 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-from langbridge_cli.settings import OPTIMIZER_TRACE_DIR
+from langbridge_code.settings import OPTIMIZER_TRACE_DIR
 
 
 def trace_path(run_log_path) -> Path:
     if run_log_path is None:
         run_log_path = "session"
-    stem = Path(str(run_log_path)).stem
+    run_log = Path(str(run_log_path))
+    stem = run_log.stem
+    if run_log.parent and str(run_log.parent) not in (".", ""):
+        return run_log.parent / f"{stem}.optimizer_trace.jsonl"
     OPTIMIZER_TRACE_DIR.mkdir(parents=True, exist_ok=True)
     return OPTIMIZER_TRACE_DIR / f"{stem}.jsonl"
 
@@ -17,6 +20,7 @@ def trace_path(run_log_path) -> Path:
 def append_event(run_log_path, event: dict) -> None:
     record = {"ts": datetime.now(timezone.utc).isoformat(), **event}
     path = trace_path(run_log_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(record, ensure_ascii=False) + "\n")
 

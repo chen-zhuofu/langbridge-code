@@ -1,5 +1,5 @@
-from langbridge_cli.llm.trace import ThoughtEvent, extract_trace_events
-from langbridge_cli.ui.tui import format_approval_request
+from langbridge_code.llm.trace import ThoughtEvent, extract_trace_events
+from langbridge_code.ui.tui import format_approval_request
 
 
 def test_extract_trace_events_prefers_tool_purpose_and_hides_it_from_action():

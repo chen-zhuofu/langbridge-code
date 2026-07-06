@@ -4,29 +4,29 @@ Examples (after setting the target repo + specs, see training/README.md):
 
   # Evaluate one role on the spec set under the current policy:
   LANGBRIDGE_TARGET_REPO=./arrow LANGBRIDGE_SPECS_DIR=training/specs \
-    python -m langbridge_cli.training.cli eval --role l4 --limit 5
+    python -m langbridge_code.training.cli eval --role l4 --limit 5
 
   # Evaluate against a frozen checkpoint instead of the live policy:
   LANGBRIDGE_POLICY_DIR=training/policy/checkpoints/epoch1 \
-    python -m langbridge_cli.training.cli eval --role l3
+    python -m langbridge_code.training.cli eval --role l3
 
   # Run the evolver (self-play) for one epoch over the spec set:
-  python -m langbridge_cli.training.cli train --epochs 1 --batch-size 2
+  python -m langbridge_code.training.cli train --epochs 1 --batch-size 2
 """
 import argparse
 import os
 
-from langbridge_cli import policy
-from langbridge_cli.settings import (
+from langbridge_code import policy
+from langbridge_code.settings import (
     DEFAULT_MODEL,
     TRAIN_DEFAULT_BATCH_SIZE,
     TRAIN_DEFAULT_CHECKPOINT_EVERY,
     TRAIN_DEFAULT_EPOCHS,
     load_api_key,
 )
-from langbridge_cli.training import bench, evolver, langbridge_bench, metrics
-from langbridge_cli.training.evals import agents_adapter, runner
-from langbridge_cli.training.l3_cases import l3_cases_from_specs
+from langbridge_code.training import bench, evolver, langbridge_bench, metrics
+from langbridge_code.training.evals import agents_adapter, runner
+from langbridge_code.training.l3_cases import l3_cases_from_specs
 
 
 def _build(args, model):
@@ -110,7 +110,7 @@ def cmd_train(args):
     evolve_fn = evolver.make_evolve_fn(api_key, evolver_model)
     jury_fn = None
     if not args.no_jury:
-        from langbridge_cli.training import jury as training_jury
+        from langbridge_code.training import jury as training_jury
 
         jury_fn = training_jury.make_jury_fn(api_key, model)
     specs = _limit(specs_for(), args)

@@ -14,5 +14,5 @@ Quick start:
 sg docker -c "uv run python evals/swe-bench/run_eval_docker.py --difficulty lite --count 10"
 
 # Self-built langbridge-bench (L3/L4/loop training eval)
-uv run python -m langbridge_cli.training.cli eval --role l3 --limit 5
+uv run python -m langbridge_code.training.cli eval --role l3 --limit 5
 ```

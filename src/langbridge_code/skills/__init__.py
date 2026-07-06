@@ -12,8 +12,11 @@ def _skill_dirs():
     mutating installed source.
     """
     dirs = [SKILLS_DIR]
+    superpowers = SKILLS_DIR / "superpowers"
+    if superpowers.is_dir():
+        dirs.append(superpowers)
     try:
-        from langbridge_cli import policy
+        from langbridge_code import policy
 
         extra = Path(policy.skills_dir())
         if extra.is_dir() and extra.resolve() != SKILLS_DIR.resolve():

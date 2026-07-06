@@ -2,8 +2,8 @@ import json
 
 import pytest
 
-from langbridge_cli.tools import TOOL_SCHEMAS, TOOLS
-from langbridge_cli.tools.execution import bash
+from langbridge_code.tools import TOOL_SCHEMAS, TOOLS
+from langbridge_code.tools.execution import bash
 
 
 def test_bash_is_registered():

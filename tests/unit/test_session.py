@@ -1,6 +1,6 @@
 import json
 
-from langbridge_cli.persistence import context as context_module
+from langbridge_code.persistence import context as context_module
 
 
 def make_record(turn_id, user, assistant, tool_output="", *, tool_name="read_file"):

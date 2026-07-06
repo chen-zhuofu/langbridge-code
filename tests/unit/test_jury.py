@@ -1,6 +1,6 @@
 import threading
 
-from langbridge_cli.training import jury as jury_module
+from langbridge_code.training import jury as jury_module
 
 
 def test_run_jurors_execute_concurrently(monkeypatch):

@@ -1,6 +1,6 @@
-from langbridge_cli.agents.agent import pm_should_continue
-from langbridge_cli.llm.parse import DIM, RESET, extract_reasoning_summaries, print_step_trace
-from langbridge_cli.agents.roles import L3_TEST_ENGINEER_PROMPT, L4_ENGINEER_PROMPT, SYSTEM_PROMPT
+from langbridge_code.agents.agent import pm_should_continue
+from langbridge_code.llm.parse import DIM, RESET, extract_reasoning_summaries, print_step_trace
+from langbridge_code.agents.roles import L3_TEST_ENGINEER_PROMPT, L4_ENGINEER_PROMPT, SYSTEM_PROMPT
 
 
 def test_workflow_runs_to_completion_in_one_call():

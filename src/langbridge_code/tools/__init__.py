@@ -1,5 +1,5 @@
-from langbridge_cli.tools import execution, filesystem, plan, skills, testing, web
-from langbridge_cli.llm.tool_schema import with_tool_purpose
+from langbridge_code.tools import execution, filesystem, plan, skills, testing, web
+from langbridge_code.llm.tool_schema import with_tool_purpose
 
 TOOL_SCHEMAS = with_tool_purpose(
     filesystem.TOOL_SCHEMAS

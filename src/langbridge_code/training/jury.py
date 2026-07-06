@@ -6,7 +6,7 @@ correctness anchor via two independent L3 reviewers.
 """
 from concurrent.futures import ThreadPoolExecutor
 
-from langbridge_cli.agents.multi_agent import l3_review_passed, run_l3_test_engineer
+from langbridge_code.agents.multi_agent import l3_review_passed, run_l3_test_engineer
 
 JUROR_COUNT = 2
 

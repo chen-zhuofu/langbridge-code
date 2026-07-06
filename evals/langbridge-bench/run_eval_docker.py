@@ -20,9 +20,9 @@ import tempfile
 import time
 from pathlib import Path
 
-from langbridge_cli.settings import EVAL_LAYER_TIMEOUT_SECONDS, GRADE_TIMEOUT_SECONDS, load_api_key
-from langbridge_cli.training import langbridge_bench, metrics
-from langbridge_cli.training.bench import split_diff
+from langbridge_code.settings import EVAL_LAYER_TIMEOUT_SECONDS, GRADE_TIMEOUT_SECONDS, load_api_key
+from langbridge_code.training import langbridge_bench, metrics
+from langbridge_code.training.bench import split_diff
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 SRC_PATH = PROJECT_ROOT / "src"
@@ -131,7 +131,7 @@ def run_agent(container, spec, layer, api_env, model, timeout):
     }
     if model:
         env["LANGBRIDGE_MODEL"] = model
-    cmd = f"python3 -m langbridge_cli.training.evals._run_layer"
+    cmd = f"python3 -m langbridge_code.training.evals._run_layer"
     try:
         result = container_exec(container, cmd, env=env, timeout=timeout, workdir=CONTAINER_REPO)
         timed_out = False

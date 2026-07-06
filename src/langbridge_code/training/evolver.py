@@ -22,13 +22,13 @@ import copy
 import datetime
 import json
 
-from langbridge_cli import policy
-from langbridge_cli.settings import (
+from langbridge_code import policy
+from langbridge_code.settings import (
     TRAIN_DEFAULT_BATCH_SIZE,
     TRAIN_DEFAULT_CHECKPOINT_EVERY,
     TRAIN_DEFAULT_EPOCHS,
 )
-from langbridge_cli.training import gate, signals
+from langbridge_code.training import gate, signals
 
 
 EVOLVER_SYSTEM = """You improve a team of coding agents by editing their shared policy, not their code.
@@ -209,7 +209,7 @@ def _has_changes(changes):
 # --------------------------------------------------------------------------- #
 def make_evolve_fn(api_key, model):
     """Return evolve_fn(prompt) -> proposal dict using the configured LLM API."""
-    from langbridge_cli.llm.client import create_model_response
+    from langbridge_code.llm.client import create_model_response
 
     def evolve_fn(prompt):
         data = create_model_response(

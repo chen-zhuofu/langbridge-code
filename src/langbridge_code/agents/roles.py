@@ -74,14 +74,14 @@ L5_ENGINEER_PROMPT = CODER_ENGINEER_PROMPT
 
 
 def planner_system_prompt():
-    from langbridge_cli import policy
+    from langbridge_code import policy
 
     return policy.apply("planner", PLANNER_PROMPT)
 
 
 def coder_system_prompt():
-    from langbridge_cli import policy
-    from langbridge_cli.agents.multi_agent import _skills_note
+    from langbridge_code import policy
+    from langbridge_code.agents.multi_agent import _skills_note
 
     base = policy.apply("coder", CODER_ENGINEER_PROMPT)
     note = _skills_note()
@@ -89,14 +89,14 @@ def coder_system_prompt():
 
 
 def reviewer_system_prompt():
-    from langbridge_cli import policy
+    from langbridge_code import policy
 
     return policy.apply("reviewer", REVIEWER_ENGINEER_PROMPT)
 
 
 def presenter_system_prompt():
-    from langbridge_cli import policy
-    from langbridge_cli.agents.multi_agent import _skills_note
+    from langbridge_code import policy
+    from langbridge_code.agents.multi_agent import _skills_note
 
     base = policy.apply("presenter", PRESENTER_ENGINEER_PROMPT)
     note = _skills_note()

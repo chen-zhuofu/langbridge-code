@@ -3,7 +3,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from langbridge_cli.settings import MAX_FILE_BYTES
+from langbridge_code.settings import MAX_FILE_BYTES
 
 WORKSPACE_ROOT = Path.cwd().resolve()
 DEFAULT_GLOB_LIMIT = 100

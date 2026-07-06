@@ -14,7 +14,7 @@ metrics.compute_metrics expects). The agent behaviour is injected:
 Keeping these injectable means the same runner is used both in tests (stubs) and
 in production (agents_adapter callables).
 """
-from langbridge_cli.training import signals
+from langbridge_code.training import signals
 
 
 def _patch_lines(diff):

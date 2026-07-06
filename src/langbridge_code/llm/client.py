@@ -5,9 +5,9 @@ import uuid
 
 from openai import OpenAI, OpenAIError, RateLimitError
 
-from langbridge_cli.llm.debug import print_llm_request, print_llm_response
-from langbridge_cli.llm.parse import extract_output_text
-from langbridge_cli.settings import API_BASE_URL, API_PROVIDER, load_config
+from langbridge_code.llm.debug import print_llm_request, print_llm_response
+from langbridge_code.llm.parse import extract_output_text
+from langbridge_code.settings import API_BASE_URL, API_PROVIDER, load_config
 
 
 def make_client(api_key):

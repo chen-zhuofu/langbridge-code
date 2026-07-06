@@ -2,13 +2,13 @@ import json
 import sys
 from datetime import datetime
 
-from langbridge_cli.llm.client import create_model_response
-from langbridge_cli.settings import (
+from langbridge_code.llm.client import create_model_response
+from langbridge_code.settings import (
     MAX_SESSION_CHOICES,
     MAX_SESSION_SUMMARY_INPUT_CHARS,
     RUNS_DIR,
 )
-from langbridge_cli.llm.parse import extract_output_text, truncate_text
+from langbridge_code.llm.parse import extract_output_text, truncate_text
 
 
 def create_run_log_path():

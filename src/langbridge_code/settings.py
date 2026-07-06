@@ -1,7 +1,7 @@
 """Load LangBridge settings from config.json.
 
-Defaults ship with the package (langbridge_cli/config.json).
-Per-user overrides live at ~/.langbridge/config.json and are deep-merged on top.
+Defaults ship with the package (langbridge_code/config.json).
+Per-user overrides live at ~/.langbridge-code/config.json (falls back to ~/.langbridge).
 Environment variables still override secrets, model, and runtime paths.
 """
 import getpass
@@ -11,7 +11,17 @@ from pathlib import Path
 
 PACKAGE_DIR = Path(__file__).resolve().parent
 DEFAULT_CONFIG_PATH = PACKAGE_DIR / "config.json"
-CONFIG_DIR = Path.home() / ".langbridge"
+
+
+def _default_config_dir() -> Path:
+    new_dir = Path.home() / ".langbridge-code"
+    legacy_dir = Path.home() / ".langbridge"
+    if new_dir.exists() or not legacy_dir.exists():
+        return new_dir
+    return legacy_dir
+
+
+CONFIG_DIR = _default_config_dir()
 USER_CONFIG_PATH = CONFIG_DIR / "config.json"
 # Back-compat alias used by main.py / TUI.
 CONFIG_PATH = USER_CONFIG_PATH

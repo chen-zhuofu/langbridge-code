@@ -1,4 +1,4 @@
-from langbridge_cli.workflow import todo as todo_mod
+from langbridge_code.workflow import todo as todo_mod
 
 
 def test_parse_and_render_todo_list():

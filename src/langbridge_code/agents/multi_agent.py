@@ -1,14 +1,14 @@
 import json
 import sys
 
-from langbridge_cli.llm.client import create_model_response
-from langbridge_cli.settings import (
+from langbridge_code.llm.client import create_model_response
+from langbridge_code.settings import (
     MAX_SPECIALIST_AGENT_STEPS,
     MAX_SPECIALIST_CONTEXT_TOKENS,
     MAX_SPECIALIST_SECONDS,
 )
-from langbridge_cli.llm.parse import extract_output_text, print_step_trace
-from langbridge_cli.agents.roles import (
+from langbridge_code.llm.parse import extract_output_text, print_step_trace
+from langbridge_code.agents.roles import (
     CODER_ENGINEER_PROMPT,
     REVIEWER_ENGINEER_PROMPT,
     coder_system_prompt,
@@ -17,20 +17,20 @@ from langbridge_cli.agents.roles import (
     l4_system_prompt,
     l5_system_prompt,
 )
-from langbridge_cli.skills import skill_catalog_text
-from langbridge_cli import policy
-from langbridge_cli.llm.tool_schema import strip_tool_purpose, with_tool_purpose
-from langbridge_cli.tools import execution, filesystem, skills, testing
-from langbridge_cli.persistence.agent_worklog import (
+from langbridge_code.skills import skill_catalog_text
+from langbridge_code import policy
+from langbridge_code.llm.tool_schema import strip_tool_purpose, with_tool_purpose
+from langbridge_code.tools import execution, filesystem, skills, testing
+from langbridge_code.persistence.agent_worklog import (
     new_worklog_id,
     write_worklog_finish,
     write_worklog_observation,
     write_worklog_received,
     write_worklog_step,
 )
-from langbridge_cli.agents.limits import now, over_context_budget, over_time_budget
-from langbridge_cli.agents import control
-from langbridge_cli.persistence.context import compact_messages_if_needed
+from langbridge_code.agents.limits import now, over_context_budget, over_time_budget
+from langbridge_code.agents import control
+from langbridge_code.persistence.context import compact_messages_if_needed
 
 
 L3_TOOL_NAMES = {"list_dir", "glob", "read_file", "grep", "run_tests"}

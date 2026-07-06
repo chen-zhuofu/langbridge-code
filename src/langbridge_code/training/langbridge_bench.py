@@ -15,8 +15,8 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from langbridge_cli.settings import EVAL_LAYER_TIMEOUT_SECONDS, GRADE_TIMEOUT_SECONDS
-from langbridge_cli.training import bench
+from langbridge_code.settings import EVAL_LAYER_TIMEOUT_SECONDS, GRADE_TIMEOUT_SECONDS
+from langbridge_code.training import bench
 
 _TEST_PATH_RE = re.compile(
     r"(^|/)(tests?|testing)(/|$)|(^|/)test_[^/]*\.py$|_test\.py$|conftest\.py$",
@@ -137,7 +137,7 @@ def _run_layer(py, repo_dir, layer, task, context="", model=None, timeout=EVAL_L
     if model:
         env["LANGBRIDGE_MODEL"] = model
     proc = subprocess.run(
-        [py, "-m", "langbridge_cli.training.evals._run_layer"],
+        [py, "-m", "langbridge_code.training.evals._run_layer"],
         cwd=repo_dir, env=env, capture_output=True, text=True, timeout=timeout,
     )
     for line in reversed(proc.stdout.splitlines()):
@@ -151,7 +151,7 @@ def _run_layer(py, repo_dir, layer, task, context="", model=None, timeout=EVAL_L
 
 
 def make_callables(workspaces, model=None, timeout=EVAL_LAYER_TIMEOUT_SECONDS):
-    from langbridge_cli.training.evals.agents_adapter import _parse_worklog
+    from langbridge_code.training.evals.agents_adapter import _parse_worklog
 
     def _agent(spec, layer):
         repo_dir, py = workspaces.prepare(spec)

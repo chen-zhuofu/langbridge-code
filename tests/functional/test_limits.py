@@ -1,8 +1,8 @@
-from langbridge_cli.agents import limits
-from langbridge_cli.agents.agent import run_l4_component
-from langbridge_cli.agents.limits import over_context_budget, over_time_budget
-from langbridge_cli.agents.multi_agent import run_specialist_agent
-from langbridge_cli.workflow.run import run_workflow
+from langbridge_code.agents import limits
+from langbridge_code.agents.agent import run_l4_component
+from langbridge_code.agents.limits import over_context_budget, over_time_budget
+from langbridge_code.agents.multi_agent import run_specialist_agent
+from langbridge_code.workflow.run import run_workflow
 
 READY = "CODER_STATUS: READY_FOR_REVIEW\nSummary: implemented"
 
@@ -32,8 +32,8 @@ def test_specialist_stops_on_context_budget(monkeypatch):
     def fake_response(api_key, model, messages, tool_schemas, label):
         raise AssertionError("model should not be called once the context budget is gone")
 
-    monkeypatch.setattr("langbridge_cli.agents.multi_agent.create_specialist_response", fake_response)
-    monkeypatch.setattr("langbridge_cli.agents.multi_agent.MAX_SPECIALIST_CONTEXT_TOKENS", 1)
+    monkeypatch.setattr("langbridge_code.agents.multi_agent.create_specialist_response", fake_response)
+    monkeypatch.setattr("langbridge_code.agents.multi_agent.MAX_SPECIALIST_CONTEXT_TOKENS", 1)
 
     report = run_specialist_agent("k", "m", "system", "user", [], {}, "Coder")
 
@@ -45,8 +45,8 @@ def test_specialist_stops_on_time_budget(monkeypatch):
     def fake_response(api_key, model, messages, tool_schemas, label):
         raise AssertionError("model should not be called once the time budget is gone")
 
-    monkeypatch.setattr("langbridge_cli.agents.multi_agent.create_specialist_response", fake_response)
-    monkeypatch.setattr("langbridge_cli.agents.multi_agent.MAX_SPECIALIST_SECONDS", 0)
+    monkeypatch.setattr("langbridge_code.agents.multi_agent.create_specialist_response", fake_response)
+    monkeypatch.setattr("langbridge_code.agents.multi_agent.MAX_SPECIALIST_SECONDS", 0)
 
     report = run_specialist_agent("k", "m", "system", "user", [], {}, "Reviewer")
 
@@ -54,9 +54,9 @@ def test_specialist_stops_on_time_budget(monkeypatch):
 
 
 def test_workflow_stops_on_time_budget(tmp_path, monkeypatch):
-    monkeypatch.setattr("langbridge_cli.workflow.run.MAX_WORKFLOW_SECONDS", 0)
+    monkeypatch.setattr("langbridge_code.workflow.run.MAX_WORKFLOW_SECONDS", 0)
     monkeypatch.setattr(
-        "langbridge_cli.workflow.run.route",
+        "langbridge_code.workflow.run.route",
         lambda *args, **kwargs: {
             "kind": "task",
             "reply": "",
@@ -73,7 +73,7 @@ def test_workflow_stops_on_time_budget(tmp_path, monkeypatch):
 
 def test_l4_compat_stops_on_time_budget(monkeypatch):
     monkeypatch.setattr(
-        "langbridge_cli.agents.agent.run_coder_reviewer_loop",
+        "langbridge_code.agents.agent.run_coder_reviewer_loop",
         lambda *args, **kwargs: (False, "Coder/reviewer loop timed out."),
     )
 

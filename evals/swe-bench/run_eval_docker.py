@@ -157,7 +157,7 @@ def run_instance(instance, namespace, artifacts_root, api_key, model, timeout):
         try:
             result = container_exec(
                 container,
-                f"python -m langbridge_cli.headless < {CONTAINER_PROBLEM}",
+                f"python -m langbridge_code.headless < {CONTAINER_PROBLEM}",
                 env=env,
                 timeout=timeout,
                 workdir=REPO_DIR,

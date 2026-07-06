@@ -18,7 +18,7 @@ so they are fully unit-testable.
 """
 import re
 
-from langbridge_cli import policy
+from langbridge_code import policy
 
 # Guidance/skills must never reference signals the agents cannot see at run time
 # (hidden tests, the ground-truth label, the jury, etc.) — that would be leaking

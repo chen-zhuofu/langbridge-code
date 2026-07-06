@@ -2,8 +2,8 @@
 import json
 import re
 
-from langbridge_cli.llm.client import create_model_response
-from langbridge_cli.agents.roles import ROUTER_PROMPT
+from langbridge_code.llm.client import create_model_response
+from langbridge_code.agents.roles import ROUTER_PROMPT
 
 _JSON_BLOCK = re.compile(r"\{[\s\S]*\}")
 

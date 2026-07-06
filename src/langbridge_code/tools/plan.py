@@ -1,4 +1,4 @@
-from langbridge_cli.settings import TODO_LIST_PATH
+from langbridge_code.settings import TODO_LIST_PATH
 
 
 TOOL_SCHEMAS = [

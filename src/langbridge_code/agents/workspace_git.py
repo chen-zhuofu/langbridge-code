@@ -7,7 +7,7 @@ accumulate. If the cwd is not a git repo, every call is a no-op.
 import subprocess
 from pathlib import Path
 
-from langbridge_cli.settings import WORKSPACE_ROOT
+from langbridge_code.settings import WORKSPACE_ROOT
 
 
 def _run_git(*args, cwd=None):

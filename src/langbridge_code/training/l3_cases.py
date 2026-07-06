@@ -5,7 +5,7 @@ Each spec expands into two cases with test-based ground truth:
   - no_fix: base + hidden tests only (should still fail)
 """
 
-from langbridge_cli.training import bench
+from langbridge_code.training import bench
 
 
 def l3_cases_from_specs(specs, grade):

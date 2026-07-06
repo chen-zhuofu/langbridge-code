@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Vendor obra/superpowers skills into src/langbridge_cli/skills/superpowers/
+# Vendor obra/superpowers skills into src/langbridge_code/skills/superpowers/
 # Source: https://github.com/obra/superpowers (MIT)
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-DEST="$ROOT/src/langbridge_cli/skills/superpowers"
+DEST="$ROOT/src/langbridge_code/skills/superpowers"
 BASE="https://raw.githubusercontent.com/obra/superpowers/main/skills"
 SKILLS=(
   brainstorming dispatching-parallel-agents executing-plans finishing-a-development-branch

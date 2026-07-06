@@ -17,9 +17,9 @@ This is distinct from:
 
 import json
 
-from langbridge_cli import settings
-from langbridge_cli.llm.parse import extract_output_text, extract_reasoning_summaries
-from langbridge_cli.llm.tool_schema import TOOL_PURPOSE_ARGUMENT
+from langbridge_code import settings
+from langbridge_code.llm.parse import extract_output_text, extract_reasoning_summaries
+from langbridge_code.llm.tool_schema import TOOL_PURPOSE_ARGUMENT
 
 
 # label -> (config dir attribute, file-name prefix)

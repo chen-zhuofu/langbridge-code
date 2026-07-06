@@ -1,9 +1,9 @@
 import os
 import sys
 
-from langbridge_cli.workflow.run import run_workflow
-from langbridge_cli.settings import DEFAULT_MODEL, load_api_key
-from langbridge_cli.persistence.session import create_run_log_path
+from langbridge_code.workflow.run import run_workflow
+from langbridge_code.settings import DEFAULT_MODEL, load_api_key
+from langbridge_code.persistence.session import create_run_log_path
 
 
 def auto_approve(label, name, arguments):

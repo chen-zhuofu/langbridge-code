@@ -1,23 +1,23 @@
 """Presenter agentic loop for presentation (pptx) tasks."""
-from langbridge_cli.agents.multi_agent import SpecialistSession, create_specialist_response
-from langbridge_cli.agents.roles import presenter_system_prompt
-from langbridge_cli.agents.limits import now, over_context_budget, over_time_budget
-from langbridge_cli.agents import control
-from langbridge_cli.llm.parse import extract_output_text, print_step_trace
-from langbridge_cli.llm.tool_schema import strip_tool_purpose, with_tool_purpose
-from langbridge_cli.persistence.agent_worklog import (
+from langbridge_code.agents.multi_agent import SpecialistSession, create_specialist_response
+from langbridge_code.agents.roles import presenter_system_prompt
+from langbridge_code.agents.limits import now, over_context_budget, over_time_budget
+from langbridge_code.agents import control
+from langbridge_code.llm.parse import extract_output_text, print_step_trace
+from langbridge_code.llm.tool_schema import strip_tool_purpose, with_tool_purpose
+from langbridge_code.persistence.agent_worklog import (
     write_worklog_finish,
     write_worklog_observation,
     write_worklog_received,
     write_worklog_step,
 )
-from langbridge_cli.persistence.context import compact_messages_if_needed
-from langbridge_cli.settings import (
+from langbridge_code.persistence.context import compact_messages_if_needed
+from langbridge_code.settings import (
     MAX_PRESENTER_SECONDS,
     MAX_PRESENTER_STEPS,
     MAX_SPECIALIST_CONTEXT_TOKENS,
 )
-from langbridge_cli.tools import execution, filesystem, skills
+from langbridge_code.tools import execution, filesystem, skills
 
 PRESENTER_TOOL_NAMES = {
     "list_dir",
@@ -126,7 +126,7 @@ class PresenterSession(SpecialistSession):
         import json
         import sys
 
-        from langbridge_cli.agents import control
+        from langbridge_code.agents import control
 
         name = call.get("name")
         call_id = call.get("call_id")

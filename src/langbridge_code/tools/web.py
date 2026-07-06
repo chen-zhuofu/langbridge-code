@@ -4,13 +4,13 @@ from html.parser import HTMLParser
 
 import httpx
 
-from langbridge_cli.settings import (
+from langbridge_code.settings import (
     DEFAULT_WEB_TIMEOUT_SECONDS,
     MAX_WEB_TIMEOUT_SECONDS,
     MAX_WEBPAGE_CHARS,
 )
 
-USER_AGENT = "langbridge-cli/0.1 (+webpage reader)"
+USER_AGENT = "langbridge-code/0.1 (+webpage reader)"
 
 # Tags whose text content is markup/scripts, not readable page content.
 _SKIP_TAGS = {"script", "style", "noscript", "template"}

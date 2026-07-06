@@ -16,9 +16,9 @@ import subprocess
 import sys
 import tempfile
 
-from langbridge_cli.settings import EVAL_LAYER_TIMEOUT_SECONDS
-from langbridge_cli.training import bench
-from langbridge_cli.workflow.optimizer_trace import trace_to_loop_rounds_from_path
+from langbridge_code.settings import EVAL_LAYER_TIMEOUT_SECONDS
+from langbridge_code.training import bench
+from langbridge_code.workflow.optimizer_trace import trace_to_loop_rounds_from_path
 
 _SRC = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
@@ -46,7 +46,7 @@ def _run_layer(worktree, layer, task, context="", model=None, timeout=EVAL_LAYER
     if model:
         extra["LANGBRIDGE_MODEL"] = model
     proc = subprocess.run(
-        [sys.executable, "-m", "langbridge_cli.training.evals._run_layer"],
+        [sys.executable, "-m", "langbridge_code.training.evals._run_layer"],
         cwd=worktree, env=_env(scratch, extra), capture_output=True, text=True,
         timeout=timeout,
     )

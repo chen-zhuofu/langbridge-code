@@ -1,6 +1,6 @@
 import copy
 
-from langbridge_cli.llm.trace import (
+from langbridge_code.llm.trace import (
     extract_output_text,
     extract_reasoning_summaries,
     extract_trace_events,

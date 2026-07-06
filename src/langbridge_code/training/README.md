@@ -69,16 +69,16 @@ export GITHUB_TOKEN=...                             # optional; raises API limit
 export LANGBRIDGE_MODEL=...                         # agent model
 
 # Evaluate one role under the current policy
-uv run python -m langbridge_cli.training.cli eval --role l4 --limit 5
-uv run python -m langbridge_cli.training.cli eval --role l3 --limit 5   # reviewer: gold + no-fix per task
-uv run python -m langbridge_cli.training.cli eval --role loop --limit 5 # same trace shape as train
+uv run python -m langbridge_code.training.cli eval --role l4 --limit 5
+uv run python -m langbridge_code.training.cli eval --role l3 --limit 5   # reviewer: gold + no-fix per task
+uv run python -m langbridge_code.training.cli eval --role loop --limit 5 # same trace shape as train
 
 # Evolver epoch (L4/L3 policy only today)
-uv run python -m langbridge_cli.training.cli train --epochs 1 --batch-size 2
+uv run python -m langbridge_code.training.cli train --epochs 1 --batch-size 2
 
 # Evaluate a frozen checkpoint instead of the live policy
 LANGBRIDGE_POLICY_DIR=training/policy/checkpoints/epoch1 \
-  uv run python -m langbridge_cli.training.cli eval --role l3
+  uv run python -m langbridge_code.training.cli eval --role l3
 ```
 
 Local git repo + specs cache:
@@ -88,10 +88,10 @@ export LANGBRIDGE_TARGET_REPO=./arrow            # a git repo with bug-fix histo
 export LANGBRIDGE_SPECS_DIR=training/specs
 
 # Build F2P/P2P specs from real fix commits
-uv run python -m langbridge_cli.training.cli specs --issues training/issues.json
+uv run python -m langbridge_code.training.cli specs --issues training/issues.json
 
-uv run python -m langbridge_cli.training.cli eval --role l4 --limit 5 --source local
-uv run python -m langbridge_cli.training.cli train --epochs 1 --batch-size 2 --source local
+uv run python -m langbridge_code.training.cli eval --role l4 --limit 5 --source local
+uv run python -m langbridge_code.training.cli train --epochs 1 --batch-size 2 --source local
 ```
 
 `issues.json` is a list of `{task_id, fix_commit, title, body_summary, hard?}`.

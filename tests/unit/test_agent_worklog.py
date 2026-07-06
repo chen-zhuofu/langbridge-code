@@ -1,4 +1,4 @@
-import langbridge_cli.persistence.agent_worklog as agent_worklog
+import langbridge_code.persistence.agent_worklog as agent_worklog
 
 
 def test_worklog_writes_nothing_without_an_active_run():
@@ -9,7 +9,7 @@ def test_worklog_writes_nothing_without_an_active_run():
 
 
 def test_worklog_appends_to_one_instance_file(tmp_path, monkeypatch):
-    monkeypatch.setattr("langbridge_cli.settings.CODER_WORKLOG_DIR", tmp_path)
+    monkeypatch.setattr("langbridge_code.settings.CODER_WORKLOG_DIR", tmp_path)
     run_log = tmp_path / "session.json"
     instance_id = 1
 
@@ -40,7 +40,7 @@ def test_worklog_appends_to_one_instance_file(tmp_path, monkeypatch):
 
 
 def test_distinct_instances_get_distinct_files(tmp_path, monkeypatch):
-    monkeypatch.setattr("langbridge_cli.settings.REVIEWER_WORKLOG_DIR", tmp_path)
+    monkeypatch.setattr("langbridge_code.settings.REVIEWER_WORKLOG_DIR", tmp_path)
     run_log = tmp_path / "session.json"
 
     first = agent_worklog.new_worklog_id(run_log, "Reviewer")

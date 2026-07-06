@@ -1,12 +1,12 @@
 import json
 
-from langbridge_cli.llm.parse import (
+from langbridge_code.llm.parse import (
     extract_output_text,
     extract_reasoning_items,
     extract_turn_user_input,
     parse_json_string,
 )
-from langbridge_cli.persistence.session import read_session_log
+from langbridge_code.persistence.session import read_session_log
 
 
 def write_input_log(run_log_path, turn_id, messages):

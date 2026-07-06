@@ -1,7 +1,7 @@
 import json
 from dataclasses import dataclass
 
-from langbridge_cli.llm.tool_schema import TOOL_PURPOSE_ARGUMENT
+from langbridge_code.llm.tool_schema import TOOL_PURPOSE_ARGUMENT
 
 
 @dataclass(frozen=True)

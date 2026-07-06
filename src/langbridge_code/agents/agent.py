@@ -1,6 +1,6 @@
 """Legacy agent entry points — workflow replaces PM/L4/L5 loops."""
-from langbridge_cli.workflow.coder_reviewer import run_coder_reviewer_loop
-from langbridge_cli.workflow.run import run_pm_loop, run_workflow
+from langbridge_code.workflow.coder_reviewer import run_coder_reviewer_loop
+from langbridge_code.workflow.run import run_pm_loop, run_workflow
 
 
 def pm_should_continue(_finished):

@@ -2,7 +2,7 @@
 import re
 from dataclasses import dataclass
 
-from langbridge_cli.tools.plan import read_todo_list, update_plan
+from langbridge_code.tools.plan import read_todo_list, update_plan
 
 _TASK_LINE = re.compile(
     r"^\s*-\s*\[(?P<done>[ xX])\]\s*\[(?P<kind>coding|presentation)\]\s*(?P<text>.+?)\s*$"

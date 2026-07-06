@@ -14,8 +14,8 @@ from __future__ import annotations
 
 import json
 
-from langbridge_cli.llm.parse import extract_output_text, truncate_text
-from langbridge_cli.settings import (
+from langbridge_code.llm.parse import extract_output_text, truncate_text
+from langbridge_code.settings import (
     COMPACT_LLM_INPUT_CHARS,
     COMPACT_LOOP_FRACTION,
     COMPACT_RECENT_FILES_KEEP,
@@ -332,7 +332,7 @@ def summarize_history_with_llm(
         "the full message history.\n\n"
         f"{truncate_text(transcript, COMPACT_LLM_INPUT_CHARS)}"
     )
-    from langbridge_cli.llm.client import create_model_response
+    from langbridge_code.llm.client import create_model_response
 
     data = create_model_response(
         api_key,
@@ -469,7 +469,7 @@ def sync_history_summary(
 def _resolve_max_context_tokens(max_context_tokens):
     if max_context_tokens is not None:
         return max_context_tokens
-    from langbridge_cli.settings import MAX_AGENT_CONTEXT_TOKENS
+    from langbridge_code.settings import MAX_AGENT_CONTEXT_TOKENS
 
     return MAX_AGENT_CONTEXT_TOKENS
 

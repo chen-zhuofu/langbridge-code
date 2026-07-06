@@ -1,4 +1,5 @@
-from langbridge_cli.workflow.optimizer_trace import (
+from langbridge_code.workflow import optimizer_trace
+from langbridge_code.workflow.optimizer_trace import (
     append_event,
     read_events,
     trace_to_loop_rounds,
@@ -23,10 +24,6 @@ def test_trace_to_loop_rounds_from_reviewer_events(tmp_path):
     assert parsed["rounds"][0]["approved"] is False
     assert parsed["rounds"][1]["approved"] is True
     assert parsed["rounds"][0]["diff"] == "diff text"
-
-    path = str(tmp_path / "session.json")
-    # trace_path uses stem of run_log
-    from langbridge_cli.workflow import optimizer_trace
 
     file_path = str(optimizer_trace.trace_path(run_log))
     parsed2 = trace_to_loop_rounds_from_path(file_path, "final")

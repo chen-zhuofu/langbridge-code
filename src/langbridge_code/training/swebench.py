@@ -1,5 +1,5 @@
 """Backward-compatible alias for langbridge_bench (old module name)."""
-from langbridge_cli.training.langbridge_bench import (  # noqa: F401
+from langbridge_code.training.langbridge_bench import (  # noqa: F401
     INSTANCES_DIR,
     SPECS_DIR,
     Workspaces,

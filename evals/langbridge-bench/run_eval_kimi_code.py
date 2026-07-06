@@ -29,8 +29,8 @@ import sys
 import time
 from pathlib import Path
 
-from langbridge_cli.settings import API_BASE_URL, DEFAULT_MODEL, GRADE_TIMEOUT_SECONDS, load_api_key
-from langbridge_cli.training import langbridge_bench, metrics
+from langbridge_code.settings import API_BASE_URL, DEFAULT_MODEL, GRADE_TIMEOUT_SECONDS, load_api_key
+from langbridge_code.training import langbridge_bench, metrics
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_KIMI_CODE_ROOT = PROJECT_ROOT.parent / "kimi-code"

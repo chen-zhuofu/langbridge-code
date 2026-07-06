@@ -27,7 +27,7 @@ Training eval/train reads **`specs/`** by default (**27 active** tasks — see
 `excluded.json`):
 
 ```bash
-uv run python -m langbridge_cli.training.cli eval --role l3 --limit 5
+uv run python -m langbridge_code.training.cli eval --role l3 --limit 5
 # same as --source langbridge-bench (swebench is a backward-compat alias)
 ```
 
@@ -72,7 +72,7 @@ Full manifest: `excluded.json`.
 ### Kimi Code CLI eval (external agent)
 
 Run the same **27 tasks** with the neighboring [Kimi Code CLI](https://github.com/MoonshotAI/kimi-code)
-(`../kimi-code`) instead of langbridge-cli's built-in PM/L4 agents:
+(`../kimi-code`) instead of LangBridge Code's built-in workflow:
 
 ```bash
 # once: install kimi (Node 18+)

@@ -10,7 +10,7 @@ used, mapped onto this repo's four roles):
   1. guidance — bullet rules appended to a role's system prompt (workflow fixes
      and cautions distilled from past runs).
   2. skills   — markdown playbooks written into POLICY_DIR/skills. They are picked
-     up by the existing read_skill tool (langbridge_cli.skills also scans the
+     up by the existing read_skill tool (langbridge_code.skills also scans the
      policy skills dir) and an index is injected into the relevant role's prompt.
 
 Layout (POLICY_DIR, default <repo>/training/policy, override with LANGBRIDGE_POLICY_DIR):
@@ -24,7 +24,7 @@ Guidance is deduped and capped (MAX_GUIDANCE per role) so prompts can't grow
 without bound — a guard against prompt bloat / mode collapse. The evolver can also
 remove/replace bullets, so it can refine instead of only stacking.
 
-This module imports nothing from langbridge_cli.agents, so it is safe to import
+This module imports nothing from langbridge_code.agents, so it is safe to import
 from the role/prompt-building code without a cycle.
 """
 import datetime
@@ -34,7 +34,7 @@ import re
 import shutil
 from pathlib import Path
 
-from langbridge_cli.settings import DEFAULT_MAX_GUIDANCE
+from langbridge_code.settings import DEFAULT_MAX_GUIDANCE
 
 # The four roles in this repo's loop-engineering architecture.
 ROLES = ("router", "planner", "coder", "reviewer", "presenter")
@@ -297,7 +297,7 @@ def replace_guidance(p, role, pairs):
 def add_skill(p, name, target, when, content):
     """Write a skill playbook (skills/<id>/SKILL.md) and register it. Returns id.
 
-    The file matches langbridge_cli.skills' format (YAML frontmatter + body), so
+    The file matches langbridge_code.skills' format (YAML frontmatter + body), so
     the existing read_skill tool and catalog pick it up once the policy skills dir
     is on the skills search path.
     """

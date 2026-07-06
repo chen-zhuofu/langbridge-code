@@ -11,7 +11,7 @@ def _grade_from_diff(task_id, diff):
 
 
 def test_eval_runners_with_stubs():
-    from langbridge_cli.training.evals import runner
+    from langbridge_code.training.evals import runner
 
     specs = [{"task_id": "t1"}, {"task_id": "t2"}]
 
@@ -42,8 +42,8 @@ def test_eval_runners_with_stubs():
 
 
 def test_evolver_accepts_improving_change():
-    from langbridge_cli import policy
-    from langbridge_cli.training import evolver
+    from langbridge_code import policy
+    from langbridge_code.training import evolver
 
     with tempfile.TemporaryDirectory() as d:
         os.environ["LANGBRIDGE_POLICY_DIR"] = d
@@ -82,8 +82,8 @@ def test_evolver_accepts_improving_change():
 
 
 def test_evolver_rolls_back_non_improving_change():
-    from langbridge_cli import policy
-    from langbridge_cli.training import evolver
+    from langbridge_code import policy
+    from langbridge_code.training import evolver
 
     with tempfile.TemporaryDirectory() as d:
         os.environ["LANGBRIDGE_POLICY_DIR"] = d
@@ -115,8 +115,8 @@ def test_evolver_rolls_back_non_improving_change():
 
 
 def test_reviewer_guidance_needs_anchor_in_evolver():
-    from langbridge_cli import policy
-    from langbridge_cli.training import evolver
+    from langbridge_code import policy
+    from langbridge_code.training import evolver
 
     with tempfile.TemporaryDirectory() as d:
         os.environ["LANGBRIDGE_POLICY_DIR"] = d

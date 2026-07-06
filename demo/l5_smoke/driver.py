@@ -2,14 +2,14 @@ import os
 import sys
 from pathlib import Path
 
-# Make langbridge_cli importable from the repo checkout regardless of install state.
+# Make langbridge_code importable from the repo checkout regardless of install state.
 REPO_SRC = Path("/home/seanlinux/langbridge-cli/src")
 if str(REPO_SRC) not in sys.path:
     sys.path.insert(0, str(REPO_SRC))
 
-from langbridge_cli.agent import run_l5_component
-from langbridge_cli.settings import DEFAULT_MODEL, load_api_key
-from langbridge_cli.session import create_run_log_path
+from langbridge_code.agent import run_l5_component
+from langbridge_code.settings import DEFAULT_MODEL, load_api_key
+from langbridge_code.session import create_run_log_path
 
 
 def auto_approve(label, name, arguments):

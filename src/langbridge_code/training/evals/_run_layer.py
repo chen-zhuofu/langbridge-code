@@ -30,9 +30,9 @@ def main():
         print(json.dumps({"error": "no task"}))
         return 1
 
-    from langbridge_cli.settings import DEFAULT_MODEL, load_api_key
-    from langbridge_cli.persistence.session import create_run_log_path
-    from langbridge_cli.workflow import optimizer_trace
+    from langbridge_code.settings import DEFAULT_MODEL, load_api_key
+    from langbridge_code.persistence.session import create_run_log_path
+    from langbridge_code.workflow import optimizer_trace
 
     api_key = load_api_key()
     model = os.environ.get("LANGBRIDGE_MODEL", DEFAULT_MODEL)
@@ -43,7 +43,7 @@ def main():
     completed = False
 
     if layer in ("workflow", "pm"):
-        from langbridge_cli.workflow.run import run_workflow
+        from langbridge_code.workflow.run import run_workflow
 
         report = run_workflow(
             api_key,
@@ -57,7 +57,7 @@ def main():
         completed = "Workflow complete" in report
         approved = completed
     elif layer in ("coder", "l4", "l5"):
-        from langbridge_cli.agents.agent import run_l4_component
+        from langbridge_code.agents.agent import run_l4_component
 
         report = run_l4_component(
             api_key,
@@ -70,7 +70,7 @@ def main():
         approved = "WORKFLOW_REVIEW_STATUS: OK" in report
         completed = approved
     elif layer in ("reviewer", "l3"):
-        from langbridge_cli.agents.multi_agent import reviewer_review_passed, run_reviewer
+        from langbridge_code.agents.multi_agent import reviewer_review_passed, run_reviewer
 
         report = run_reviewer(
             api_key,

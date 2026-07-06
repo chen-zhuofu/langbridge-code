@@ -1,19 +1,19 @@
-from langbridge_cli.agents.agent import pm_should_continue, run_l4_component
-from langbridge_cli.agents.multi_agent import (
+from langbridge_code.agents.agent import pm_should_continue, run_l4_component
+from langbridge_code.agents.multi_agent import (
     L4_TOOL_SCHEMAS,
     max_steps_report,
     reviewer_review_passed,
     run_specialist_agent,
     run_specialist_tool_call,
 )
-from langbridge_cli.agents.roles import (
+from langbridge_code.agents.roles import (
     CHAT_SYSTEM_PROMPT,
     CODER_ENGINEER_PROMPT,
     L3_TEST_ENGINEER_PROMPT,
     L4_ENGINEER_PROMPT,
     SYSTEM_PROMPT,
 )
-from langbridge_cli.tools import MAIN_TOOL_SCHEMAS, MAIN_TOOLS, TOOLS
+from langbridge_code.tools import MAIN_TOOL_SCHEMAS, MAIN_TOOLS, TOOLS
 
 
 def test_workflow_does_not_continue_after_one_turn():
@@ -69,7 +69,7 @@ def test_reviewer_passed_requires_pass_verdict():
 
 
 def test_coder_write_tool_requires_approval(monkeypatch):
-    monkeypatch.setattr("langbridge_cli.agents.multi_agent.approve_l4_write_tool", lambda name, arguments: False)
+    monkeypatch.setattr("langbridge_code.agents.multi_agent.approve_l4_write_tool", lambda name, arguments: False)
 
     result = run_specialist_tool_call(
         {
@@ -90,7 +90,7 @@ def test_coder_write_tool_requires_approval(monkeypatch):
 
 
 def test_coder_write_tool_runs_after_approval(monkeypatch):
-    monkeypatch.setattr("langbridge_cli.agents.multi_agent.approve_l4_write_tool", lambda name, arguments: True)
+    monkeypatch.setattr("langbridge_code.agents.multi_agent.approve_l4_write_tool", lambda name, arguments: True)
 
     result = run_specialist_tool_call(
         {
@@ -111,7 +111,7 @@ def test_coder_write_tool_runs_after_approval(monkeypatch):
 
 
 def test_specialist_tool_strips_purpose_before_execution(monkeypatch):
-    monkeypatch.setattr("langbridge_cli.agents.multi_agent.approve_l4_write_tool", lambda name, arguments: True)
+    monkeypatch.setattr("langbridge_code.agents.multi_agent.approve_l4_write_tool", lambda name, arguments: True)
 
     result = run_specialist_tool_call(
         {
@@ -152,7 +152,7 @@ def test_coder_write_tool_uses_approval_callback():
 
 def test_run_l4_component_delegates_to_coder_reviewer(monkeypatch):
     monkeypatch.setattr(
-        "langbridge_cli.agents.agent.run_coder_reviewer_loop",
+        "langbridge_code.agents.agent.run_coder_reviewer_loop",
         lambda *args, **kwargs: (True, "CODER_STATUS: READY_FOR_REVIEW\nSummary: done"),
     )
 
@@ -198,9 +198,9 @@ def test_specialist_max_steps_fallback_reports_tool_history(monkeypatch):
             ]
         }
 
-    monkeypatch.setattr("langbridge_cli.agents.multi_agent.MAX_SPECIALIST_AGENT_STEPS", 1)
-    monkeypatch.setattr("langbridge_cli.agents.multi_agent.create_specialist_response", fake_response)
-    monkeypatch.setattr("langbridge_cli.agents.multi_agent.approve_l4_write_tool", lambda name, arguments: True)
+    monkeypatch.setattr("langbridge_code.agents.multi_agent.MAX_SPECIALIST_AGENT_STEPS", 1)
+    monkeypatch.setattr("langbridge_code.agents.multi_agent.create_specialist_response", fake_response)
+    monkeypatch.setattr("langbridge_code.agents.multi_agent.approve_l4_write_tool", lambda name, arguments: True)
 
     report = run_specialist_agent(
         "key",

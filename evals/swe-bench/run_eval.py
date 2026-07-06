@@ -85,7 +85,7 @@ def run_agent(repo_dir, problem_statement, artifacts_dir, model, timeout):
 
     try:
         result = subprocess.run(
-            [sys.executable, "-m", "langbridge_cli.headless", problem_statement],
+            [sys.executable, "-m", "langbridge_code.headless", problem_statement],
             cwd=repo_dir,
             env=env,
             timeout=timeout,

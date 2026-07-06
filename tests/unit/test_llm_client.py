@@ -1,6 +1,6 @@
 import json
 
-from langbridge_cli.llm.client import from_chat_message, to_chat_messages, to_chat_tools
+from langbridge_code.llm.client import from_chat_message, to_chat_messages, to_chat_tools
 
 
 class _Fn:

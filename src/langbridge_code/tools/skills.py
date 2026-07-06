@@ -1,4 +1,4 @@
-from langbridge_cli.skills import list_skills, load_skill
+from langbridge_code.skills import list_skills, load_skill
 
 _AVAILABLE = list_skills()
 

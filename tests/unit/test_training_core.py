@@ -6,7 +6,7 @@ import pytest
 
 
 def test_l3_cases_from_specs():
-    from langbridge_cli.training.l3_cases import l3_cases_from_specs
+    from langbridge_code.training.l3_cases import l3_cases_from_specs
 
     specs = [{"task_id": "t1", "base_commit": "abc", "problem_statement": "fix bug",
                "gold_code_patch": "FIX", "test_patch": "tests", "test_files": ["t.py"]}]
@@ -22,7 +22,7 @@ def test_l3_cases_from_specs():
     assert bad["gt_pass"] is False and bad["diff"] == ""
 
 
-    from langbridge_cli.training import metrics
+    from langbridge_code.training import metrics
 
     l4_rows = [
         {"task_id": "a", "gt_pass": True, "turns": 3, "patch_lines": 10},
@@ -57,7 +57,7 @@ def test_l3_cases_from_specs():
 
 
 def test_metrics_pm_and_l5():
-    from langbridge_cli.training import metrics
+    from langbridge_code.training import metrics
 
     pm_rows = [
         {"completed": True, "gt_pass": True, "component_tasks": 3, "l5_fraction": 0.0},
@@ -74,7 +74,7 @@ def test_metrics_pm_and_l5():
 
 
 def test_record_and_leaderboard_roundtrip():
-    from langbridge_cli.training import metrics
+    from langbridge_code.training import metrics
 
     with tempfile.TemporaryDirectory() as d:
         os.environ["LANGBRIDGE_EVAL_RESULTS_DIR"] = d
@@ -94,7 +94,7 @@ def test_record_and_leaderboard_roundtrip():
 
 
 def test_signals_responsiveness_alignment_calibration():
-    from langbridge_cli.training import signals
+    from langbridge_code.training import signals
 
     trace = {
         "rounds": [
@@ -118,7 +118,7 @@ def test_signals_responsiveness_alignment_calibration():
 
 
 def test_signals_batch_patterns():
-    from langbridge_cli.training import signals
+    from langbridge_code.training import signals
 
     traces = [
         {"rounds": [{"approved": False, "comments": ""}], "labels": {"reward_hack": True}},
@@ -131,8 +131,8 @@ def test_signals_batch_patterns():
 
 
 def test_gate_apply_proposal_reviewer_anchor():
-    from langbridge_cli import policy
-    from langbridge_cli.training import gate
+    from langbridge_code import policy
+    from langbridge_code.training import gate
 
     with tempfile.TemporaryDirectory() as d:
         os.environ["LANGBRIDGE_POLICY_DIR"] = d
@@ -157,8 +157,8 @@ def test_gate_apply_proposal_reviewer_anchor():
 
 
 def test_gate_strips_oracle_leaks():
-    from langbridge_cli import policy
-    from langbridge_cli.training import gate
+    from langbridge_code import policy
+    from langbridge_code.training import gate
 
     with tempfile.TemporaryDirectory() as d:
         os.environ["LANGBRIDGE_POLICY_DIR"] = d
@@ -177,7 +177,7 @@ def test_gate_strips_oracle_leaks():
 
 
 def test_gate_scoring_and_acceptance():
-    from langbridge_cli.training import gate
+    from langbridge_code.training import gate
 
     assert gate.sample_score(True, True) == 0
     assert gate.sample_score(True, False) == -3   # reward hack worst

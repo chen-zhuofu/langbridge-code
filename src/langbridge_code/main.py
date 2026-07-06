@@ -5,7 +5,7 @@ from pathlib import Path
 if __package__ in (None, ""):
     sys.path.append(str(Path(__file__).resolve().parents[1]))
 
-from langbridge_cli.ui.tui import run_tui
+from langbridge_code.ui.tui import run_tui
 
 
 def main():

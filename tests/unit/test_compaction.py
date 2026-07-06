@@ -2,8 +2,8 @@ import json
 import sys
 import types
 
-from langbridge_cli.persistence import context as context_module
-from langbridge_cli.persistence.context import (
+from langbridge_code.persistence import context as context_module
+from langbridge_code.persistence.context import (
     CLEARED_PREFIX,
     HISTORY_SUMMARY_PREFIX,
     clear_old_tool_outputs,
@@ -156,9 +156,9 @@ def test_summarize_history_with_llm(monkeypatch):
             ]
         }
 
-    fake_client = types.ModuleType("langbridge_cli.llm.client")
+    fake_client = types.ModuleType("langbridge_code.llm.client")
     fake_client.create_model_response = fake_response
-    monkeypatch.setitem(sys.modules, "langbridge_cli.llm.client", fake_client)
+    monkeypatch.setitem(sys.modules, "langbridge_code.llm.client", fake_client)
 
     summary = context_module.summarize_history_with_llm("key", "model", messages, label="test compaction")
     assert "widget API" in summary

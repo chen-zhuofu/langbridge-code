@@ -18,7 +18,7 @@ A checked box means that sub-task passed L3 review.
 
 import re
 
-from langbridge_cli.settings import COMPONENT_PLAN_DIR
+from langbridge_code.settings import COMPONENT_PLAN_DIR
 
 
 _CHECKBOX = re.compile(r"^\s*-\s*\[([ xX])\]\s*(.+?)\s*$")

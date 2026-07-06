@@ -3,7 +3,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from langbridge_cli.settings import (
+from langbridge_code.settings import (
     DEFAULT_TEST_TIMEOUT_SECONDS,
     MAX_TEST_OUTPUT_CHARS,
     MAX_TEST_TIMEOUT_SECONDS,

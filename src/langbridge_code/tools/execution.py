@@ -2,7 +2,7 @@ import json
 import subprocess
 from pathlib import Path
 
-from langbridge_cli.settings import (
+from langbridge_code.settings import (
     DEFAULT_EXECUTION_TIMEOUT_SECONDS,
     MAX_EXECUTION_OUTPUT_CHARS,
     MAX_EXECUTION_TIMEOUT_SECONDS,

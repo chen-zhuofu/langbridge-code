@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-import langbridge_cli.settings as settings
+import langbridge_code.settings as settings
 
 
 def test_load_api_key_uses_provider_specific_key(monkeypatch, tmp_path):
