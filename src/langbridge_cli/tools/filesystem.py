@@ -67,7 +67,19 @@ TOOL_SCHEMAS = [
                 "path": {
                     "type": "string",
                     "description": "File path relative to the current workspace.",
-                }
+                },
+                "start_line": {
+                    "type": "integer",
+                    "description": "Optional 1-based start line for a partial read.",
+                },
+                "end_line": {
+                    "type": "integer",
+                    "description": "Optional 1-based end line for a partial read (inclusive).",
+                },
+                "function_name": {
+                    "type": "string",
+                    "description": "Optional Python function name to extract from the file.",
+                },
             },
             "required": ["path"],
             "additionalProperties": False,
@@ -281,7 +293,10 @@ def glob(pattern, path=".", max_results=DEFAULT_GLOB_LIMIT):
 
 
 @tool("read_file")
-def read_file(path):
+def read_file(path, start_line=None, end_line=None, function_name=None):
+    if function_name and (start_line is not None or end_line is not None):
+        raise ValueError("Specify function_name or a line range, not both")
+
     target = resolve_workspace_path(path)
     if not target.exists():
         raise FileNotFoundError(f"No such file: {path}")
@@ -297,9 +312,56 @@ def read_file(path):
     except UnicodeDecodeError:
         raise ValueError(f"File is not valid UTF-8 text: {path}")
 
+    if function_name:
+        return _format_function_excerpt(path, text, function_name)
+
+    lines = text.splitlines()
+    total_lines = len(lines)
+    if start_line is not None or end_line is not None:
+        start = max(1, int(start_line or 1))
+        end = min(total_lines, int(end_line or total_lines))
+        if start > end:
+            raise ValueError("start_line must be <= end_line")
+        selected = lines[start - 1 : end]
+        body = "\n".join(f"{index}| {line}" for index, line in enumerate(selected, start=start))
+        header = f"# {path} lines {start}-{end} ({total_lines} lines total)"
+        if truncated:
+            body += f"\n\n[truncated after {MAX_FILE_BYTES} bytes]"
+        return f"{header}\n{body}"
+
     if truncated:
         text += f"\n\n[truncated after {MAX_FILE_BYTES} bytes]"
     return text
+
+
+def _format_function_excerpt(path, text, function_name):
+    import re
+
+    lines = text.splitlines()
+    pattern = re.compile(rf"^(\s*)def {re.escape(function_name)}\s*\(")
+    start_index = None
+    indent = ""
+    for index, line in enumerate(lines):
+        match = pattern.match(line)
+        if match:
+            start_index = index
+            indent = match.group(1)
+            break
+    if start_index is None:
+        raise ValueError(f"Function {function_name!r} not found in {path}")
+
+    end_index = len(lines)
+    for index in range(start_index + 1, len(lines)):
+        line = lines[index]
+        if not line.strip():
+            continue
+        if line.startswith(indent) and not line.startswith(indent + " "):
+            if line.lstrip().startswith(("def ", "class ", "async def ")):
+                end_index = index
+                break
+
+    excerpt = "\n".join(lines[start_index:end_index])
+    return f"# {path} function `{function_name}`\n{excerpt}"
 
 
 @tool("grep")

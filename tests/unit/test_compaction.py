@@ -98,8 +98,8 @@ def test_protected_read_file_output_indices():
 
 def test_clear_old_tool_outputs_keeps_recent_rounds():
     messages = [{"role": "system", "content": "sys"}]
-    _tool_round(messages, "read_file", {"path": "old.py"}, "OLD CONTENT", call_id="c1")
-    _tool_round(messages, "read_file", {"path": "mid.py"}, "MID CONTENT", call_id="c2")
+    _tool_round(messages, "grep", {"pattern": "old"}, "OLD CONTENT", call_id="c1")
+    _tool_round(messages, "grep", {"pattern": "mid"}, "MID CONTENT", call_id="c2")
     _tool_round(messages, "read_file", {"path": "new.py"}, "NEW CONTENT", call_id="c3")
 
     cleared = context_module.clear_old_tool_outputs(messages, keep_recent_steps=1)
@@ -112,7 +112,7 @@ def test_clear_old_tool_outputs_keeps_recent_rounds():
 def test_maybe_compact_messages_triggers_over_threshold(monkeypatch):
     monkeypatch.setattr(context_module, "COMPACT_LOOP_FRACTION", 0.01)
     messages = [{"role": "system", "content": "x" * 5000}]
-    _tool_round(messages, "read_file", {"path": "a.py"}, "A" * 8000, call_id="c1")
+    _tool_round(messages, "grep", {"pattern": "a"}, "A" * 8000, call_id="c1")
     _tool_round(messages, "read_file", {"path": "b.py"}, "B" * 8000, call_id="c2")
 
     result = context_module.maybe_compact_messages(

@@ -3,16 +3,17 @@ import json
 from langbridge_cli.persistence import context as context_module
 
 
-def make_record(turn_id, user, assistant, tool_output=""):
+def make_record(turn_id, user, assistant, tool_output="", *, tool_name="read_file"):
     call_id = f"call_{turn_id}"
     step = {"step": 0}
     if tool_output:
+        arguments = {"path": f"file_{turn_id}.py"} if tool_name == "read_file" else {"pattern": "needle"}
         step["output"] = [
             {
                 "type": "function_call",
                 "call_id": call_id,
-                "name": "read_file",
-                "arguments": json.dumps({"path": f"file_{turn_id}.py"}),
+                "name": tool_name,
+                "arguments": json.dumps(arguments),
             },
             {"type": "function_call_output", "call_id": call_id, "output": tool_output},
         ]
@@ -30,7 +31,7 @@ def make_record(turn_id, user, assistant, tool_output=""):
 
 def test_restore_session_messages_compacts_large_sessions(monkeypatch):
     records = [
-        make_record(1, "old task", "old answer", "old output " * 200),
+        make_record(1, "old task", "old answer", "old output " * 200, tool_name="grep"),
         make_record(2, "recent task", "recent answer", "recent output"),
     ]
     monkeypatch.setattr(context_module, "COMPACT_LOOP_FRACTION", 0.01)
