@@ -12,7 +12,7 @@ from textual.screen import ModalScreen
 from textual.widgets import OptionList, RichLog, Static, TextArea
 
 from langbridge_cli.agents import control
-from langbridge_cli.agents.agent import run_pm_loop
+from langbridge_cli.workflow.run import run_workflow
 from langbridge_cli.settings import (
     COMPACT_LOOP_FRACTION,
     DEFAULT_MODEL,
@@ -25,7 +25,7 @@ from langbridge_cli.persistence.context import (
     restore_full_session_messages,
     restore_session_messages,
 )
-from langbridge_cli.agents.roles import SYSTEM_PROMPT
+from langbridge_cli.agents.roles import CHAT_SYSTEM_PROMPT as SYSTEM_PROMPT
 from langbridge_cli.persistence.session import (
     create_run_log_path,
     label_session,
@@ -261,6 +261,7 @@ class LangBridgeTui(App):
         self.turn_active = False
         self.turn_snapshot = None
         self.state = "ready"
+        self.streaming_phase = "idle"
         self.cwd_display = self._short_cwd()
         self.git_branch = self._git_branch()
 
@@ -348,6 +349,7 @@ class LangBridgeTui(App):
         control.resume()
         self.turn_active = True
         self.state = "thinking"
+        self._sync_streaming_phase()
         self.turn_snapshot = list(self.messages)
         self.update_status()
         self.run_worker(lambda: self.run_turn(text), thread=True)
@@ -398,7 +400,7 @@ class LangBridgeTui(App):
                 self.call_from_thread(self.add_chat_line, "(compacted older context to stay under the token budget)")
 
         try:
-            reply = run_pm_loop(
+            reply = run_workflow(
                 self.api_key,
                 self.model,
                 text,
@@ -418,12 +420,27 @@ class LangBridgeTui(App):
     def post_trace_event(self, event):
         self.call_from_thread(self.add_trace_event, event)
 
+    def _sync_streaming_phase(self):
+        mapping = {
+            "ready": "idle",
+            "thinking": "thinking",
+            "working": "composing",
+            "waiting for approval": "waiting",
+            "paused": "waiting",
+            "stopping": "shell",
+        }
+        self.streaming_phase = mapping.get(self.state, "composing")
+
     def add_trace_event(self, event):
         if event.kind in ("reasoning", "thought"):
             self.set_thinking(event.role, event.text)
             self.state = "thinking"
+        elif getattr(event, "tool_name", None) == "bash" or event.kind == "shell":
+            self.state = "working"
+            self.streaming_phase = "shell"
         else:
             self.state = "working"
+            self.streaming_phase = "composing"
         self.update_status()
 
     # --- approvals --------------------------------------------------------
@@ -448,6 +465,7 @@ class LangBridgeTui(App):
             self.write_system(details, style="dim")
         self.write_system("Ctrl+A approve \u00b7 Ctrl+D deny  (or /approve, /deny)", style="dim")
         self.state = "waiting for approval"
+        self._sync_streaming_phase()
         self.update_status()
         shown.set()
 
@@ -459,6 +477,7 @@ class LangBridgeTui(App):
         self.pending_approval = None
         self.write_system("\u2713 Approved." if approved else "\u2717 Denied.", style=GREEN if approved else RED)
         self.state = "working"
+        self._sync_streaming_phase()
         self.update_status()
         ready.set()
 
@@ -482,10 +501,12 @@ class LangBridgeTui(App):
         if control.is_paused():
             control.resume()
             self.state = "working"
+            self._sync_streaming_phase()
             self.write_system("Resumed.", style="dim")
         else:
             control.pause()
             self.state = "paused"
+            self._sync_streaming_phase()
             self.write_system("Paused. The agent stops at the next step; /pause or Ctrl+P to continue.", style=YELLOW)
         self.update_status()
 
@@ -496,6 +517,7 @@ class LangBridgeTui(App):
         if self.pending_approval is not None:
             self.resolve_approval(False)
         self.state = "stopping"
+        self._sync_streaming_phase()
         self.update_status()
         self.write_system("Stopping the agent...", style=RED)
 
@@ -518,6 +540,7 @@ class LangBridgeTui(App):
         self.turn_active = False
         self.turn_snapshot = None
         self.state = "ready"
+        self._sync_streaming_phase()
         control.clear_stop()
         control.resume()
         input_box = self.query_one("#input", ChatInput)
@@ -628,7 +651,7 @@ class LangBridgeTui(App):
         left = Text()
         left.append(self.model, style=ACCENT)
         left.append("  ")
-        left.append(self.state, style=self._state_style())
+        left.append(self.streaming_phase, style=self._state_style())
         left.append("   ")
         left.append(self.cwd_display, style="dim")
         if self.git_branch:

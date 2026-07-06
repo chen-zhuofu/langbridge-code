@@ -8,7 +8,15 @@ from langbridge_cli.settings import (
     MAX_SPECIALIST_SECONDS,
 )
 from langbridge_cli.llm.parse import extract_output_text, print_step_trace
-from langbridge_cli.agents.roles import L3_TEST_ENGINEER_PROMPT, L4_ENGINEER_PROMPT, L5_ENGINEER_PROMPT
+from langbridge_cli.agents.roles import (
+    CODER_ENGINEER_PROMPT,
+    REVIEWER_ENGINEER_PROMPT,
+    coder_system_prompt,
+    reviewer_system_prompt,
+    l3_system_prompt,
+    l4_system_prompt,
+    l5_system_prompt,
+)
 from langbridge_cli.skills import skill_catalog_text
 from langbridge_cli import policy
 from langbridge_cli.llm.tool_schema import strip_tool_purpose, with_tool_purpose
@@ -82,87 +90,72 @@ def _skills_note():
 
 
 def l4_system_prompt():
-    base = L4_ENGINEER_PROMPT
-    note = _skills_note()
-    if note:
-        base += "\n\n" + note
-    return policy.apply("l4", base)
-
-
-def l5_system_prompt():
-    base = L5_ENGINEER_PROMPT
-    note = _skills_note()
-    if note:
-        base += "\n\n" + note
-    return policy.apply("l5", base)
+    return coder_system_prompt()
 
 
 def l3_system_prompt():
-    return policy.apply("l3", L3_TEST_ENGINEER_PROMPT)
+    return reviewer_system_prompt()
 
 
-# The run_lN_* helpers send ONE turn to a specialist. Pass a live `session` to keep
-# the same agent alive across a loop (it remembers its own tool calls/results and
-# the prior exchange); omit it to spawn a brand-new one-shot agent (e.g. a juror).
-def run_l3_test_engineer(api_key, model, task, context="", trace_sink=None, run_log_path=None, turn_id=None, session=None):
+def l5_system_prompt():
+    return coder_system_prompt()
+
+
+# The run_* helpers send ONE turn to a specialist. Pass a live `session` to keep
+# the same agent alive across a loop; omit it for a one-shot agent (e.g. jury).
+def run_reviewer(api_key, model, task, context="", trace_sink=None, run_log_path=None, turn_id=None, session=None):
     if session is None:
-        session = new_l3_session(api_key, model, trace_sink=trace_sink, run_log_path=run_log_path, turn_id=turn_id)
-    return session.send(l3_user_prompt(task, context))
+        session = new_reviewer_session(api_key, model, trace_sink=trace_sink, run_log_path=run_log_path, turn_id=turn_id)
+    return session.send(reviewer_user_prompt(task, context))
 
 
-def run_l4_engineer(api_key, model, task, context="", feedback="", trace_sink=None, approval_callback=None, run_log_path=None, turn_id=None, session=None, user_prompt=None):
+def run_coder(api_key, model, task, context="", feedback="", trace_sink=None, approval_callback=None, run_log_path=None, turn_id=None, session=None, user_prompt=None):
     if session is None:
-        session = new_l4_session(api_key, model, trace_sink=trace_sink, approval_callback=approval_callback, run_log_path=run_log_path, turn_id=turn_id)
-    prompt = user_prompt if user_prompt is not None else l4_l5_user_prompt(task, context, feedback)
+        session = new_coder_session(api_key, model, trace_sink=trace_sink, approval_callback=approval_callback, run_log_path=run_log_path, turn_id=turn_id)
+    prompt = user_prompt if user_prompt is not None else coder_user_prompt(task, context, feedback)
     return session.send(prompt)
 
 
-def run_l5_engineer(api_key, model, task, context="", feedback="", trace_sink=None, approval_callback=None, run_log_path=None, turn_id=None, session=None, user_prompt=None):
-    if session is None:
-        session = new_l5_session(api_key, model, trace_sink=trace_sink, approval_callback=approval_callback, run_log_path=run_log_path, turn_id=turn_id)
-    prompt = user_prompt if user_prompt is not None else l4_l5_user_prompt(task, context, feedback)
-    return session.send(prompt)
+# Legacy names
+run_l3_test_engineer = run_reviewer
+run_l4_engineer = run_coder
+run_l5_engineer = run_coder
 
 
-def l3_user_prompt(task, context):
+def reviewer_user_prompt(task, context):
     prompt = f"Task to verify:\n{task}"
     if context:
-        prompt += f"\n\nAdditional context from the lead agent:\n{context}"
+        prompt += f"\n\nReview context:\n{context}"
     return prompt
 
 
-# Shared by L4 and L5 (both implement code and answer to L3 review). Produces:
-#
-#     Task to implement:
-#     <task>
-#
-#     Additional context from the lead agent:   # only if context is given
-#     <context>
-#
-#     L3 feedback to address:                    # only on review rounds, if feedback is given
-#     <feedback>
-def l4_l5_user_prompt(task, context, feedback):
+def coder_user_prompt(task, context, feedback):
     prompt = f"Task to implement:\n{task}"
     if context:
-        prompt += f"\n\nAdditional context from the lead agent:\n{context}"
+        prompt += f"\n\nAdditional context:\n{context}"
     if feedback:
-        prompt += f"\n\nL3 feedback to address:\n{feedback}"
+        prompt += f"\n\nReviewer feedback to address:\n{feedback}"
     return prompt
 
 
-def l3_review_passed(report):
+# Back-compat alias
+l3_user_prompt = reviewer_user_prompt
+l4_l5_user_prompt = coder_user_prompt
+
+
+def reviewer_review_passed(report):
     first_line = report.strip().splitlines()[0].strip().lower() if report.strip() else ""
     return first_line == "review_verdict: pass"
 
 
-def l4_ready_for_review(report):
+def coder_ready_for_review(report):
     first_line = report.strip().splitlines()[0].strip().lower() if report.strip() else ""
-    return first_line == "l4_status: ready_for_review"
+    return first_line in {"coder_status: ready_for_review", "l4_status: ready_for_review", "l5_status: ready_for_review"}
 
 
-def l5_ready_for_review(report):
-    first_line = report.strip().splitlines()[0].strip().lower() if report.strip() else ""
-    return first_line == "l5_status: ready_for_review"
+l3_review_passed = reviewer_review_passed
+l4_ready_for_review = coder_ready_for_review
+l5_ready_for_review = coder_ready_for_review
 
 
 class SpecialistSession:
@@ -246,27 +239,24 @@ def run_specialist_agent(api_key, model, system_prompt, user_prompt, tool_schema
     return session.send(user_prompt)
 
 
-def new_l3_session(api_key, model, trace_sink=None, run_log_path=None, turn_id=None):
+def new_reviewer_session(api_key, model, trace_sink=None, run_log_path=None, turn_id=None):
     return SpecialistSession(
-        api_key, model, l3_system_prompt(), L3_TOOL_SCHEMAS, L3_TOOLS, "L3 test engineer",
+        api_key, model, reviewer_system_prompt(), L3_TOOL_SCHEMAS, L3_TOOLS, "Reviewer",
         trace_sink=trace_sink, run_log_path=run_log_path, turn_id=turn_id,
     )
 
 
-def new_l4_session(api_key, model, trace_sink=None, approval_callback=None, run_log_path=None, turn_id=None, write_guard=None):
+def new_coder_session(api_key, model, trace_sink=None, approval_callback=None, run_log_path=None, turn_id=None, write_guard=None):
     return SpecialistSession(
-        api_key, model, l4_system_prompt(), L4_TOOL_SCHEMAS, L4_TOOLS, "L4 engineer",
+        api_key, model, coder_system_prompt(), L4_TOOL_SCHEMAS, L4_TOOLS, "Coder",
         trace_sink=trace_sink, approval_callback=approval_callback, run_log_path=run_log_path, turn_id=turn_id,
         write_guard=write_guard,
     )
 
 
-def new_l5_session(api_key, model, trace_sink=None, approval_callback=None, run_log_path=None, turn_id=None, write_guard=None):
-    return SpecialistSession(
-        api_key, model, l5_system_prompt(), L5_TOOL_SCHEMAS, L5_TOOLS, "L5 engineer",
-        trace_sink=trace_sink, approval_callback=approval_callback, run_log_path=run_log_path, turn_id=turn_id,
-        write_guard=write_guard,
-    )
+new_l3_session = new_reviewer_session
+new_l4_session = new_coder_session
+new_l5_session = new_coder_session
 
 
 def create_specialist_response(api_key, model, messages, tool_schemas, label):
@@ -292,7 +282,7 @@ def run_specialist_tool_call(call, tools, label, approval_callback=None, write_g
             guard_error = write_guard(name, arguments)
             if guard_error:
                 raise PermissionError(guard_error)
-        if label in ("L4 engineer", "L5 engineer") and name in L4_WRITE_TOOLS and not approve_l4_tool_write(
+        if label in ("Coder", "L4 engineer", "L5 engineer") and name in L4_WRITE_TOOLS and not approve_coder_tool_write(
             label,
             name,
             arguments,
@@ -306,10 +296,13 @@ def run_specialist_tool_call(call, tools, label, approval_callback=None, write_g
     return {"type": "function_call_output", "call_id": call_id, "output": output}
 
 
-def approve_l4_tool_write(label, name, arguments, approval_callback=None):
+def approve_coder_tool_write(label, name, arguments, approval_callback=None):
     if approval_callback is not None:
         return approval_callback(label, name, arguments)
     return approve_l4_write_tool(name, arguments)
+
+
+approve_l4_tool_write = approve_coder_tool_write
 
 
 def max_steps_report(label, tool_history):
@@ -318,9 +311,9 @@ def max_steps_report(label, tool_history):
 
 def stopped_report(label, reason, tool_history):
     header = f"{label} stopped because it {reason}."
-    if label == "L4 engineer":
-        header = "L4_STATUS: IN_PROGRESS\nSummary: " + header
-    elif label == "L5 engineer":
+    if label in ("Coder", "L4 engineer"):
+        header = "CODER_STATUS: IN_PROGRESS\nSummary: " + header
+    elif label in ("L5 engineer",):
         header = "L5_STATUS: IN_PROGRESS\nSummary: " + header
     if not tool_history:
         return header

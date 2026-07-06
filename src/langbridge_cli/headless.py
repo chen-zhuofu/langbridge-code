@@ -1,7 +1,7 @@
 import os
 import sys
 
-from langbridge_cli.agents.agent import run_pm_loop
+from langbridge_cli.workflow.run import run_workflow
 from langbridge_cli.settings import DEFAULT_MODEL, load_api_key
 from langbridge_cli.persistence.session import create_run_log_path
 
@@ -20,7 +20,7 @@ def main():
     api_key = load_api_key()
     model = os.environ.get("LANGBRIDGE_MODEL", DEFAULT_MODEL)
     run_log_path = create_run_log_path()
-    run_pm_loop(
+    run_workflow(
         api_key,
         model,
         task,

@@ -37,13 +37,19 @@ from pathlib import Path
 from langbridge_cli.settings import DEFAULT_MAX_GUIDANCE
 
 # The four roles in this repo's loop-engineering architecture.
-ROLES = ("pm", "l4", "l5", "l3")
-# Skill targets the evolver may use; expanded to concrete roles by skills_for().
+ROLES = ("router", "planner", "coder", "reviewer", "presenter")
+LEGACY_ROLES = ("pm", "l4", "l5", "l3")
 _TARGET_ALIASES = {
-    "implementer": ("l4", "l5"),
-    "engineer": ("l4", "l5"),
-    "both": ("l4", "l5"),
+    "implementer": ("coder",),
+    "engineer": ("coder",),
+    "reviewer": ("reviewer",),
+    "both": ("coder", "reviewer"),
     "all": ROLES,
+    # Legacy aliases
+    "l4": ("coder",),
+    "l3": ("reviewer",),
+    "l5": ("coder",),
+    "pm": ("router", "planner"),
 }
 
 MAX_GUIDANCE = int(os.environ.get("LANGBRIDGE_MAX_GUIDANCE", str(DEFAULT_MAX_GUIDANCE)))
@@ -77,7 +83,7 @@ def checkpoints_dir() -> str:
 
 def _default():
     base = {"version": 0, "skills": [], "history": []}
-    for role in ROLES:
+    for role in ROLES + LEGACY_ROLES:
         base[role] = {"guidance": []}
     return base
 
@@ -93,10 +99,41 @@ def load():
     for k, v in base.items():
         if k not in p:
             p[k] = v
-    for role in ROLES:
+    for role in ROLES + LEGACY_ROLES:
         p.setdefault(role, {})
         p[role].setdefault("guidance", [])
+    _migrate_legacy_roles(p)
     return p
+
+
+def _migrate_legacy_roles(p):
+    """Copy guidance from old pm/l4/l5/l3 policy slots into workflow roles."""
+    legacy = {
+        "pm": ("router", "planner"),
+        "l4": ("coder",),
+        "l3": ("reviewer",),
+        "l5": ("coder",),
+    }
+    for old, targets in legacy.items():
+        block = p.get(old)
+        if not isinstance(block, dict):
+            continue
+        bullets = block.get("guidance") or []
+        for target in targets:
+            slot = p.setdefault(target, {"guidance": []})
+            slot.setdefault("guidance", [])
+            for bullet in bullets:
+                if bullet not in slot["guidance"]:
+                    slot["guidance"].append(bullet)
+    # Mirror workflow roles onto legacy slots for offline training (Phase 2 migration).
+    mirrors = {"coder": "l4", "reviewer": "l3", "planner": "pm", "router": "pm"}
+    for new_role, legacy_role in mirrors.items():
+        src = p.get(new_role, {}).get("guidance") or []
+        dst = p.setdefault(legacy_role, {"guidance": []})
+        dst.setdefault("guidance", [])
+        for bullet in src:
+            if bullet not in dst["guidance"]:
+                dst["guidance"].append(bullet)
 
 
 def save(p):
@@ -167,11 +204,29 @@ def _slug(name):
     return s or "skill"
 
 
+_LEGACY_TO_WORKFLOW = {"l4": "coder", "l5": "coder", "l3": "reviewer", "pm": "planner"}
+_WORKFLOW_TO_LEGACY = {"coder": "l4", "reviewer": "l3", "planner": "pm", "router": "pm"}
+
+
+def _canonical_role(role):
+    if role in ROLES:
+        return role
+    return _LEGACY_TO_WORKFLOW.get(role)
+
+
+def _sync_legacy_guidance(p):
+    for workflow_role, legacy_role in _WORKFLOW_TO_LEGACY.items():
+        src = p.get(workflow_role, {}).get("guidance") or []
+        dst = p.setdefault(legacy_role, {"guidance": []})
+        dst["guidance"] = list(src)
+
+
 def add_guidance(p, role, bullets):
     """Append new, non-duplicate bullets; cap to MAX_GUIDANCE (drop oldest)."""
-    if role not in ROLES:
+    canon = _canonical_role(role)
+    if canon not in ROLES:
         return []
-    cur = p[role]["guidance"]
+    cur = p[canon]["guidance"]
     have = {b.strip().lower() for b in cur}
     added = []
     for b in bullets or []:
@@ -181,7 +236,8 @@ def add_guidance(p, role, bullets):
             have.add(b.lower())
             added.append(b)
     if len(cur) > MAX_GUIDANCE:
-        p[role]["guidance"] = cur[-MAX_GUIDANCE:]
+        p[canon]["guidance"] = cur[-MAX_GUIDANCE:]
+    _sync_legacy_guidance(p)
     return added
 
 
@@ -194,24 +250,27 @@ def _guidance_match(cur, needle):
 
 def remove_guidance(p, role, needles):
     """Drop guidance bullets matching any needle (case-insensitive substring)."""
-    if role not in ROLES:
+    canon = _canonical_role(role)
+    if canon not in ROLES:
         return []
-    cur = p[role]["guidance"]
+    cur = p[canon]["guidance"]
     drop = set()
     for nd in needles or []:
         drop.update(_guidance_match(cur, nd))
     removed = [cur[i] for i in sorted(drop)]
     if drop:
-        p[role]["guidance"] = [b for i, b in enumerate(cur) if i not in drop]
+        p[canon]["guidance"] = [b for i, b in enumerate(cur) if i not in drop]
+    _sync_legacy_guidance(p)
     return removed
 
 
 def replace_guidance(p, role, pairs):
     """Rewrite bullets in place. Each pair is {old, new}: `old` matches an existing
     bullet by substring (first match) and is overwritten by `new`."""
-    if role not in ROLES:
+    canon = _canonical_role(role)
+    if canon not in ROLES:
         return []
-    cur = p[role]["guidance"]
+    cur = p[canon]["guidance"]
     applied = []
     for pr in pairs or []:
         if not isinstance(pr, dict):
@@ -230,7 +289,8 @@ def replace_guidance(p, role, pairs):
         cur[i] = new
         applied.append(new)
     if len(cur) > MAX_GUIDANCE:
-        p[role]["guidance"] = cur[-MAX_GUIDANCE:]
+        p[canon]["guidance"] = cur[-MAX_GUIDANCE:]
+    _sync_legacy_guidance(p)
     return applied
 
 
