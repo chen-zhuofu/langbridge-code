@@ -1,27 +1,16 @@
-# Training: eval + evolver for PM / L4 / L5 / L3
+# Training: eval + evolver for the workflow agents
 
-This subsystem distills the "next-door" coder/reviewer self-play worktrial into
-this repo. The idea is the same two-loop design:
-
-- **Worker loop** (already in this repo): for one task, L4/L5 implement and L3
-  reviews, back and forth, until L3 passes or limits trip.
-- **Optimizer loop** (the evolver): across many tasks, mine signals from traces and
-  improve agents — not by editing code, but by editing a shared **policy**
-  (guidance bullets + skills) that each role folds into its prompt.
+The evolver improves **Coder** and **Reviewer** policy (legacy keys `l4` / `l3`)
+from optimizer trace JSONL files — not from the old L34 shared worklog.
 
 ## What `train` optimizes today
 
-**The evolver currently optimizes L4 and L3 only.**
-
-- `train` runs the **L4 ⇄ L3** inner review loop (`loop_fn`, default `layer="l4"`),
-  reconstructs traces from the **L34 shared worklog**, grades final diffs with
-  hidden tests, and proposes updates to **`l4` and `l3` guidance** (plus skills
-  aimed at implementers/reviewers).
-- **L5 and PM are not wired into `train` yet.** Eval hooks exist (`eval --role l5`,
-  `eval --role pm`), but the evolver does not read L5 Ralph (`l45_share`) or PM
-  outer-loop traces (todo_list, routing, BUG_STATUS). Policy slots for `pm` and
-  `l5` exist and are injected at runtime, but **trace mining + optimization for
-  those roles is still in development.**
+- `train` runs the **coder↔reviewer** loop (`loop_fn`, default `layer="l4"`),
+  reconstructs rounds from **`agent-state/workflow/optimizer-traces/*.jsonl`**,
+  grades final diffs with hidden tests, and proposes updates to coder/reviewer
+  guidance.
+- Full **workflow** trace mining (router/planner/presenter) is still evolving.
+  Eval hooks accept legacy `--role` names (`l4`, `l3`, `pm`, `loop`).
 
 Default task source for eval/train: on-disk specs in `evals/langbridge-bench/specs/`
 (`--source langbridge-bench`; `swebench` is a backward-compat alias). Use

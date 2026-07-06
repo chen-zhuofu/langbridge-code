@@ -10,9 +10,9 @@ one L4<->L3 review can spin up several L3s (the main reviewer, plus fresh jurors
 and each PM round is a fresh, memoryless PM -- every one writes to a separate
 file. Files are grouped per run: agent-state/<role>/worklog/<run>/<role>_<n>.md.
 
-This is distinct from the two other records:
-  - the shared worker<->L3 negotiation ledger (persistence/worklog.py), and
-  - the user<->PM session history (persistence/session.py).
+This is distinct from:
+  - the optimizer trace JSONL (workflow/optimizer_trace.py), and
+  - the user session history (persistence/session.py).
 """
 
 import json
@@ -25,9 +25,14 @@ from langbridge_cli.llm.tool_schema import TOOL_PURPOSE_ARGUMENT
 # label -> (config dir attribute, file-name prefix)
 _WORKLOG_FILE_BY_LABEL = {
     "PM agent": ("PM_WORKLOG_DIR", "pm"),
-    "L3 test engineer": ("L3_WORKLOG_DIR", "l3"),
-    "L4 engineer": ("L4_WORKLOG_DIR", "l4"),
-    "L5 engineer": ("L5_WORKLOG_DIR", "l5"),
+    "Planner": ("PLANNER_WORKLOG_DIR", "planner"),
+    "Presenter": ("PRESENTER_WORKLOG_DIR", "presenter"),
+    "Coder": ("CODER_WORKLOG_DIR", "coder"),
+    "Reviewer": ("REVIEWER_WORKLOG_DIR", "reviewer"),
+    # Legacy labels (training / compat)
+    "L3 test engineer": ("REVIEWER_WORKLOG_DIR", "reviewer"),
+    "L4 engineer": ("CODER_WORKLOG_DIR", "coder"),
+    "L5 engineer": ("CODER_WORKLOG_DIR", "coder"),
 }
 
 # (run, label) -> count of instances handed out so far. Resets naturally per run

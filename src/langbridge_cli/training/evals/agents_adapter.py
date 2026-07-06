@@ -1,21 +1,14 @@
-"""agents_adapter.py — drive the REAL L3/L4/L5/PM agents for eval/evolver.
+"""agents_adapter.py — drive the REAL workflow agents for eval/evolver.
 
-Builds the injectable callables the runners/evolver expect (coder_fn, review_fn,
-loop_fn, pm_fn) by, for each task:
+Builds injectable callables (coder_fn, review_fn, loop_fn, pm_fn) by:
 
   1. creating a fresh git worktree of the target repo at the task's base_commit,
-  2. running one agent layer in a subprocess (cwd = that worktree, so the tools are
-     sandboxed to it) via langbridge_cli.training.evals._run_layer,
+  2. running one agent layer in a subprocess (cwd = that worktree),
   3. capturing the candidate's source changes with `git diff`,
-  4. (for loop_fn) reconstructing a coarse trace from the shared L4/L3 worklog.
+  4. (for loop_fn) reconstructing a coarse trace from the optimizer JSONL trace.
 
-This is the integration seam that depends on the chosen target repo + model. The
-scoring/evolver logic around it is model-agnostic and unit-tested separately.
-
-NOTE: full per-round diffs are not recovered from the worklog, so responsiveness/
-alignment from the subprocess path are approximate; the worklog gives the per-round
-verdicts/comments/push-backs/jury, which is enough for calibration + patterns. A
-future improvement is to have the loop emit a structured trace directly.
+NOTE: per-round diffs in the trace are the final diff repeated; verdicts and
+comments come from reviewer_turn events in the optimizer trace.
 """
 import json
 import os
@@ -25,6 +18,7 @@ import tempfile
 
 from langbridge_cli.settings import EVAL_LAYER_TIMEOUT_SECONDS
 from langbridge_cli.training import bench
+from langbridge_cli.workflow.optimizer_trace import trace_to_loop_rounds_from_path
 
 _SRC = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
@@ -69,42 +63,15 @@ def _run_layer(worktree, layer, task, context="", model=None, timeout=EVAL_LAYER
     return parsed
 
 
-# --------------------------------------------------------------------------- #
-# Worklog -> coarse trace reconstruction (for loop_fn).                        #
-# --------------------------------------------------------------------------- #
-def _parse_worklog(path, final_diff):
-    rounds = []
-    pushed_back = jury = False
-    if not path or not os.path.exists(path):
-        return {"rounds": rounds, "pushed_back": pushed_back, "jury_convened": jury}
-    text = open(path).read()
-    for chunk in text.split("### ")[1:]:
-        head, _, body = chunk.partition("\n")
-        role = head.strip()
-        token = ""
-        for ln in body.splitlines():
-            if ln.startswith("WORKLOG_TOKEN:"):
-                token = ln.split(":", 1)[1].strip().lower()
-        if "Dispute jury" in role:
-            jury = True
-        if token == "push back":
-            pushed_back = True
-        if role.startswith("L3"):
-            approved = token == "pass"
-            rounds.append({
-                "round": len(rounds) + 1,
-                "diff": final_diff,
-                "approved": approved,
-                "verdict": "pass" if approved else "needs_work",
-                "comments": body.strip(),
-                "pushed_back": False,
-            })
-    return {"rounds": rounds, "pushed_back": pushed_back, "jury_convened": jury}
+def _parse_trace(out, final_diff):
+    trace_file = out.get("optimizer_trace") or out.get("shared_worklog") or ""
+    return trace_to_loop_rounds_from_path(trace_file, final_diff)
 
 
-# --------------------------------------------------------------------------- #
-# The injectable callables.                                                    #
-# --------------------------------------------------------------------------- #
+# Legacy name used by langbridge_bench.
+_parse_worklog = _parse_trace
+
+
 def make_callables(repo=None, model=None, timeout=EVAL_LAYER_TIMEOUT_SECONDS):
     repo = repo or bench.TARGET_REPO
 
@@ -144,7 +111,7 @@ def make_callables(repo=None, model=None, timeout=EVAL_LAYER_TIMEOUT_SECONDS):
         try:
             out = _run_layer(wt, layer, spec["problem_statement"], model=model, timeout=timeout)
             final_diff = _capture_diff(wt)
-            parsed = _parse_worklog(out.get("shared_worklog", ""), final_diff)
+            parsed = _parse_trace(out, final_diff)
             return {
                 "task": spec["problem_statement"], "worker": layer,
                 "rounds": parsed["rounds"] or [
@@ -163,7 +130,7 @@ def make_callables(repo=None, model=None, timeout=EVAL_LAYER_TIMEOUT_SECONDS):
     def pm_fn(spec):
         wt = _worktree(spec)
         try:
-            out = _run_layer(wt, "pm", spec["problem_statement"], model=model, timeout=timeout)
+            out = _run_layer(wt, "workflow", spec["problem_statement"], model=model, timeout=timeout)
             return {"completed": bool(out.get("completed")), "diff": _capture_diff(wt),
                     "component_tasks": None, "pm_rounds": None, "l5_fraction": None}
         finally:

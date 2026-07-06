@@ -99,7 +99,7 @@ def apply_proposal(p, proposal, allow_reviewer=True):
             continue
         # A skill targeting the reviewer is gated the same way as its guidance.
         target = sk.get("target", "all")
-        if policy._TARGET_ALIASES.get(target, (target,)) == ("l3",) and not allow_reviewer:
+        if policy._TARGET_ALIASES.get(target, (target,)) == ("reviewer",) and not allow_reviewer:
             changes.setdefault("skipped", []).append("skill for l3: no anchor this batch")
             continue
         sid = policy.add_skill(p, sk.get("name", "skill"), target,
