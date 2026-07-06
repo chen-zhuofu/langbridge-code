@@ -1,5 +1,4 @@
 import langbridge_cli.agents.agent as agent_module
-from langbridge_cli.tools import registry as tools_registry
 from langbridge_cli.agents.agent import add_hidden_tool_context, run_l4_component, run_tool_call
 from langbridge_cli.agents.multi_agent import max_steps_report, run_specialist_agent, run_specialist_tool_call
 from langbridge_cli.tools import MAIN_TOOL_SCHEMAS, MAIN_TOOLS, TOOL_SCHEMAS, TOOLS, l4_tool_schemas, main_tool_schemas, main_tools
@@ -72,7 +71,7 @@ def test_hidden_tool_context_is_passed_only_when_supported():
 def test_pm_tool_strips_purpose_before_execution(monkeypatch):
     tools = main_tools(model="gpt-4.1")
     tools["read_file"] = lambda **arguments: sorted(arguments)
-    monkeypatch.setattr(tools_registry, "main_tools", lambda **kwargs: tools)
+    monkeypatch.setattr(agent_module, "main_tools", lambda **kwargs: tools)
 
     result = run_tool_call(
         {
@@ -98,7 +97,7 @@ def test_l3_tool_uses_runner(monkeypatch):
         calls.append((api_key, model, task, context))
         return "L3 verdict"
 
-    monkeypatch.setattr("langbridge_cli.tools.agents.run_l3_test_engineer", fake_runner)
+    monkeypatch.setattr("langbridge_cli.agents.multi_agent.run_l3_test_engineer", fake_runner)
 
     result = ask_l3_test_engineer("verify tests", "changed tests/test_x.py", api_key="key", model="model")
 

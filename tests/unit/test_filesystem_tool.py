@@ -8,9 +8,10 @@ from langbridge_cli.tools.search import kimi_glob, kimi_grep, openai_glob_file_s
 
 
 def test_openai_search_tools_are_registered():
+    openai_schemas = tool_schemas(profile="openai")
     assert "grep_files" in TOOLS
     assert "glob_file_search" in TOOLS
-    names = {schema["name"] for schema in TOOL_SCHEMAS}
+    names = {schema["name"] for schema in openai_schemas}
     assert {"grep_files", "glob_file_search"}.issubset(names)
 
 
@@ -57,7 +58,7 @@ def test_main_tool_schemas_switch_with_profile():
 
 @pytest.mark.skipif(__import__("shutil").which("rg") is None, reason="ripgrep not installed")
 def test_openai_glob_finds_files(tmp_path, monkeypatch):
-    monkeypatch.setattr("langbridge_cli.tools.search.WORKSPACE_ROOT", tmp_path)
+    monkeypatch.setattr("langbridge_cli.tools.filesystem.WORKSPACE_ROOT", tmp_path)
     (tmp_path / "alpha.py").write_text("x = 1\n", encoding="utf-8")
     (tmp_path / "beta.txt").write_text("y = 2\n", encoding="utf-8")
 
@@ -68,7 +69,7 @@ def test_openai_glob_finds_files(tmp_path, monkeypatch):
 
 @pytest.mark.skipif(__import__("shutil").which("rg") is None, reason="ripgrep not installed")
 def test_kimi_grep_finds_content(tmp_path, monkeypatch):
-    monkeypatch.setattr("langbridge_cli.tools.search.WORKSPACE_ROOT", tmp_path)
+    monkeypatch.setattr("langbridge_cli.tools.filesystem.WORKSPACE_ROOT", tmp_path)
     (tmp_path / "sample.py").write_text("def hello():\n    return 'world'\n", encoding="utf-8")
 
     payload = json.loads(kimi_grep("hello", path=".", output_mode="content"))
@@ -80,7 +81,7 @@ def test_kimi_grep_finds_content(tmp_path, monkeypatch):
 
 @pytest.mark.skipif(__import__("shutil").which("rg") is None, reason="ripgrep not installed")
 def test_openai_grep_files_lists_paths(tmp_path, monkeypatch):
-    monkeypatch.setattr("langbridge_cli.tools.search.WORKSPACE_ROOT", tmp_path)
+    monkeypatch.setattr("langbridge_cli.tools.filesystem.WORKSPACE_ROOT", tmp_path)
     (tmp_path / "sample.py").write_text("def hello():\n    return 'world'\n", encoding="utf-8")
 
     payload = json.loads(openai_grep_files("hello", path="."))
