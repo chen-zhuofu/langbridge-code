@@ -11,8 +11,8 @@ from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
 from textual.widgets import OptionList, RichLog, Static, TextArea
 
-from langbridge_code.agents import control
-from langbridge_code.workflow.run import run_workflow
+from langbridge_code.agents.common import control
+from langbridge_code.agents.main_agent import MainAgentSession
 from langbridge_code.settings import (
     COMPACT_LOOP_FRACTION,
     DEFAULT_MODEL,
@@ -25,7 +25,19 @@ from langbridge_code.persistence.context import (
     restore_full_session_messages,
     restore_session_messages,
 )
-from langbridge_code.agents.roles import CHAT_SYSTEM_PROMPT as SYSTEM_PROMPT
+from langbridge_code.agents.roles import langbridge_system_prompt
+from langbridge_code.persistence.goal import (
+    STATUS_ACTIVE,
+    STATUS_ACHIEVED,
+    STATUS_PAUSED,
+    build_continuation_prompt,
+    clear_goal,
+    format_goal_status,
+    load_goal,
+    new_goal,
+    parse_goal_command,
+    save_goal,
+)
 from langbridge_code.persistence.session import (
     create_run_log_path,
     label_session,
@@ -34,6 +46,7 @@ from langbridge_code.persistence.session import (
     read_session_records,
     write_session_summary,
 )
+from langbridge_code.ui.message_queue import UserMessageQueue
 
 THEME = "tokyo-night"
 ACCENT = "#7aa2f7"
@@ -70,10 +83,20 @@ HELP_TEXT = """Commands:
   /deny              deny a pending action
   /pause             pause / resume the running agent
   /stop              stop the current turn
+  /queue             show queued messages waiting to run
+  /queue clear       drop all queued messages
+  /goal <condition>  work autonomously until the condition is met
+  /goal              show active goal status
+  /goal clear        remove the current goal
+  /goal pause        pause goal auto-continue
+  /goal resume       resume a paused goal
+  /banner [on|off]   show or hide the header box (Ctrl+B toggles)
   /exit              quit
 
 Keys: Enter send · Shift+Enter newline · Ctrl+A approve · Ctrl+D deny
-      Ctrl+Y yolo · Ctrl+P pause · Ctrl+S stop · Ctrl+R sessions · Ctrl+C quit"""
+      Ctrl+Y yolo · Ctrl+P pause · Ctrl+S stop · Ctrl+R sessions · Ctrl+B header
+      Ctrl+C quit · click log + wheel/arrow keys to scroll history
+While the agent is busy, Enter queues your message for the next turn."""
 
 
 class ChatInput(TextArea):
@@ -94,7 +117,22 @@ class ChatInput(TextArea):
             event.prevent_default()
             self.insert("\n")
             return
+        if event.key == "ctrl+y":
+            event.stop()
+            event.prevent_default()
+            self.app.action_toggle_yolo()
+            return
         await super()._on_key(event)
+
+
+class ChatLog(RichLog):
+    """Session log that only follows the tail when the user is already at the bottom."""
+
+    can_focus = True
+
+    def append(self, content, **kwargs):
+        """Write without pulling the view down if the user scrolled up."""
+        self.write(content, scroll_end=self.is_vertical_scroll_end, **kwargs)
 
 
 class SessionPicker(ModalScreen):
@@ -176,10 +214,19 @@ class LangBridgeTui(App):
         background: $surface;
     }
 
+    #banner.hidden {
+        display: none;
+    }
+
     #chat_log {
         height: 1fr;
         padding: 1 2;
         background: $background;
+        scrollbar-size-vertical: 2;
+    }
+
+    #chat_log:focus {
+        outline: none;
     }
 
     #thinking {
@@ -241,6 +288,7 @@ class LangBridgeTui(App):
         ("ctrl+p", "toggle_pause", "Pause"),
         ("ctrl+s", "stop", "Stop"),
         ("ctrl+r", "open_sessions", "Sessions"),
+        ("ctrl+b", "toggle_banner", "Header"),
         ("ctrl+c", "quit", "Quit"),
     ]
 
@@ -251,20 +299,24 @@ class LangBridgeTui(App):
         self.session_logs = list_session_logs()
         self.run_log_path = None
         self.turn_id = 0
-        self.messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+        self.messages = [{"role": "system", "content": langbridge_system_prompt()}]
         self.pending_approval = None
+        self.pending_question = None
         self.always_approve = False
         self.turn_active = False
         self.turn_snapshot = None
         self.state = "ready"
         self.streaming_phase = "idle"
         self.workflow_step = ""
+        self.session_goal = None
+        self.message_queue = UserMessageQueue()
+        self.banner_visible = True
         self.cwd_display = self._short_cwd()
         self.git_branch = self._git_branch()
 
     def compose(self) -> ComposeResult:
         yield Static(id="banner")
-        yield RichLog(id="chat_log", wrap=True, markup=False)
+        yield ChatLog(id="chat_log", wrap=True, markup=False, auto_scroll=False)
         yield Static("", id="thinking")
         with Horizontal(id="input_row"):
             yield Static("\u276f", id="prompt_gutter")
@@ -295,20 +347,22 @@ class LangBridgeTui(App):
 
     # --- conversation rendering -------------------------------------------
 
-    def _log(self) -> RichLog:
-        return self.query_one("#chat_log", RichLog)
+    def _log(self) -> ChatLog:
+        return self.query_one("#chat_log", ChatLog)
 
-    def write_user(self, text):
+    def write_user(self, text, *, queued=False):
         line = Text()
         line.append("\u2726 ", style=f"bold {ACCENT}")
         line.append(text)
-        self._log().write(line)
+        if queued:
+            line.append(" (queued)", style="dim")
+        self._log().append(line)
 
     def write_assistant(self, text):
         line = Text()
         line.append("\u25cf ", style=f"bold {GREEN}")
         line.append(text)
-        self._log().write(line)
+        self._log().append(line)
 
     def _thinking(self) -> Static:
         return self.query_one("#thinking", Static)
@@ -331,15 +385,25 @@ class LangBridgeTui(App):
         widget.display = False
 
     def write_system(self, text, style="dim"):
-        self._log().write(Text(text, style=style))
+        self._log().append(Text(text, style=style))
 
     def add_chat_line(self, line):
         self.write_system(line)
 
+    def _input_box(self) -> ChatInput:
+        return self.query_one("#input", ChatInput)
+
+    def _ensure_input_writable(self, *, focus: bool = False) -> None:
+        """Keep the composer usable while a turn runs (queue follow-ups)."""
+        input_box = self._input_box()
+        input_box.disabled = False
+        if focus:
+            input_box.focus()
+
     # --- input / commands -------------------------------------------------
 
     def submit_current_input(self) -> None:
-        input_box = self.query_one("#input", ChatInput)
+        input_box = self._input_box()
         text = input_box.text.strip()
         if not text:
             return
@@ -348,18 +412,49 @@ class LangBridgeTui(App):
         if text.startswith("/"):
             self.handle_command(text)
             return
+        if self.pending_question is not None:
+            self.answer_question(text)
+            return
         if self.turn_active:
-            self.write_system("Agent is busy. Use /stop first.", style=YELLOW)
+            self.enqueue_user_message(text)
             return
 
         self.write_user(text)
-        input_box.disabled = True
+        self.begin_turn(text)
+
+    def enqueue_user_message(self, text: str) -> None:
+        if not self.message_queue.enqueue(text):
+            if self.message_queue.full:
+                self.write_system(
+                    f"Queue is full ({len(self.message_queue)} messages). "
+                    "Wait or use /queue clear.",
+                    style=YELLOW,
+                )
+            return
+        self.write_user(text, queued=True)
+        waiting = len(self.message_queue)
+        label = "message" if waiting == 1 else "messages"
+        self.write_system(f"Queued ({waiting} {label} waiting).", style="dim")
+        self._ensure_input_writable(focus=True)
+        self.update_status()
+
+    def drain_message_queue(self) -> bool:
+        text = self.message_queue.dequeue()
+        if not text:
+            return False
+        self.begin_turn(text, show_user=False)
+        return True
+
+    def begin_turn(self, text, *, show_user=False):
+        if show_user:
+            self.write_user(text)
         control.clear_stop()
         control.resume()
         self.turn_active = True
         self.state = "thinking"
         self._sync_streaming_phase()
         self.turn_snapshot = list(self.messages)
+        self._ensure_input_writable(focus=True)
         self.update_status()
         self.run_worker(lambda: self.run_turn(text), thread=True)
 
@@ -395,8 +490,104 @@ class LangBridgeTui(App):
             self.action_toggle_pause()
         elif cmd == "/stop":
             self.action_stop()
+        elif cmd == "/queue":
+            self.cmd_queue(arg)
+        elif cmd == "/goal":
+            self.cmd_goal(text)
+        elif cmd == "/banner":
+            if arg == "on":
+                self.set_banner_visible(True)
+            elif arg == "off":
+                self.set_banner_visible(False)
+            else:
+                self.action_toggle_banner()
         else:
             self.write_system(f"Unknown command: {cmd}. Try /help.", style=YELLOW)
+
+    def cmd_queue(self, arg):
+        if arg == "clear":
+            dropped = self.message_queue.clear()
+            if dropped:
+                self.write_system(f"Cleared {dropped} queued message(s).", style="dim")
+            else:
+                self.write_system("No queued messages.", style="dim")
+            self.update_status()
+            return
+        items = self.message_queue.items()
+        if not items:
+            self.write_system("No queued messages.", style="dim")
+            return
+        self.write_system("Queued messages (next first):", style="dim")
+        for index, item in enumerate(items, start=1):
+            preview = item.replace("\n", " ")
+            if len(preview) > 120:
+                preview = preview[:117] + "..."
+            self.write_system(f"  {index}. {preview}", style="dim")
+
+    def cmd_goal(self, text):
+        if self.turn_active:
+            self.write_system("Agent is busy. Use /stop first.", style=YELLOW)
+            return
+        remainder = text[len("/goal") :].strip()
+        action = remainder.lower()
+        if not remainder:
+            goal = self.session_goal or load_goal(self.run_log_path)
+            if goal is None:
+                self.write_system("No active goal. Use /goal <completion condition>.", style="dim")
+                return
+            self.write_system(format_goal_status(goal), style="dim")
+            return
+        if action in ("clear", "cancel"):
+            self.session_goal = None
+            clear_goal(self.run_log_path)
+            self.write_system("Goal cleared.", style="dim")
+            self.update_status()
+            return
+        if action == "pause":
+            goal = self.session_goal or load_goal(self.run_log_path)
+            if goal is None:
+                self.write_system("No active goal to pause.", style="dim")
+                return
+            goal.status = STATUS_PAUSED
+            self.session_goal = goal
+            save_goal(self.run_log_path, goal)
+            self.write_system("Goal paused.", style=YELLOW)
+            self.update_status()
+            return
+        if action == "resume":
+            goal = self.session_goal or load_goal(self.run_log_path)
+            if goal is None:
+                self.write_system("No goal to resume.", style="dim")
+                return
+            if goal.status == STATUS_ACHIEVED:
+                self.write_system("Goal already achieved.", style=GREEN)
+                return
+            goal.status = STATUS_ACTIVE
+            self.session_goal = goal
+            save_goal(self.run_log_path, goal)
+            self.write_system(f"Goal resumed: {goal.condition}", style=ACCENT)
+            prompt = build_continuation_prompt(goal) if goal.turn_count else goal.condition
+            self.begin_turn(prompt)
+            return
+        if action == "status":
+            goal = self.session_goal or load_goal(self.run_log_path)
+            if goal is None:
+                self.write_system("No active goal.", style="dim")
+                return
+            self.write_system(format_goal_status(goal), style="dim")
+            return
+        if not self.run_log_path:
+            self.start_new_session()
+        condition, _ = parse_goal_command(remainder)
+        if not condition:
+            self.write_system("Goal condition cannot be empty.", style=YELLOW)
+            return
+        self.session_goal = new_goal(remainder)
+        save_goal(self.run_log_path, self.session_goal)
+        self.write_system(f"◎ Goal active: {self.session_goal.condition}", style=ACCENT)
+        self.update_status()
+        self.write_user(self.session_goal.condition)
+        self.begin_turn(self.session_goal.condition)
 
     def run_turn(self, text):
         self.turn_id += 1
@@ -414,18 +605,34 @@ class LangBridgeTui(App):
                 self.call_from_thread(self.add_chat_line, "(compacted older context to stay under the token budget)")
 
         try:
-            reply = run_workflow(
+            session = MainAgentSession(
                 self.api_key,
                 self.model,
-                text,
+                self.messages,
                 self.run_log_path,
                 self.turn_id,
+                target=text,
                 trace_sink=self.post_trace_event,
-                phase_sink=self.post_workflow_phase,
-                print_reply=False,
                 approval_callback=self.request_approval,
-                messages=self.messages,
+                phase_sink=self.post_workflow_phase,
+                question_callback=self.request_user_answer,
             )
+            goal = self.session_goal or load_goal(self.run_log_path)
+            if goal and goal.active:
+                reply, goal = session.run_goal_loop(
+                    goal,
+                    initial_prompt=text,
+                    on_round=lambda round_reply: self.call_from_thread(
+                        self._on_goal_round, round_reply
+                    ),
+                    on_verdict=lambda verdict: self.call_from_thread(
+                        self._on_goal_verdict, verdict
+                    ),
+                )
+                self.session_goal = goal
+                save_goal(self.run_log_path, goal)
+            else:
+                reply = session.run_turn(text)
         except control.StopRequested:
             self.call_from_thread(self.finish_stopped)
             return
@@ -435,7 +642,31 @@ class LangBridgeTui(App):
             self.call_from_thread(self.finish_turn_error, format_api_error(error))
             return
         write_session_summary(self.api_key, self.model, self.run_log_path)
-        self.call_from_thread(self.finish_turn, reply or "")
+        goal = self.session_goal or load_goal(self.run_log_path)
+        if goal and goal.status in {STATUS_ACHIEVED, STATUS_PAUSED}:
+            self.call_from_thread(self.finish_goal_loop, goal, reply or "")
+        else:
+            self.call_from_thread(self.finish_turn, reply or "")
+
+    def _on_goal_round(self, reply):
+        cleaned = strip_bug_status(reply) if reply else ""
+        if cleaned:
+            self.write_assistant(cleaned)
+
+    def _on_goal_verdict(self, verdict):
+        if verdict.met:
+            return
+        line = f"Evaluator: {verdict.reason}"
+        if verdict.guidance:
+            line += f" — {verdict.guidance}"
+        self.write_system(line, style="dim")
+
+    def finish_goal_loop(self, goal, reply):
+        if goal.status == STATUS_ACHIEVED:
+            self.write_system(f"◎ Goal achieved: {goal.last_reason}", style=GREEN)
+        elif goal.status == STATUS_PAUSED:
+            self.write_system(f"Goal paused: {goal.last_reason}", style=YELLOW)
+        self.reset_after_turn()
 
     def post_trace_event(self, event):
         self.call_from_thread(self.add_trace_event, event)
@@ -449,6 +680,7 @@ class LangBridgeTui(App):
             "presenting": "composing",
             "refining": "composing",
             "summarizing": "composing",
+            "evaluating": "thinking",
         }
         if self.workflow_step in step_map:
             self.streaming_phase = step_map[self.workflow_step]
@@ -458,6 +690,7 @@ class LangBridgeTui(App):
             "thinking": "thinking",
             "working": "composing",
             "waiting for approval": "waiting",
+            "waiting for answer": "waiting",
             "paused": "waiting",
             "stopping": "shell",
         }
@@ -481,7 +714,7 @@ class LangBridgeTui(App):
         else:
             line.append(f"{role}: ", style=f"dim italic {ACCENT}")
             line.append(text, style="dim italic")
-        self._log().write(line)
+        self._log().append(line)
 
     def add_trace_event(self, event):
         self.append_trace_line(event)
@@ -529,6 +762,46 @@ class LangBridgeTui(App):
         decision["approved"] = approved
         self.pending_approval = None
         self.write_system("\u2713 Approved." if approved else "\u2717 Denied.", style=GREEN if approved else RED)
+        self.state = "working"
+        self._sync_streaming_phase()
+        self.update_status()
+        ready.set()
+
+    # --- planner questions ------------------------------------------------
+
+    def request_user_answer(self, question, options=None):
+        """Called from the worker thread when the planner asks the user."""
+        answer = {"text": ""}
+        ready = threading.Event()
+        shown = threading.Event()
+        self.call_from_thread(self.show_question, question, options or [], answer, ready, shown)
+        shown.wait()
+        ready.wait()
+        return answer["text"]
+
+    def show_question(self, question, options, answer, ready, shown):
+        from langbridge_code.tools.ask_user import format_ask_user_choices
+
+        self.pending_question = (answer, ready, list(options))
+        self.write_system("\u2753 Planner asks:", style=f"bold {ACCENT}")
+        self.write_system(format_ask_user_choices(question, options), style=ACCENT)
+        self.state = "waiting for answer"
+        self._sync_streaming_phase()
+        self._ensure_input_writable(focus=True)
+        self.update_status()
+        shown.set()
+
+    def answer_question(self, text):
+        from langbridge_code.tools.ask_user import resolve_ask_user_answer
+
+        if self.pending_question is None:
+            return
+        answer, ready, options = self.pending_question
+        answer["text"] = resolve_ask_user_answer(text, options)
+        self.pending_question = None
+        display = (text or "").strip() or answer["text"]
+        if display:
+            self.write_user(display)
         self.state = "working"
         self._sync_streaming_phase()
         self.update_status()
@@ -584,6 +857,8 @@ class LangBridgeTui(App):
         control.request_stop()
         if self.pending_approval is not None:
             self.resolve_approval(False)
+        if self.pending_question is not None:
+            self.answer_question("")
         self.state = "stopping"
         self._sync_streaming_phase()
         self.update_status()
@@ -600,6 +875,12 @@ class LangBridgeTui(App):
     def finish_stopped(self):
         if self.turn_snapshot is not None:
             self.messages = self.turn_snapshot
+        goal = self.session_goal or load_goal(self.run_log_path)
+        if goal and goal.active:
+            goal.status = STATUS_PAUSED
+            goal.last_reason = "Stopped by user."
+            self.session_goal = goal
+            save_goal(self.run_log_path, goal)
         self.write_system("\u25a0 Stopped.", style=RED)
         self.reset_after_turn()
 
@@ -613,14 +894,15 @@ class LangBridgeTui(App):
         self.clear_thinking()
         self.turn_active = False
         self.turn_snapshot = None
+        self.pending_question = None
         self.state = "ready"
         self.workflow_step = ""
         self._sync_streaming_phase()
         control.clear_stop()
         control.resume()
-        input_box = self.query_one("#input", ChatInput)
-        input_box.disabled = False
-        input_box.focus()
+        if self.drain_message_queue():
+            return
+        self._ensure_input_writable(focus=True)
         self.update_status()
 
     # --- sessions ---------------------------------------------------------
@@ -666,9 +948,10 @@ class LangBridgeTui(App):
         records = read_session_records(path)
         self.messages = restore_session_messages(
             records, api_key=self.api_key, model=self.model
-        ) or [{"role": "system", "content": SYSTEM_PROMPT}]
+        ) or [{"role": "system", "content": langbridge_system_prompt()}]
         self.run_log_path = path
         self.turn_id = last_turn_id(records)
+        self.session_goal = load_goal(path)
         self._log().clear()
         self.write_system(f"Resumed: {label_session(path)}", style="dim")
         self._replay_session_records(records)
@@ -723,10 +1006,24 @@ class LangBridgeTui(App):
     def start_new_session(self):
         self.run_log_path = create_run_log_path()
         self.turn_id = 0
-        self.messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+        self.messages = [{"role": "system", "content": langbridge_system_prompt()}]
+        self.session_goal = None
+        self.message_queue.clear()
         self.update_banner()
 
     # --- banner & status --------------------------------------------------
+
+    def action_toggle_banner(self) -> None:
+        self.set_banner_visible(not self.banner_visible)
+
+    def set_banner_visible(self, visible: bool) -> None:
+        self.banner_visible = visible
+        banner = self.query_one("#banner", Static)
+        if visible:
+            banner.remove_class("hidden")
+        else:
+            banner.add_class("hidden")
+        self.update_status()
 
     def update_banner(self):
         try:
@@ -752,8 +1049,15 @@ class LangBridgeTui(App):
         left.append(self.streaming_phase, style=self._state_style())
         if self.workflow_step:
             left.append(f" · {self.workflow_step}", style="dim")
+        goal = self.session_goal or load_goal(self.run_log_path)
+        if goal and goal.status in {STATUS_ACTIVE, STATUS_PAUSED}:
+            left.append(" · ◎ goal", style=f"bold {ACCENT}")
         if self.always_approve:
             left.append(" · yolo", style=f"bold {YELLOW}")
+        queued = len(self.message_queue)
+        if queued:
+            label = "msg" if queued == 1 else "msgs"
+            left.append(f" · {queued} queued {label}", style=f"bold {YELLOW}")
         left.append("   ")
         left.append(self.cwd_display, style="dim")
         if self.git_branch:
@@ -764,7 +1068,8 @@ class LangBridgeTui(App):
         pct = used / MAX_AGENT_CONTEXT_TOKENS * 100 if MAX_AGENT_CONTEXT_TOKENS else 0
         right = Text()
         right.append(f"context {pct:.1f}% ({_fmt_k(used)}/{_fmt_k(MAX_AGENT_CONTEXT_TOKENS)})", style="dim")
-        right.append("   ctrl+c quit \u00b7 /help", style="dim")
+        header_hint = "ctrl+b header" if self.banner_visible else "ctrl+b show header"
+        right.append(f"   {header_hint} \u00b7 ctrl+c quit \u00b7 /help", style="dim")
         self.query_one("#status_right", Static).update(right)
 
     def _state_style(self):
