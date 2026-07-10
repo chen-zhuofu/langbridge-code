@@ -1,34 +1,27 @@
 """FIFO queue for user messages sent while the agent is busy."""
 
 from collections import deque
-from dataclasses import dataclass
 
 DEFAULT_MAX_SIZE = 20
-
-
-@dataclass(frozen=True)
-class QueuedMessage:
-    text: str
-    turn_id: int
 
 
 class UserMessageQueue:
     """Thread-safe enough for TUI: main thread enqueues, worker completion drains."""
 
     def __init__(self, max_size: int = DEFAULT_MAX_SIZE):
-        self._items: deque[QueuedMessage] = deque()
+        self._items: deque[str] = deque()
         self._max_size = max(1, max_size)
 
-    def enqueue(self, text: str, *, turn_id: int) -> bool:
+    def enqueue(self, text: str) -> bool:
         message = (text or "").strip()
         if not message:
             return False
         if len(self._items) >= self._max_size:
             return False
-        self._items.append(QueuedMessage(text=message, turn_id=turn_id))
+        self._items.append(message)
         return True
 
-    def dequeue(self) -> QueuedMessage | None:
+    def dequeue(self) -> str | None:
         if not self._items:
             return None
         return self._items.popleft()
@@ -41,7 +34,7 @@ class UserMessageQueue:
     def __len__(self) -> int:
         return len(self._items)
 
-    def items(self) -> list[QueuedMessage]:
+    def items(self) -> list[str]:
         return list(self._items)
 
     @property

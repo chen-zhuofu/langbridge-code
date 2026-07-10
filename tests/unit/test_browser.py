@@ -75,16 +75,18 @@ def test_browse_webpage_renders_text(monkeypatch):
 
 
 def test_browse_webpage_requires_playwright(monkeypatch):
-    monkeypatch.delitem(sys.modules, "playwright.sync_api", raising=False)
-    monkeypatch.setitem(sys.modules, "playwright", types.SimpleNamespace())
+    import builtins
 
-    def fail_import(name, globals=None, locals=None, fromlist=(), level=0):
+    real_import = builtins.__import__
+    monkeypatch.delitem(sys.modules, "playwright.sync_api", raising=False)
+
+    def selective_import(name, globals=None, locals=None, fromlist=(), level=0):
         if name == "playwright.sync_api" or (
             fromlist and "sync_api" in fromlist and name == "playwright"
         ):
             raise ImportError("no playwright")
-        return __import__(name, globals, locals, fromlist, level)
+        return real_import(name, globals, locals, fromlist, level)
 
-    monkeypatch.setattr("builtins.__import__", fail_import)
-    with pytest.raises(RuntimeError, match="Playwright is not installed"):
+    monkeypatch.setattr(builtins, "__import__", selective_import)
+    with pytest.raises(RuntimeError, match="Playwright browser is not ready"):
         browse_webpage("https://example.com")

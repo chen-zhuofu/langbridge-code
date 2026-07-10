@@ -30,6 +30,20 @@ def write_finish_log(run_log_path, turn_id, finished):
     upsert_turn_record(run_log_path, record)
 
 
+def write_turn_complete(run_log_path, turn_id, user_text: str, assistant_text: str):
+    """Persist user + assistant together when a main-agent turn finishes."""
+    if run_log_path is None:
+        return
+    upsert_turn_record(
+        run_log_path,
+        {
+            "turn_id": turn_id,
+            "user": (user_text or "").strip(),
+            "assistant": (assistant_text or "").strip(),
+        },
+    )
+
+
 def read_turn_record(run_log_path, turn_id):
     if not run_log_path.exists():
         return None

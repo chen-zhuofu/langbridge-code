@@ -136,6 +136,16 @@ def last_turn_id(records):
     return max(turn_ids, default=0)
 
 
+def last_completed_turn_id(records):
+    """Highest turn id with a finished assistant reply (no orphan/in-flight turns)."""
+    completed = [
+        record.get("turn_id", 0)
+        for record in records
+        if (record.get("assistant") or "").strip()
+    ]
+    return max(completed, default=0)
+
+
 def recent_session_dialogue(run_log_path, *, limit: int = 3) -> str:
     if not run_log_path:
         return ""

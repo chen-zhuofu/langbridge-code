@@ -18,7 +18,14 @@ from langbridge_code.settings import (
     MAX_PLANNER_SECONDS,
     MAX_PLANNER_STEPS,
 )
-from langbridge_code.tools import filesystem, skills
+from langbridge_code.tools import (
+    FILE_READ_TOOL_NAMES,
+    GIT_READ_TOOL_NAMES,
+    filesystem,
+    git_tools as git_tools_mod,
+    lsp,
+    skills,
+)
 from langbridge_code.tools.ask_user import ASK_USER_TOOL_SCHEMA, resolve_ask_user
 from langbridge_code.agents.common.phases import emit_phase
 from langbridge_code.agents.system_prompt.planner import PLANNER_WORKFLOW_SUMMARY, planner_system_prompt
@@ -87,31 +94,25 @@ def format_unfinished_todo_summary(run_log_path, *, limit: int = 5) -> str:
     return "\n".join(lines)
 
 
-_fs = {schema["name"]: schema for schema in filesystem.TOOL_SCHEMAS}
-
-PLANNER_TOOL_NAMES = {
-    "list_dir",
-    "glob",
-    "read_file",
-    "grep",
-    "update_plan",
-    "read_skill",
-    "ask_user",
-}
+PLANNER_TOOL_NAMES = (
+    FILE_READ_TOOL_NAMES
+    | {"update_plan", "read_skill", "ask_user", "lsp"}
+    | GIT_READ_TOOL_NAMES
+)
 PLANNER_TOOL_SCHEMAS = [
-    _fs["list_dir"],
-    _fs["glob"],
-    _fs["read_file"],
-    _fs["grep"],
-    UPDATE_PLAN_TOOL_SCHEMA,
-    skills.TOOL_SCHEMAS[0],
-    ASK_USER_TOOL_SCHEMA,
-]
+    schema
+    for schema in (
+        filesystem.TOOL_SCHEMAS
+        + git_tools_mod.TOOL_SCHEMAS
+        + lsp.TOOL_SCHEMAS
+        + skills.TOOL_SCHEMAS
+    )
+    if schema["name"] in PLANNER_TOOL_NAMES
+] + [UPDATE_PLAN_TOOL_SCHEMA, ASK_USER_TOOL_SCHEMA]
 PLANNER_TOOLS = {
-    "list_dir": filesystem.TOOLS["list_dir"],
-    "glob": filesystem.TOOLS["glob"],
-    "read_file": filesystem.TOOLS["read_file"],
-    "grep": filesystem.TOOLS["grep"],
+    **{name: filesystem.TOOLS[name] for name in FILE_READ_TOOL_NAMES},
+    **{name: git_tools_mod.TOOLS[name] for name in GIT_READ_TOOL_NAMES},
+    "lsp": lsp.TOOLS["lsp"],
     "update_plan": update_plan,
     **skills.TOOLS,
 }
@@ -123,8 +124,9 @@ AGENT_PLANNER_TOOL_SCHEMA = {
     "description": (
         "Launch the planner subagent to create the session todo_list. "
         "May ask clarifying questions via ask_user. Returns a final summary only. "
-        "Blocked while an unfinished todo_list exists unless replace_existing_plan=true "
-        "after ask_user confirmed the user wants to replace the current plan. "
+        "Blocked while an unfinished todo_list exists unless the main agent called "
+        "clear_plan first or replace_existing_plan=true after ask_user confirmed "
+        "replacing the current plan. "
         "When unfinished todos exist and the user starts a new multi-step task, "
         "read_plan then ask_user (continue / replace / /new) before calling this."
     ),
@@ -163,8 +165,8 @@ def planner_replace_blocked_message(run_log_path) -> str | None:
         "Tool error: This session already has an unfinished todo_list that "
         f"agent_planner would overwrite ({remaining} item(s) remaining).",
         "Call read_plan, then ask_user how to proceed before planning again.",
-        "If the user chooses to replace the plan, call agent_planner again with "
-        "replace_existing_plan=true.",
+        "If the user chooses to replace the plan, call clear_plan then "
+        "agent_planner (or agent_planner with replace_existing_plan=true).",
         "If they want to continue the old plan, use agent_worker.",
         "If they want the new task in a fresh session, tell them to run /new and "
         "repeat the request there.",

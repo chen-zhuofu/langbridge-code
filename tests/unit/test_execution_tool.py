@@ -29,3 +29,10 @@ def test_bash_rejects_cwd_outside_workspace():
 def test_bash_rejects_empty_command():
     with pytest.raises(ValueError, match="command must be a non-empty string"):
         bash("   ")
+
+
+def test_bash_rejects_privileged_commands():
+    with pytest.raises(ValueError, match="Privileged commands"):
+        bash("sudo apt install chromium")
+    with pytest.raises(ValueError, match="Privileged commands"):
+        bash("echo ok && sudo rm -rf /")

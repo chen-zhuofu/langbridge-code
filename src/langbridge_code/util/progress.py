@@ -134,6 +134,34 @@ def remove_goal_block(run_log_path) -> None:
         write_progress(run_log_path, body)
 
 
+def _build_continuation_directive(run_log_path, user_prompt: str) -> str:
+    from langbridge_code.agents.common.todo_list import (
+        clean_task_text,
+        first_unfinished_task,
+        is_continuation_request,
+        load_tasks,
+    )
+
+    if not is_continuation_request(user_prompt):
+        return ""
+    tasks = load_tasks(run_log_path)
+    next_task = first_unfinished_task(tasks)
+    if next_task is None:
+        return ""
+    task_line = clean_task_text(next_task.description)
+    return (
+        "Continuation directive (binding for this turn):\n"
+        "The user wants to resume the existing todo_list — not start a new project.\n"
+        "- Call read_plan, then delegate agent_worker with exactly the next unchecked "
+        "`- [ ]` subtask below.\n"
+        "- Do NOT use ask_user or ask the user to choose between older chat topics "
+        "(e.g. game code vs PPT) unless they explicitly named a new project this turn.\n"
+        "- Do not treat a deliverable file already existing as proof the plan is finished; "
+        "trust only `[x]` marks in the todo_list.\n"
+        f"Next unchecked subtask: {task_line}"
+    )
+
+
 def build_turn_user_content(run_log_path, user_prompt: str) -> str:
     from langbridge_code.util.session import recent_session_dialogue
 
@@ -148,6 +176,9 @@ def build_turn_user_content(run_log_path, user_prompt: str) -> str:
     dialogue = recent_session_dialogue(run_log_path, limit=3).strip()
     if dialogue:
         parts.append(f"Recent session dialogue:\n\n{dialogue}")
+    continuation = _build_continuation_directive(run_log_path, prompt)
+    if continuation:
+        parts.append(continuation)
     if prompt:
         if parts:
             parts.append(f"Current request:\n{prompt}")
@@ -253,6 +284,31 @@ def schedule_append_turn_progress(
             pass
 
     threading.Thread(target=worker, daemon=True).start()
+
+
+def finalize_main_agent_turn(
+    api_key,
+    model,
+    run_log_path,
+    turn_id: int,
+    *,
+    user: str,
+    assistant: str,
+) -> None:
+    """Persist session + progress when a main-agent turn ends (any outcome)."""
+    from langbridge_code.util.logging import write_turn_complete
+
+    outcome = (assistant or "").strip() or "(turn ended without a reply)"
+    write_turn_complete(run_log_path, turn_id, user, outcome)
+    append_turn_progress_stub(run_log_path, turn_id, user=user, assistant=outcome)
+    schedule_append_turn_progress(
+        api_key,
+        model,
+        run_log_path,
+        turn_id,
+        user=user,
+        assistant=outcome,
+    )
 
 
 def _summarize_turn_progress(api_key, model, source: str) -> str:

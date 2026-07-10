@@ -3,6 +3,7 @@ from langbridge_code.tools.agent_planner import (
     build_agent_planner_tool,
     planner_replace_blocked_message,
 )
+from langbridge_code.tools import todo_list as plan_mod
 
 
 def _write_unfinished_todo(run_log):
@@ -68,3 +69,25 @@ def test_agent_planner_allows_replace_when_confirmed(tmp_path, monkeypatch):
     )
     assert calls == [True]
     assert "type=coding" in result
+
+
+def test_agent_planner_allowed_after_clear_plan(tmp_path, monkeypatch):
+    run_log = tmp_path / "run.json"
+    _write_unfinished_todo(run_log)
+    plan_mod.clear_plan(run_log_path=run_log)
+    calls = []
+
+    def fake_planner(*args, **kwargs):
+        calls.append(True)
+        return "PLAN_TASK_TYPE: slide\n\nNew plan."
+
+    monkeypatch.setattr("langbridge_code.tools.agent_planner.run_planner", fake_planner)
+    tool = build_agent_planner_tool(
+        api_key="key",
+        model="model",
+        run_log_path=run_log,
+        turn_id=1,
+    )
+    result = tool(prompt="build deck", description="plan")
+    assert calls == [True]
+    assert "type=slide" in result

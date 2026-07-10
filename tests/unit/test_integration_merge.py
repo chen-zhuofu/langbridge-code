@@ -35,6 +35,46 @@ def test_integration_pending_message_lists_main_agent_steps(tmp_path):
     assert "Verify merged codebase" in message
 
 
+def test_dispatch_worker_auto_marks_todo_on_pass(tmp_path, monkeypatch):
+    run_log = tmp_path / "run.json"
+    content = """# Todo
+
+## Todo list
+- [ ] Create HTML slides
+- [ ] Browser verify
+"""
+    from langbridge_code.agents.common import todo_list as common
+
+    common.write_todo_list(content, run_log_path=run_log)
+    monkeypatch.setattr(
+        "langbridge_code.tools.agent_worker_reviewer.run_worker_reviewer_loop",
+        lambda *args, **kwargs: (True, "REVIEW_VERDICT: PASS"),
+    )
+    monkeypatch.setattr(
+        "langbridge_code.tools.agent_worker_reviewer.emit_phase",
+        lambda *args, **kwargs: None,
+    )
+
+    agent_worker = build_agent_worker_tool(
+        api_key="key",
+        model="model",
+        run_log_path=run_log,
+        turn_id=1,
+        messages=[],
+        target="Create HTML slides",
+    )
+    reply = agent_worker(
+        prompt="Create HTML slides",
+        description="worker",
+    )
+
+    assert "Single-task completed" in reply
+    assert "Marked complete: Create HTML slides" in reply
+    updated = common.read_todo_list(run_log)
+    assert "- [x] Create HTML slides" in updated
+    assert "- [ ] Browser verify" in updated
+
+
 def test_dispatch_worker_does_not_auto_refine_plan(tmp_path, monkeypatch):
     run_log = tmp_path / "run.json"
     planner_calls = []

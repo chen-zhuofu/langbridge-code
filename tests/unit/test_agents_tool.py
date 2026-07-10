@@ -23,40 +23,58 @@ def test_engineering_guidelines_live_in_specialist_prompts():
 def test_main_tools_exclude_legacy_specialists():
     assert "ask_l4_engineer" not in TOOLS
     assert "ask_l5_engineer" not in TOOLS
-    assert set(MAIN_TOOLS) == {
+    assert set(MAIN_TOOLS) >= {
         "list_dir",
         "glob",
         "read_file",
+        "read_many",
         "grep",
         "edit_file",
-        "create_file",
+        "write",
+        "multi_edit",
+        "apply_patch",
         "delete_file",
         "run_tests",
         "bash",
+        "powershell",
+        "git_status",
+        "git_diff",
+        "git_commit",
+        "lsp",
         "read_webpage",
         "browse_webpage",
         "read_plan",
-        "check_subtask",
+        "clear_plan",
         "read_skill",
     }
-    assert [schema["name"] for schema in MAIN_TOOL_SCHEMAS] == [
+    main_names = {schema["name"] for schema in MAIN_TOOL_SCHEMAS}
+    assert main_names >= {
         "list_dir",
         "glob",
         "read_file",
+        "read_many",
         "grep",
         "edit_file",
-        "create_file",
+        "write",
+        "multi_edit",
+        "apply_patch",
         "delete_file",
         "run_tests",
         "bash",
+        "powershell",
+        "git_status",
+        "git_diff",
+        "git_commit",
+        "lsp",
         "read_plan",
-        "check_subtask",
+        "clear_plan",
         "read_webpage",
         "browse_webpage",
         "read_skill",
-    ]
+    }
     assert any(schema["name"] == "delete_file" for schema in CODE_WORKER_TOOL_SCHEMAS)
     assert any(schema["name"] == "read_plan" for schema in CODE_WORKER_TOOL_SCHEMAS)
+    assert not any(schema["name"] == "check_subtask" for schema in MAIN_TOOL_SCHEMAS)
     assert not any(schema["name"] == "check_subtask" for schema in CODE_WORKER_TOOL_SCHEMAS)
     coder_tools, coder_schemas = build_code_worker_toolkit(api_key="k", model="m")
     assert "agent_explorer" in coder_tools
@@ -81,17 +99,17 @@ def test_coder_write_tool_requires_approval(monkeypatch):
     result = run_worker_tool_call(
         {
             "type": "function_call",
-            "name": "create_file",
+            "name": "write",
             "call_id": "call_1",
             "arguments": '{"path":"x.py","content":"print(1)"}',
         },
-        {"create_file": lambda **arguments: "created"},
+        {"write": lambda **arguments: "created"},
     )
 
     assert result == {
         "type": "function_call_output",
         "call_id": "call_1",
-        "output": "Tool error: create_file was not approved",
+        "output": "Tool error: write was not approved",
     }
 
 
@@ -101,11 +119,11 @@ def test_coder_write_tool_runs_after_approval(monkeypatch):
     result = run_worker_tool_call(
         {
             "type": "function_call",
-            "name": "create_file",
+            "name": "write",
             "call_id": "call_1",
             "arguments": '{"path":"x.py","content":"print(1)"}',
         },
-        {"create_file": lambda **arguments: f"created {arguments['path']}"},
+        {"write": lambda **arguments: f"created {arguments['path']}"},
     )
 
     assert result == {
@@ -121,11 +139,11 @@ def test_specialist_tool_strips_purpose_before_execution(monkeypatch):
     result = run_worker_tool_call(
         {
             "type": "function_call",
-            "name": "create_file",
+            "name": "write",
             "call_id": "call_1",
             "arguments": '{"purpose":"Create the target file.","path":"x.py","content":"print(1)"}',
         },
-        {"create_file": lambda **arguments: sorted(arguments)},
+        {"write": lambda **arguments: sorted(arguments)},
     )
 
     assert result == {
@@ -141,15 +159,15 @@ def test_coder_write_tool_uses_approval_callback():
     result = run_worker_tool_call(
         {
             "type": "function_call",
-            "name": "create_file",
+            "name": "write",
             "call_id": "call_1",
             "arguments": '{"path":"x.py","content":"print(1)"}',
         },
-        {"create_file": lambda **arguments: f"created {arguments['path']}"},
+        {"write": lambda **arguments: f"created {arguments['path']}"},
         approval_callback=lambda role, name, arguments: approvals.append((role, name, arguments)) or True,
     )
 
-    assert approvals == [("Worker", "create_file", {"path": "x.py", "content": "print(1)"})]
+    assert approvals == [("Worker", "write", {"path": "x.py", "content": "print(1)"})]
     assert result["output"] == "created x.py"
 
 

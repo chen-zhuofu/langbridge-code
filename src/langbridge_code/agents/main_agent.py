@@ -16,12 +16,10 @@ from langbridge_code.util.agent_worklog import (
 )
 from langbridge_code.context.common.budget import prepare_agent_messages
 from langbridge_code.context.agent_context import finish_step, init_agent_context
-from langbridge_code.util.logging import write_finish_log, write_input_log
 from langbridge_code.util.progress import (
-    append_turn_progress_stub,
     build_main_agent_messages,
     build_turn_user_content,
-    schedule_append_turn_progress,
+    finalize_main_agent_turn,
 )
 from langbridge_code.util.artifacts import format_trace_timestamp
 from langbridge_code.util.trace_log import (
@@ -143,28 +141,8 @@ class MainAgentSession:
         }
 
     def run_turn(self, user_prompt, *, print_reply=False):
-        """Run one user turn: session logs, agent loop, and assistant reply."""
-        write_input_log(
-            self.run_log_path,
-            self.turn_id,
-            self.messages + [{"role": "user", "content": user_prompt}],
-        )
+        """Run one user turn: agent loop and assistant reply."""
         reply = self.send(user_prompt)
-        write_finish_log(self.run_log_path, self.turn_id, reply)
-        append_turn_progress_stub(
-            self.run_log_path,
-            self.turn_id,
-            user=user_prompt,
-            assistant=reply,
-        )
-        schedule_append_turn_progress(
-            self.api_key,
-            self.model,
-            self.run_log_path,
-            self.turn_id,
-            user=user_prompt,
-            assistant=reply,
-        )
         emit_phase(self.phase_sink, "summarizing")
         if print_reply:
             print(f"\n{reply}\n")
@@ -190,13 +168,6 @@ class MainAgentSession:
         if not prompt:
             prompt = goal.condition
         last_reply = ""
-        turn_user = prompt
-
-        write_input_log(
-            self.run_log_path,
-            self.turn_id,
-            self.messages + [{"role": "user", "content": prompt}],
-        )
 
         while goal.active:
             control.checkpoint()
@@ -233,21 +204,6 @@ class MainAgentSession:
 
             prompt = build_continuation_prompt(goal)
 
-        write_finish_log(self.run_log_path, self.turn_id, last_reply)
-        append_turn_progress_stub(
-            self.run_log_path,
-            self.turn_id,
-            user=turn_user,
-            assistant=last_reply,
-        )
-        schedule_append_turn_progress(
-            self.api_key,
-            self.model,
-            self.run_log_path,
-            self.turn_id,
-            user=turn_user,
-            assistant=last_reply,
-        )
         emit_phase(self.phase_sink, "summarizing")
         return last_reply, goal
 
@@ -308,7 +264,7 @@ class MainAgentSession:
             elif name not in self.tools:
                 raise ValueError(f"Unknown {self.label} tool: {name}")
             else:
-                if name in {"read_plan", "check_subtask"}:
+                if name in {"read_plan", "clear_plan"}:
                     arguments["run_log_path"] = self.run_log_path
                 output = self.tools[name](**arguments)
         except Exception as error:
@@ -341,6 +297,7 @@ def run_agent_turn(
     begin_trace(run_log_path, trace_id)
     sink = combine_trace_sink(trace_sink, write_trace_event)
 
+    outcome = ""
     try:
         session = MainAgentSession(
             api_key,
@@ -354,6 +311,22 @@ def run_agent_turn(
             phase_sink=phase_sink,
             question_callback=question_callback,
         )
-        return session.run_turn(target, print_reply=print_reply)
+        reply = session.run_turn(target, print_reply=print_reply)
+        outcome = reply or ""
+    except control.StopRequested:
+        outcome = "Stopped by user."
+    except Exception as error:
+        from langbridge_code.llm.client import format_api_error
+
+        outcome = format_api_error(error)
     finally:
         end_trace()
+        finalize_main_agent_turn(
+            api_key,
+            model,
+            run_log_path,
+            turn_id,
+            user=target,
+            assistant=outcome,
+        )
+    return outcome

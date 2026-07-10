@@ -28,10 +28,14 @@ CONFIG_PATH = USER_CONFIG_PATH
 HISTORY_PATH = CONFIG_DIR / "history"
 
 WRITE_TOOLS = {
-    "create_file",
-    "delete_file",
+    "write",
     "edit_file",
+    "multi_edit",
+    "apply_patch",
+    "delete_file",
     "bash",
+    "powershell",
+    "git_commit",
 }
 
 
@@ -242,12 +246,12 @@ def _bind(cfg):
         "ARTIFACTS_DIR": _path_override(
             "LANGBRIDGE_ARTIFACTS_DIR",
             paths.get("artifacts_dir"),
-            workspace_root / "artifacts",
+            PACKAGE_DIR / "artifacts",
         ),
         "RUNS_DIR": _path_override(
             "LANGBRIDGE_RUNS_DIR",
             paths.get("runs_dir") or paths.get("artifacts_dir"),
-            workspace_root / "artifacts",
+            PACKAGE_DIR / "artifacts",
         ),
         "TODO_LIST_PATH": _path_override(
             "LANGBRIDGE_TODO_LIST_PATH",

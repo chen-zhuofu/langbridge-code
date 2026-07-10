@@ -1,4 +1,6 @@
 import json
+import re
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -12,6 +14,8 @@ from langbridge_code.agents.common.workspace import get_workspace_root
 
 WORKSPACE_ROOT = Path.cwd().resolve()
 
+_PRIVILEGED_COMMAND_RE = re.compile(r"\b(sudo|su|doas|pkexec)\b", re.IGNORECASE)
+
 TOOL_SCHEMAS = [
     {
         "type": "function",
@@ -21,7 +25,8 @@ TOOL_SCHEMAS = [
             "(via bash -c). Use for installs (e.g. uv add pytest), builds, "
             "git (status, log, branch), and one-off scripts. "
             "Main agent: inspect git state; delegate merges to agent_worker. "
-            "Pipes and && are allowed."
+            "Pipes and && are allowed. Prefer write/edit/apply_patch for file content. "
+            "sudo/su/doas/pkexec are blocked."
         ),
         "parameters": {
             "type": "object",
@@ -45,7 +50,37 @@ TOOL_SCHEMAS = [
             "required": ["purpose", "command"],
             "additionalProperties": False,
         },
-    }
+    },
+    {
+        "type": "function",
+        "name": "powershell",
+        "description": (
+            "Run a non-interactive PowerShell command under the current workspace "
+            "(via pwsh -Command). Use on Windows-oriented scripts or when pwsh is available."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "purpose": PURPOSE_PARAMETER,
+                "command": {
+                    "type": "string",
+                    "description": "PowerShell command to run.",
+                },
+                "cwd": {
+                    "type": "string",
+                    "description": "Working directory relative to the current workspace.",
+                    "default": ".",
+                },
+                "timeout_seconds": {
+                    "type": "integer",
+                    "description": "Maximum time to wait before stopping the command.",
+                    "default": DEFAULT_EXECUTION_TIMEOUT_SECONDS,
+                },
+            },
+            "required": ["purpose", "command"],
+            "additionalProperties": False,
+        },
+    },
 ]
 
 TOOLS = {}
@@ -68,10 +103,19 @@ def resolve_workspace_path(path):
     return target
 
 
+def reject_privileged_command(command: str) -> None:
+    if _PRIVILEGED_COMMAND_RE.search(command or ""):
+        raise ValueError(
+            "Privileged commands (sudo, su, doas, pkexec) are not allowed. "
+            "Use non-interactive commands that do not require root."
+        )
+
+
 @tool("bash")
 def bash(command, cwd=".", timeout_seconds=DEFAULT_EXECUTION_TIMEOUT_SECONDS):
     if not isinstance(command, str) or not command.strip():
         raise ValueError("command must be a non-empty string")
+    reject_privileged_command(command)
 
     target_cwd = resolve_workspace_path(cwd)
     if not target_cwd.exists():
@@ -84,6 +128,62 @@ def bash(command, cwd=".", timeout_seconds=DEFAULT_EXECUTION_TIMEOUT_SECONDS):
     try:
         completed = subprocess.run(
             ["bash", "-c", command],
+            cwd=target_cwd,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            timeout=timeout,
+            check=False,
+        )
+        output = completed.stdout
+        timed_out = False
+        exit_code = completed.returncode
+    except subprocess.TimeoutExpired as error:
+        output = error.stdout or ""
+        timed_out = True
+        exit_code = None
+
+    output, truncated = truncate_output(output)
+    return json.dumps(
+        {
+            "command": command,
+            "cwd": str(target_cwd.relative_to(get_workspace_root())),
+            "exit_code": exit_code,
+            "timed_out": timed_out,
+            "truncated": truncated,
+            "output": output,
+        },
+        ensure_ascii=False,
+        indent=2,
+    )
+
+
+def _powershell_binary():
+    for name in ("pwsh", "powershell"):
+        found = shutil.which(name)
+        if found:
+            return found
+    raise RuntimeError("PowerShell (pwsh or powershell) was not found on PATH.")
+
+
+@tool("powershell")
+def powershell(command, cwd=".", timeout_seconds=DEFAULT_EXECUTION_TIMEOUT_SECONDS):
+    if not isinstance(command, str) or not command.strip():
+        raise ValueError("command must be a non-empty string")
+    reject_privileged_command(command)
+
+    target_cwd = resolve_workspace_path(cwd)
+    if not target_cwd.exists():
+        raise FileNotFoundError(f"No such working directory: {cwd}")
+    if not target_cwd.is_dir():
+        raise NotADirectoryError(f"Not a directory: {cwd}")
+
+    timeout = max(1, min(int(timeout_seconds), MAX_EXECUTION_TIMEOUT_SECONDS))
+    binary = _powershell_binary()
+
+    try:
+        completed = subprocess.run(
+            [binary, "-NoProfile", "-Command", command],
             cwd=target_cwd,
             text=True,
             stdout=subprocess.PIPE,

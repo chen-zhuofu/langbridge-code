@@ -12,10 +12,12 @@ ASK_USER_TOOL_SCHEMA = {
         "never comes back. Provide exactly 3 plausible assumptions as options; the "
         "UI always adds a 4th 'Other' choice for a custom answer. Phrase the "
         "question and options in the user's language. Do not use for trivial "
-        "choices you can decide yourself. Main agent: when an unfinished todo_list "
-        "exists and the user starts a new multi-step task, ask whether to continue "
-        "the old plan, replace it (then agent_planner with replace_existing_plan=true), "
-        "or start fresh (/new)."
+        "choices you can decide yourself. Do not use when the user only says "
+        "继续/continue/resume and read_plan shows unchecked todos — resume that plan "
+        "via agent_worker instead. Main agent: when an unfinished todo_list exists "
+        "and the user explicitly starts a different multi-step project this turn, "
+        "ask whether to continue the old plan, replace it (clear_plan then "
+        "agent_planner), or start fresh (/new)."
     ),
     "parameters": {
         "type": "object",

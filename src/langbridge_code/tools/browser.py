@@ -65,9 +65,9 @@ def tool(name):
 
 def _playwright_missing_message() -> str:
     return (
-        "Playwright is not installed. Install with:\n"
-        "  pip install playwright\n"
-        "  playwright install chromium"
+        "Playwright browser is not ready. Run once after install:\n"
+        "  playwright install chromium\n"
+        "  playwright install-deps chromium   # Linux system libraries; needs sudo"
     )
 
 
@@ -104,7 +104,11 @@ def browse_webpage(
                 browser.close()
     except PlaywrightError as error:
         message = str(error).strip()
-        if "Executable doesn't exist" in message or "browserType.launch" in message:
+        if (
+            "Executable doesn't exist" in message
+            or "browserType.launch" in message
+            or "shared libraries" in message
+        ):
             raise RuntimeError(_playwright_missing_message()) from error
         raise
 

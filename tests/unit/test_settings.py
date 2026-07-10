@@ -44,3 +44,8 @@ def test_legacy_api_key_falls_back_to_active_provider(monkeypatch, tmp_path):
     monkeypatch.delenv("KIMI_API_KEY", raising=False)
 
     assert settings.load_api_key("moonshot") == "sk-legacy"
+
+
+def test_artifacts_dir_defaults_under_package():
+    assert settings.ARTIFACTS_DIR == settings.PACKAGE_DIR / "artifacts"
+    assert settings.RUNS_DIR == settings.PACKAGE_DIR / "artifacts"

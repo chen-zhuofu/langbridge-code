@@ -1071,14 +1071,12 @@ dependencies = [
     { name = "httpx" },
     { name = "numpy" },
     { name = "openai" },
+    { name = "playwright" },
     { name = "prompt-toolkit" },
     { name = "textual" },
 ]
 
 [package.dev-dependencies]
-browser = [
-    { name = "playwright" },
-]
 dev = [
     { name = "pytest" },
     { name = "torch" },
@@ -1093,12 +1091,12 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "numpy", specifier = ">=2.4.6" },
     { name = "openai", specifier = ">=2.41.1" },
+    { name = "playwright", specifier = ">=1.49.0" },
     { name = "prompt-toolkit", specifier = ">=3.0.52" },
     { name = "textual", specifier = ">=8.2.7" },
 ]
 
 [package.metadata.requires-dev]
-browser = [{ name = "playwright", specifier = ">=1.49.0" }]
 dev = [
     { name = "pytest", specifier = ">=9.0.3" },
     { name = "torch", specifier = ">=2.12.0" },

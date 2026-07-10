@@ -58,7 +58,8 @@ def test_planner_prompt_owns_planning():
 
 def test_worker_prompt_does_not_own_planning():
     assert "planner" in WORKER_ENGINEER_PROMPT.lower()
-    assert "do not call check_subtask" in WORKER_ENGINEER_PROMPT.lower()
+    assert "do not call update_plan" in WORKER_ENGINEER_PROMPT.lower()
+    assert "edit the todo_list" in WORKER_ENGINEER_PROMPT.lower()
     assert "read_plan" in WORKER_ENGINEER_PROMPT.lower()
 
 

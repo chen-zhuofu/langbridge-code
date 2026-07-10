@@ -1,4 +1,4 @@
-"""Artifact session paths: artifacts/session-{slug}-{timestamp}/."""
+"""Artifact session paths: langbridge_code/artifacts/session-{slug}-{timestamp}/."""
 from __future__ import annotations
 
 import json

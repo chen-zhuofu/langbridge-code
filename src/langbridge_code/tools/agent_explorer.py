@@ -9,7 +9,7 @@ from langbridge_code.agents.common.limits import now, over_context_budget, over_
 from langbridge_code.agents.system_prompt.explorer import explorer_system_prompt
 from langbridge_code.llm.client import create_model_response
 from langbridge_code.llm.parse import extract_output_text, print_step_trace
-from langbridge_code.tools.common.purpose import without_purpose
+from langbridge_code.tools.common.purpose import PURPOSE_PARAMETER, without_purpose
 from langbridge_code.util.agent_worklog import (
     write_worklog_finish,
     write_worklog_observation,
@@ -23,25 +23,22 @@ from langbridge_code.settings import (
     MAX_EXPLORER_STEPS,
     WORKSPACE_ROOT,
 )
-from langbridge_code.tools import browser, execution, filesystem, skills, web
+from langbridge_code.tools import FILE_READ_TOOL_NAMES, GIT_READ_TOOL_NAMES
+from langbridge_code.tools import browser, execution, filesystem, git_tools, lsp, skills, web
 from langbridge_code.agents.common.phases import emit_phase
-from langbridge_code.tools.common.agent_tool import agent_tool_schema
 
-EXPLORE_TOOL_NAMES = {
-    "list_dir",
-    "glob",
-    "read_file",
-    "grep",
-    "bash",
-    "read_webpage",
-    "browse_webpage",
-    "read_skill",
-}
+EXPLORE_TOOL_NAMES = (
+    FILE_READ_TOOL_NAMES
+    | {"bash", "read_webpage", "browse_webpage", "read_skill", "lsp"}
+    | GIT_READ_TOOL_NAMES
+)
 EXPLORE_TOOL_SCHEMAS = [
     schema
     for schema in (
         filesystem.TOOL_SCHEMAS
         + execution.TOOL_SCHEMAS
+        + git_tools.TOOL_SCHEMAS
+        + lsp.TOOL_SCHEMAS
         + web.TOOL_SCHEMAS
         + browser.TOOL_SCHEMAS
         + skills.TOOL_SCHEMAS
@@ -76,7 +73,14 @@ def read_only_bash(**kwargs):
 
 EXPLORE_TOOLS = {
     name: tool
-    for name, tool in (filesystem.TOOLS | web.TOOLS | browser.TOOLS | skills.TOOLS).items()
+    for name, tool in (
+        filesystem.TOOLS
+        | git_tools.TOOLS
+        | lsp.TOOLS
+        | web.TOOLS
+        | browser.TOOLS
+        | skills.TOOLS
+    ).items()
     if name in EXPLORE_TOOL_NAMES and name != "bash"
 }
 EXPLORE_TOOLS["bash"] = read_only_bash
@@ -144,14 +148,37 @@ def build_explore_prompt(task: str, *, thoroughness="medium", cwd=None) -> str:
     return "\n\n".join(part for part in parts if part)
 
 
-AGENT_EXPLORER_TOOL_SCHEMA = agent_tool_schema(
-    "agent_explorer",
-    "Delegate read-only codebase investigation to the explore subagent. "
-    "Use for broad search across many files or naming patterns. Multiple explorer "
-    "calls in one turn may run in parallel (read-only). Do not parallelize planner "
-    "or worker subagents. Returns a summary only.",
-    include_thoroughness=True,
-)
+AGENT_EXPLORER_TOOL_SCHEMA = {
+    "type": "function",
+    "name": "agent_explorer",
+    "description": (
+        "Delegate read-only codebase investigation to the explore subagent. "
+        "Use for broad search across many files or naming patterns. Multiple explorer "
+        "calls in one turn may run in parallel (read-only). Do not parallelize planner "
+        "or worker subagents. Returns a summary only."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "purpose": PURPOSE_PARAMETER,
+            "prompt": {
+                "type": "string",
+                "description": "Full task description for the subagent.",
+            },
+            "description": {
+                "type": "string",
+                "description": "Short 3-5 word title for logging.",
+            },
+            "thoroughness": {
+                "type": "string",
+                "enum": ["quick", "medium", "thorough"],
+                "description": "Search depth (default medium).",
+            },
+        },
+        "required": ["purpose", "prompt", "description"],
+        "additionalProperties": False,
+    },
+}
 
 
 def format_explore_output(description, report, *, max_chars=6000):

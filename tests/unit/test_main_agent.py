@@ -18,16 +18,24 @@ def test_main_agent_tool_schemas_include_full_toolkit_and_subagents():
         "list_dir",
         "glob",
         "read_file",
+        "read_many",
         "grep",
         "edit_file",
-        "create_file",
+        "write",
+        "multi_edit",
+        "apply_patch",
         "delete_file",
         "run_tests",
         "bash",
+        "powershell",
+        "git_status",
+        "git_diff",
+        "git_commit",
+        "lsp",
         "read_webpage",
         "browse_webpage",
         "read_plan",
-        "check_subtask",
+        "clear_plan",
         "read_skill",
         "ask_user",
         "agent_planner",
@@ -65,20 +73,19 @@ def test_subagent_planner_persists_task_type(tmp_path, monkeypatch):
     assert read_task_type(run_log) == "coding"
 
 
-def test_main_agent_run_turn_writes_session_logs(tmp_path, monkeypatch):
+def test_main_agent_run_turn_does_not_finalize_locally(tmp_path, monkeypatch):
     run_log = tmp_path / "run.json"
     messages = [{"role": "system", "content": "sys"}]
-    logged = {"input": False, "finish": False}
+    logged = {"finalize": False}
 
-    def fake_input_log(path, turn_id, payload):
-        logged["input"] = True
+    def fake_finalize(*args, **kwargs):
+        logged["finalize"] = True
 
-    def fake_finish_log(path, turn_id, reply):
-        logged["finish"] = True
-
-    monkeypatch.setattr("langbridge_code.agents.main_agent.write_input_log", fake_input_log)
-    monkeypatch.setattr("langbridge_code.agents.main_agent.write_finish_log", fake_finish_log)
     monkeypatch.setattr("langbridge_code.agents.main_agent.emit_phase", lambda *a, **k: None)
+    monkeypatch.setattr(
+        "langbridge_code.agents.main_agent.finalize_main_agent_turn",
+        fake_finalize,
+    )
     monkeypatch.setattr(
         "langbridge_code.agents.main_agent.create_model_response",
         lambda *args, **kwargs: {
@@ -92,13 +99,11 @@ def test_main_agent_run_turn_writes_session_logs(tmp_path, monkeypatch):
     )
     monkeypatch.setattr("langbridge_code.agents.main_agent.write_worklog_received", lambda *a, **k: None)
     monkeypatch.setattr("langbridge_code.agents.main_agent.write_worklog_finish", lambda *a, **k: None)
-    monkeypatch.setattr("langbridge_code.agents.main_agent.append_turn_progress_stub", lambda *a, **k: None)
-    monkeypatch.setattr("langbridge_code.agents.main_agent.schedule_append_turn_progress", lambda *a, **k: None)
 
     session = MainAgentSession("key", "model", messages, run_log, 1, target="go")
     reply = session.run_turn("go")
     assert reply == "Done."
-    assert logged["input"] and logged["finish"]
+    assert not logged["finalize"]
     assert session.messages[-1] == {"role": "assistant", "content": "Done."}
 
 
@@ -133,10 +138,6 @@ def test_main_agent_session_injects_session_context(monkeypatch, tmp_path):
     monkeypatch.setattr("langbridge_code.agents.main_agent.write_worklog_received", lambda *a, **k: None)
     monkeypatch.setattr("langbridge_code.agents.main_agent.write_worklog_step", lambda *a, **k: None)
     monkeypatch.setattr("langbridge_code.agents.main_agent.write_worklog_finish", lambda *a, **k: None)
-    monkeypatch.setattr("langbridge_code.agents.main_agent.write_input_log", lambda *a, **k: None)
-    monkeypatch.setattr("langbridge_code.agents.main_agent.write_finish_log", lambda *a, **k: None)
-    monkeypatch.setattr("langbridge_code.agents.main_agent.append_turn_progress_stub", lambda *a, **k: None)
-    monkeypatch.setattr("langbridge_code.agents.main_agent.schedule_append_turn_progress", lambda *a, **k: None)
     monkeypatch.setattr("langbridge_code.agents.main_agent.emit_phase", lambda *a, **k: None)
 
     session = MainAgentSession(

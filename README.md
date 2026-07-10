@@ -74,7 +74,7 @@ User prompt
   → read_plan → agent_worker (one unchecked subtask per call)
        [coding]  → Worker ↔ Reviewer (separate sessions, git diff handoff)
        [slide]   → Worker ↔ Reviewer (.pptx / deck deliverables)
-       on pass   → check_subtask (main agent marks todo done)
+       on pass   → agent_worker auto-marks todo [x]
        on fail   → agent_planner refines (splits task)
   → Summary reply (full project complete only when all todos are [x])
 ```
@@ -85,7 +85,7 @@ and optional `/goal` autonomous rounds with a Goal Evaluator.
 ## LangBridge Code team (workflow roles)
 
 - **LangBridge** — main agent; coordinates tools and subagents; owns `read_plan` /
-  `check_subtask`; does not implement code itself.
+  `clear_plan`; does not implement code itself.
 - **Planner** — builds or refines the markdown session plan (`update_plan`).
 - **Worker** — implements one assigned subtask; may `read_plan` for read-only context;
   ends with `WORKER_STATUS: READY_FOR_REVIEW`.
@@ -98,12 +98,12 @@ The **LangBridge** main agent handles chat or kicks off multi-step work. The
 **Planner** writes the full `todo_list` (Desired end state, Success criteria, todos
 with `<!-- verify: ... -->` comments). For each unchecked item, LangBridge calls
 **agent_worker** with a **focused subtask prompt** (not the whole plan). After
-review passes, LangBridge calls **check_subtask** to mark that line `[x]` — it does
-not ask the planner to update checkboxes. When every todo is checked,
-`check_subtask` returns `all_complete=true` and LangBridge may report the project
+review passes, **agent_worker** marks that line `[x]` automatically — the main
+agent does not ask the planner to update checkboxes. When every todo is checked,
+`read_plan` shows no unchecked items and LangBridge may report the project
 finished.
 
-**Main agent tools:** filesystem, `bash`, `run_tests`, `read_plan`, `check_subtask`,
+**Main agent tools:** filesystem, `bash`, `run_tests`, `read_plan`, `clear_plan`,
 `read_webpage`, `browse_webpage`, `read_skill`, plus subagent tools
 (`agent_planner`, `agent_worker`, `agent_explorer`).
 
@@ -111,7 +111,7 @@ finished.
 `ask_user`.
 
 **Worker / Reviewer tools:** filesystem tools, `bash`, `run_tests`, `read_plan`
-(read-only context), `read_skill`, `agent_explorer`, plus writes (`create_file`,
+(read-only context), `read_skill`, `agent_explorer`, plus writes (`write`,
 `edit_file`, `delete_file`) for workers.
 
 File tools are limited to the directory where you start LangBridge Code. Write tools
@@ -125,11 +125,11 @@ and vendored [Superpowers](https://github.com/obra/superpowers) under
 Each tool call includes a required `purpose` field: a short, user-visible sentence
 explaining why the agent is calling that tool. It feeds the live thinking line in the TUI.
 
-Each run writes session artifacts under `artifacts/session-{slug}-{timestamp}/`:
+Each run writes session artifacts under `src/langbridge_code/artifacts/session-{slug}-{timestamp}/`:
 `session.json` (chat history), `todo_list.md`, `progress.md`, and `traces/*.log`.
-User messages are persisted to `session.json` **as soon as you press Enter** (including
-queued messages while the agent is busy). On startup you can resume a previous session
-or start a new one.
+A turn is recorded in `session.json` when the agent **starts** processing that
+message (including the next queued message after the prior turn finishes). On
+startup you can resume a previous session or start a new one.
 
 ### Living agents vs. traces (memory)
 
@@ -290,12 +290,12 @@ changes take effect immediately. Use `uv sync --reinstall-package langbridge-cod
 `Ctrl+S` stop · `Ctrl+R` sessions · `Ctrl+C` quit.
 
 **Sessions**: `Ctrl+R` (or `/sessions`) opens a scrollable popup of saved
-sessions — move with `↑`/`↓`, `Enter` to resume, `Esc` to cancel. Chat history
-is written to `session.json` immediately when you submit a message (including
-messages queued while the agent is busy).
+sessions — move with `↑`/`↓`, `Enter` to resume, `Esc` to cancel.
 
-**Queue**: while a turn is running you can keep typing — messages are saved to
-history right away and run in order when the current turn finishes.
+**Queue**: while a turn is running you can keep typing — messages wait in the
+queue and run after the current turn finishes. Each started turn gets the next
+id when processing begins; session + progress notes are written when the main
+agent loop ends (success, stop, timeout, or error).
 
 **Pause** (soft hold): holds the agent at the next step boundary and resumes the
 same run in place. It takes effect *between* steps, so an in-flight model call or
@@ -309,7 +309,7 @@ tool (e.g. `bash`) is mid-execution, Stop waits for that one tool to return
 before unwinding — it never leaves a write half-applied.
 
 **Approvals**: when auto-approve is off, the agent posts an inline approval
-request for specialist write tools (`create_file`, `edit_file`, `delete_file`,
+request for specialist write tools (`write`, `edit_file`, `multi_edit`, `apply_patch`, `delete_file`, `git_commit`,
 `bash`). Approve with `Ctrl+A` / `/approve` or deny with `Ctrl+D` / `/deny`.
 
 ### One-shot (headless)

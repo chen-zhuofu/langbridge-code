@@ -1,7 +1,8 @@
-"""read_plan and check_subtask tools for the main agent; read_plan for worker context."""
+"""read_plan and clear_plan tools for the main agent; read_plan for worker context."""
 from langbridge_code.agents.common import worktree as worktree_mod
 from langbridge_code.agents.common.todo_list import (
     clean_task_text,
+    find_matching_unfinished_task,
     load_tasks,
     mark_subtask_done_in_content,
     read_todo_list,
@@ -32,35 +33,27 @@ READ_PLAN_TOOL_SCHEMA = {
     },
 }
 
-CHECK_SUBTASK_TOOL_SCHEMA = {
+CLEAR_PLAN_TOOL_SCHEMA = {
     "type": "function",
-    "name": "check_subtask",
+    "name": "clear_plan",
     "description": (
-        "Mark one todo_list item as done after agent_worker review passed. "
-        "Pass subtask text matching an unchecked `- [ ]` line from read_plan "
-        "(key words are enough; HTML comments are ignored). "
-        "Call after each successful worker-reviewer loop — do not ask agent_planner "
-        "to update checkboxes. "
-        "Only tell the user the project is fully complete when the tool returns "
-        "all_complete=true; otherwise read_plan and delegate the next unchecked subtask."
+        "Delete the session todo_list so a new plan can be written. "
+        "Call only after ask_user confirmed the user wants to replace or abandon "
+        "the current unfinished plan (or when the plan is already empty). "
+        "Then call agent_planner for the new project — replace_existing_plan is "
+        "not needed after a successful clear."
     ),
     "parameters": {
         "type": "object",
         "properties": {
             "purpose": PURPOSE_PARAMETER,
-            "subtask": {
-                "type": "string",
-                "description": (
-                    "Text identifying the todo item to mark complete (from read_plan)."
-                ),
-            },
         },
-        "required": ["purpose", "subtask"],
+        "required": ["purpose"],
         "additionalProperties": False,
     },
 }
 
-TOOL_SCHEMAS = [READ_PLAN_TOOL_SCHEMA, CHECK_SUBTASK_TOOL_SCHEMA]
+TOOL_SCHEMAS = [READ_PLAN_TOOL_SCHEMA, CLEAR_PLAN_TOOL_SCHEMA]
 
 TOOLS = {}
 
@@ -91,8 +84,21 @@ def read_plan(run_log_path=None):
     return "\n\n".join(sections)
 
 
-@tool("check_subtask")
-def check_subtask(subtask, run_log_path=None):
+@tool("clear_plan")
+def clear_plan(run_log_path=None):
+    content = read_todo_list(run_log_path)
+    if not content.strip():
+        return "Todo list is already empty."
+    remaining = unfinished_count(load_tasks(run_log_path))
+    path = write_todo_list("", run_log_path=run_log_path)
+    lines = [f"Cleared todo_list ({path.name})."]
+    if remaining:
+        lines.append(f"Discarded {remaining} unchecked item(s).")
+    lines.append("Call agent_planner to write a new plan.")
+    return "\n".join(lines)
+
+
+def _mark_subtask_complete(subtask, run_log_path=None):
     needle = (subtask or "").strip()
     if not needle:
         return "Tool error: subtask must be a non-empty string."
@@ -129,3 +135,28 @@ def check_subtask(subtask, run_log_path=None):
             lines.append("Next unchecked:")
             lines.extend(f"- {item}" for item in next_items)
     return "\n".join(lines)
+
+
+def complete_subtask_after_review(task, run_log_path=None):
+    """Mark the worker's subtask done after reviewer PASS. Idempotent."""
+    needle = (task or "").strip()
+    if not needle or run_log_path is None:
+        return ""
+    content = read_todo_list(run_log_path)
+    if not content.strip():
+        return ""
+
+    tasks = load_tasks(run_log_path)
+    if find_matching_unfinished_task(tasks, needle) is not None:
+        return _mark_subtask_complete(needle, run_log_path=run_log_path)
+
+    needle_clean = clean_task_text(needle).lower()
+    if not needle_clean:
+        return ""
+    for item in tasks:
+        if item.unfinished:
+            continue
+        desc = clean_task_text(item.description).lower()
+        if desc == needle_clean or needle_clean in desc or desc in needle_clean:
+            return f"Todo already complete: {clean_task_text(item.description)}"
+    return ""

@@ -184,10 +184,23 @@ def _summarize_tool_call(name: str, arguments: dict) -> str:
         return f"agent_planner({_truncate(str(arguments.get('prompt', '')), 40)})"
     if name == "agent_explorer":
         return f"agent_explorer({_truncate(str(arguments.get('prompt', '')), 40)})"
-    if name == "write_file":
-        return f"write_file({arguments.get('path', '?')})"
-    if name == "replace_in_file":
-        return f"replace_in_file({arguments.get('path', '?')})"
+    if name == "write":
+        return f"write({arguments.get('path', '?')})"
+    if name == "edit_file":
+        return f"edit_file({arguments.get('path', '?')})"
+    if name == "multi_edit":
+        return f"multi_edit({arguments.get('path', '?')})"
+    if name == "apply_patch":
+        return "apply_patch(...)"
+    if name == "read_many":
+        paths = arguments.get("paths") or []
+        return f"read_many({len(paths)} files)"
+    if name == "git_commit":
+        return f"git_commit({arguments.get('message', '')[:30]!r})"
+    if name == "lsp":
+        return f"lsp({arguments.get('action', '?')}, {arguments.get('path', '?')})"
+    if name == "powershell":
+        return f"powershell({_truncate(str(arguments.get('command', '')), 50)})"
     rendered = json.dumps(arguments, ensure_ascii=False, separators=(",", ":"))
     return f"{name}({_truncate(rendered, 50)})"
 

@@ -38,13 +38,25 @@ from langbridge_code.agents.common.todo_list import (
     clean_task_text,
     read_task_type,
     render_todo_list,
+    resolve_single_worker_task,
     write_task_type_marker,
     write_todo_list,
 )
-from langbridge_code.tools import execution, filesystem, skills, testing
+from langbridge_code.tools import (
+    FILE_READ_TOOL_NAMES,
+    FILE_WRITE_TOOL_NAMES,
+    GIT_READ_TOOL_NAMES,
+    GIT_WRITE_TOOL_NAMES,
+    SHELL_TOOL_NAMES,
+    execution,
+    filesystem,
+    git_tools,
+    lsp,
+    skills,
+    testing,
+)
 from langbridge_code.tools.agent_explorer import AGENT_EXPLORER_TOOL_SCHEMA, build_agent_explorer_tool
-from langbridge_code.tools.common.agent_tool import agent_tool_schema
-from langbridge_code.tools.common.purpose import without_purpose
+from langbridge_code.tools.common.purpose import PURPOSE_PARAMETER, without_purpose
 from langbridge_code.skills import normalize_task_type
 from langbridge_code.agents.common import worktree as worktree_mod
 from langbridge_code.agents.common.workspace import workspace_scope
@@ -53,81 +65,98 @@ from langbridge_code.training.optimizer_trace import append_event
 
 # --- Worker toolkits by task type ---
 
-CODE_WORKER_TOOL_NAMES = {
-    "list_dir",
-    "glob",
-    "read_file",
-    "grep",
-    "edit_file",
-    "create_file",
-    "delete_file",
-    "run_tests",
-    "bash",
-    "read_skill",
-    "read_plan",
-}
+CODE_WORKER_TOOL_NAMES = (
+    FILE_READ_TOOL_NAMES
+    | FILE_WRITE_TOOL_NAMES
+    | SHELL_TOOL_NAMES
+    | GIT_READ_TOOL_NAMES
+    | GIT_WRITE_TOOL_NAMES
+    | {"run_tests", "read_skill", "read_plan", "lsp"}
+)
 CODE_WORKER_TOOL_SCHEMAS = [
     schema
-    for schema in filesystem.TOOL_SCHEMAS
-    + testing.TOOL_SCHEMAS
-    + execution.TOOL_SCHEMAS
-    + skills.TOOL_SCHEMAS
-    + plan_tools.TOOL_SCHEMAS
+    for schema in (
+        filesystem.TOOL_SCHEMAS
+        + execution.TOOL_SCHEMAS
+        + git_tools.TOOL_SCHEMAS
+        + lsp.TOOL_SCHEMAS
+        + testing.TOOL_SCHEMAS
+        + skills.TOOL_SCHEMAS
+        + plan_tools.TOOL_SCHEMAS
+    )
     if schema["name"] in CODE_WORKER_TOOL_NAMES
 ]
 CODE_WORKER_TOOLS = {
     name: tool
     for name, tool in (
-        filesystem.TOOLS | testing.TOOLS | execution.TOOLS | skills.TOOLS | plan_tools.TOOLS
+        filesystem.TOOLS
+        | execution.TOOLS
+        | git_tools.TOOLS
+        | lsp.TOOLS
+        | testing.TOOLS
+        | skills.TOOLS
+        | plan_tools.TOOLS
     ).items()
     if name in CODE_WORKER_TOOL_NAMES
 }
-WORKER_WRITE_TOOLS = {"create_file", "delete_file", "edit_file"}
+WORKER_WRITE_TOOLS = FILE_WRITE_TOOL_NAMES | GIT_WRITE_TOOL_NAMES
 
-SLIDE_WORKER_TOOL_NAMES = {
-    "list_dir",
-    "glob",
-    "read_file",
-    "grep",
-    "create_file",
-    "edit_file",
-    "read_skill",
-    "read_plan",
-}
+SLIDE_WORKER_TOOL_NAMES = (
+    FILE_READ_TOOL_NAMES
+    | {"write", "edit_file", "multi_edit", "apply_patch"}
+    | {"read_skill", "read_plan", "lsp"}
+    | GIT_READ_TOOL_NAMES
+)
 SLIDE_WORKER_TOOL_SCHEMAS = [
     schema
-    for schema in filesystem.TOOL_SCHEMAS + skills.TOOL_SCHEMAS + plan_tools.TOOL_SCHEMAS
+    for schema in (
+        filesystem.TOOL_SCHEMAS
+        + git_tools.TOOL_SCHEMAS
+        + lsp.TOOL_SCHEMAS
+        + skills.TOOL_SCHEMAS
+        + plan_tools.TOOL_SCHEMAS
+    )
     if schema["name"] in SLIDE_WORKER_TOOL_NAMES
 ]
 SLIDE_WORKER_TOOLS = {
     name: tool
-    for name, tool in (filesystem.TOOLS | skills.TOOLS | plan_tools.TOOLS).items()
+    for name, tool in (
+        filesystem.TOOLS | git_tools.TOOLS | lsp.TOOLS | skills.TOOLS | plan_tools.TOOLS
+    ).items()
     if name in SLIDE_WORKER_TOOL_NAMES
 }
 
-SLIDE_REVIEWER_TOOL_NAMES = {"list_dir", "glob", "read_file", "grep", "read_skill"}
+SLIDE_REVIEWER_TOOL_NAMES = FILE_READ_TOOL_NAMES | {"read_skill", "lsp"} | GIT_READ_TOOL_NAMES
 SLIDE_REVIEWER_TOOL_SCHEMAS = [
     schema
-    for schema in filesystem.TOOL_SCHEMAS + skills.TOOL_SCHEMAS
+    for schema in filesystem.TOOL_SCHEMAS + git_tools.TOOL_SCHEMAS + lsp.TOOL_SCHEMAS + skills.TOOL_SCHEMAS
     if schema["name"] in SLIDE_REVIEWER_TOOL_NAMES
 ]
 SLIDE_REVIEWER_TOOLS = {
     name: tool
-    for name, tool in (filesystem.TOOLS | skills.TOOLS).items()
+    for name, tool in (filesystem.TOOLS | git_tools.TOOLS | lsp.TOOLS | skills.TOOLS).items()
     if name in SLIDE_REVIEWER_TOOL_NAMES
 }
 
 # --- Reviewer specialist tools ---
 
-REVIEWER_TOOL_NAMES = {"list_dir", "glob", "read_file", "grep", "run_tests", "read_skill"}
+REVIEWER_TOOL_NAMES = FILE_READ_TOOL_NAMES | {"run_tests", "read_skill", "lsp"} | GIT_READ_TOOL_NAMES
 REVIEWER_TOOL_SCHEMAS = [
     schema
-    for schema in filesystem.TOOL_SCHEMAS + testing.TOOL_SCHEMAS + skills.TOOL_SCHEMAS
+    for schema in (
+        filesystem.TOOL_SCHEMAS
+        + git_tools.TOOL_SCHEMAS
+        + lsp.TOOL_SCHEMAS
+        + testing.TOOL_SCHEMAS
+        + skills.TOOL_SCHEMAS
+    )
     if schema["name"] in REVIEWER_TOOL_NAMES
 ]
 REVIEWER_TOOLS = {
     name: tool
-    for name, tool in (filesystem.TOOLS | testing.TOOLS | skills.TOOLS).items()
+    for name, tool in (
+        filesystem.TOOLS | git_tools.TOOLS | lsp.TOOLS | testing.TOOLS | skills.TOOLS
+    ).items()
     if name in REVIEWER_TOOL_NAMES
 }
 
@@ -227,6 +256,23 @@ def pending_integration_tasks(tasks: list[TodoTask]) -> list[TodoTask]:
     return [task for task in tasks if task.unfinished and is_integration_task(task)]
 
 
+def _validate_merge_prompt_single_branch(task: str, run_log_path) -> str | None:
+    branches = re.findall(r"lb/[\w/-]+", task or "", re.IGNORECASE)
+    if len(branches) > 1:
+        return (
+            "merge prompt references multiple branches "
+            f"({', '.join(branches)}); one branch per agent_worker call."
+        )
+    if len(branches) == 1 and run_log_path is not None:
+        ready = worktree_mod.ready_branches(run_log_path)
+        if ready and branches[0] not in ready and branches[0].lower() not in {b.lower() for b in ready}:
+            return (
+                f"branch {branches[0]!r} is not in ready branches. "
+                "read_plan and merge one ready branch per call."
+            )
+    return None
+
+
 def is_merge_task_prompt(task: str) -> bool:
     cleaned = clean_task_text(task).lower()
     if "git merge" in cleaned:
@@ -281,26 +327,46 @@ def integration_pending_message(tasks: list[TodoTask], completed: list[str], *, 
     return "\n".join(lines).strip()
 
 
-AGENT_WORKER_TOOL_SCHEMA = agent_tool_schema(
-    "agent_worker",
-    "Launch the worker-reviewer subagent for one todo subtask. "
-    "Pass a focused prompt for a single unchecked item from read_plan (description, "
-    "verify comment, and relevant Changes required snippets). "
-    "Do not paste the entire plan or multiple todos — one subtask per call. "
-    "Worker may read_plan for read-only context but implements only your assigned subtask. "
+AGENT_WORKER_TOOL_SCHEMA = {
+    "type": "function",
+    "name": "agent_worker",
+    "description": (
+        "Launch the worker-reviewer subagent for exactly one todo subtask. "
+        "Pass a focused prompt for a single unchecked item from read_plan (description, "
+        "verify comment, and relevant Changes required snippets). "
+        "Rejected if the prompt lists multiple todos, checkboxes, or branches. "
+        "Do not paste the entire plan or multiple todos — one subtask per call. "
+        "Worker may read_plan for read-only context but implements only your assigned subtask. "
     "When read_plan shows multiple <!-- parallel --> todos, the main agent may call "
     "agent_worker several times in one turn; parallel tasks run in isolated git worktrees. "
     "After parallel work, read_plan lists ready branches — delegate agent_worker to merge "
     "each branch into the main workspace (one branch per call). "
-    "After review passes, call check_subtask for that item — not agent_planner. "
+    "On reviewer PASS the matched todo is marked complete automatically. "
     "On failure, call agent_planner to refine the plan; do not re-dispatch the "
-    "same task until the plan changes. Returns a final summary only. "
-    "Delegate integration verification via agent_worker when merges are complete.",
-)
-AGENT_WORKER_TOOL_SCHEMA["parameters"]["properties"]["task_type"] = {
-    "type": "string",
-    "enum": ["coding", "slide"],
-    "description": "Task type from read_plan (default coding).",
+        "same task until the plan changes. Returns a final summary only. "
+        "Delegate integration verification via agent_worker when merges are complete."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "purpose": PURPOSE_PARAMETER,
+            "prompt": {
+                "type": "string",
+                "description": "Full task description for the subagent.",
+            },
+            "description": {
+                "type": "string",
+                "description": "Short 3-5 word title for logging.",
+            },
+            "task_type": {
+                "type": "string",
+                "enum": ["coding", "slide"],
+                "description": "Task type from read_plan (default coding).",
+            },
+        },
+        "required": ["purpose", "prompt", "description"],
+        "additionalProperties": False,
+    },
 }
 
 
@@ -1278,7 +1344,7 @@ def dispatch_worker(
         branch_note = f"\n\nWorktree branch: {worktree_info.branch}"
         if passed:
             branch_note += " (ready to merge)"
-        return f"[{description or 'worker'}] Parallel worktree {status}.{branch_note}\n\n{detail[:4000]}"
+        return f"[{description or 'worker'}] Parallel worktree {status}.{branch_note}\n\n{detail[:4000]}{_todo_completion_suffix(task, passed, run_log_path)}"
 
     task_context = context(task)
     if is_merge_task_prompt(task) and run_log_path is not None:
@@ -1301,7 +1367,14 @@ def dispatch_worker(
         for branch in _branches_named_in_task(run_log_path, task):
             worktree_mod.mark_branch_status(run_log_path, branch, "merged")
     status = "completed" if passed else "stopped (review did not pass)"
-    return f"[{description or 'worker'}] Single-task {status}.\n\n{detail[:4000]}"
+    return f"[{description or 'worker'}] Single-task {status}.\n\n{detail[:4000]}{_todo_completion_suffix(task, passed, run_log_path)}"
+
+
+def _todo_completion_suffix(task, passed, run_log_path):
+    if not passed:
+        return ""
+    note = plan_tools.complete_subtask_after_review(task, run_log_path=run_log_path)
+    return f"\n\n{note}" if note else ""
 
 
 def build_agent_worker_tool(
@@ -1318,9 +1391,14 @@ def build_agent_worker_tool(
     question_callback=None,
 ):
     def agent_worker(prompt, description="", task_type="coding"):
-        task = (prompt or "").strip()
-        if not task:
-            return "Tool error: prompt must be a non-empty string."
+        canonical, error = resolve_single_worker_task(prompt, run_log_path)
+        if error:
+            return f"Tool error: {error}"
+        task = canonical or ""
+        if is_merge_task_prompt(task):
+            merge_error = _validate_merge_prompt_single_branch(task, run_log_path)
+            if merge_error:
+                return f"Tool error: {merge_error}"
         return dispatch_worker(
             task,
             description,

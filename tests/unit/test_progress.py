@@ -26,6 +26,30 @@ def test_build_turn_user_content_includes_progress(tmp_path):
     assert "Current request:\ncontinue" in content
 
 
+def test_build_turn_user_content_includes_continuation_directive(tmp_path):
+    run_log = tmp_path / "session.json"
+    todo = (
+        "<!-- task_type: slide -->\n# Plan\n\n"
+        "- [x] Done step\n"
+        "- [ ] 美化与校验：检查每页内容\n"
+    )
+    (tmp_path / "todo_list.md").write_text(todo, encoding="utf-8")
+    content = build_turn_user_content(run_log, "继续")
+    assert "Continuation directive" in content
+    assert "美化与校验" in content
+    assert "Do NOT use ask_user" in content
+
+
+def test_is_continuation_request():
+    from langbridge_code.agents.common.todo_list import is_continuation_request
+
+    assert is_continuation_request("继续")
+    assert is_continuation_request("继续？")
+    assert is_continuation_request("continue")
+    assert not is_continuation_request("继续开发游戏")
+    assert not is_continuation_request("做ppt")
+
+
 def test_build_turn_user_content_includes_recent_dialogue(tmp_path):
     run_log = tmp_path / "session.json"
     run_log.write_text(
@@ -37,6 +61,7 @@ def test_build_turn_user_content_includes_recent_dialogue(tmp_path):
     assert "Recent session dialogue" in content
     assert "build web" in content
     assert "Built the landing page" in content
+    assert "Current request:\nadd a footer" in content
     assert "Current request:\nadd a footer" in content
 
 
