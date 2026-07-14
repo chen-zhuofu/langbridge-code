@@ -1,4 +1,4 @@
-"""Shared ask_user tool for main agent and planner."""
+"""Shared ask_user tool for the main agent only."""
 
 from langbridge_code.tools.common.purpose import PURPOSE_PARAMETER
 
@@ -6,18 +6,18 @@ ASK_USER_TOOL_SCHEMA = {
     "type": "function",
     "name": "ask_user",
     "description": (
-        "Ask the user a clarifying question when requirements are genuinely "
-        "ambiguous and a wrong guess would waste real work. Use this instead of "
-        "asking in a normal reply — a normal reply ends your turn and the answer "
-        "never comes back. Provide exactly 3 plausible assumptions as options; the "
-        "UI always adds a 4th 'Other' choice for a custom answer. Phrase the "
-        "question and options in the user's language. Do not use for trivial "
-        "choices you can decide yourself. Do not use when the user only says "
-        "继续/continue/resume and read_plan shows unchecked todos — resume that plan "
-        "via agent_worker instead. Main agent: when an unfinished todo_list exists "
+        "Ask the user a clarifying question (main agent only — subagents cannot). "
+        "Use when requirements are genuinely ambiguous and a wrong guess would "
+        "waste real work. Use this instead of asking in a normal reply — a normal "
+        "reply ends your turn and the answer never comes back. Provide exactly 3 "
+        "plausible assumptions as options; the UI always adds a 4th 'Other' choice. "
+        "Phrase the question and options in the user's language. Do not use for "
+        "trivial choices you can decide yourself. Do not use when the user only "
+        "says 继续/continue/resume and read_plan shows unchecked todos — resume "
+        "that plan via agent_worker instead. When an unfinished todo_list exists "
         "and the user explicitly starts a different multi-step project this turn, "
         "ask whether to continue the old plan, replace it (clear_plan then "
-        "agent_planner), or start fresh (/new)."
+        "agent_planner + update_plan), or start fresh (/new)."
     ),
     "parameters": {
         "type": "object",

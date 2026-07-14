@@ -45,6 +45,7 @@ def test_main_tools_exclude_legacy_specialists():
         "browse_webpage",
         "read_plan",
         "clear_plan",
+        "update_plan",
         "read_skill",
     }
     main_names = {schema["name"] for schema in MAIN_TOOL_SCHEMAS}
@@ -68,6 +69,7 @@ def test_main_tools_exclude_legacy_specialists():
         "lsp",
         "read_plan",
         "clear_plan",
+        "update_plan",
         "read_webpage",
         "browse_webpage",
         "read_skill",
@@ -77,11 +79,13 @@ def test_main_tools_exclude_legacy_specialists():
     assert not any(schema["name"] == "check_subtask" for schema in MAIN_TOOL_SCHEMAS)
     assert not any(schema["name"] == "check_subtask" for schema in CODE_WORKER_TOOL_SCHEMAS)
     coder_tools, coder_schemas = build_code_worker_toolkit(api_key="k", model="m")
-    assert "agent_explorer" in coder_tools
-    assert any(schema["name"] == "agent_explorer" for schema in coder_schemas)
+    assert "agent_explorer" not in coder_tools
+    assert not any(schema["name"] == "agent_explorer" for schema in coder_schemas)
     reviewer_tools, reviewer_schemas = build_reviewer_toolkit(api_key="k", model="m")
-    assert "agent_explorer" in reviewer_tools
-    assert any(schema["name"] == "agent_explorer" for schema in reviewer_schemas)
+    assert "agent_explorer" not in reviewer_tools
+    assert not any(schema["name"] == "agent_explorer" for schema in reviewer_schemas)
+    assert "update_plan" in MAIN_TOOLS
+    assert any(schema["name"] == "update_plan" for schema in MAIN_TOOL_SCHEMAS)
     for schema in MAIN_TOOL_SCHEMAS + coder_schemas:
         assert "purpose" in schema["parameters"]["properties"]
         assert "purpose" in schema["parameters"]["required"]

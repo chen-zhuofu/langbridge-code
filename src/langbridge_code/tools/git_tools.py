@@ -47,7 +47,10 @@ TOOL_SCHEMAS = [
         "name": "git_commit",
         "description": (
             "Stage paths (or all changes when paths omitted) and create a git commit "
-            "in the current workspace."
+            "in the current workspace. Commit each completed, verified piece of work "
+            "when reasonable — small commits with clear messages keep partial work "
+            "recoverable. Prefer passing only the paths your change touched. Never "
+            "commit broken states."
         ),
         "parameters": {
             "type": "object",

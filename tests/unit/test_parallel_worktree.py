@@ -5,28 +5,30 @@ from langbridge_code.agents.common.todo_list import TodoTask
 from langbridge_code.agents.common import worktree as worktree_mod
 from langbridge_code.tools.agent_worker_reviewer import (
     clean_task_description,
-    is_parallel_task,
     next_parallel_batch,
-    parallel_task_paths,
 )
 from langbridge_code.agents.common.workspace import get_workspace_root, workspace_scope
 
 
-def test_is_parallel_task_and_paths():
-    task = TodoTask("Add auth <!-- parallel paths:src/auth/** -->")
-    assert is_parallel_task(task)
-    assert parallel_task_paths(task) == "src/auth/**"
-    assert clean_task_description(task) == "Add auth"
-
-
-def test_next_parallel_batch_requires_two():
+def test_next_parallel_batch_requires_two_ready_by_depends():
     tasks = [
-        TodoTask("A <!-- parallel -->"),
-        TodoTask("B <!-- parallel -->"),
-        TodoTask("C"),
+        TodoTask("A <!-- depends: none -->"),
+        TodoTask("B <!-- depends: none -->"),
+        TodoTask("C <!-- depends: 1, 2 -->"),
     ]
     assert len(next_parallel_batch(tasks, 4)) == 2
     assert next_parallel_batch([tasks[0]], 4) == []
+
+
+def test_next_parallel_batch_serial_without_depends():
+    # Missing depends → sequential default (each waits on previous).
+    tasks = [
+        TodoTask("A"),
+        TodoTask("B"),
+        TodoTask("C"),
+    ]
+    assert next_parallel_batch(tasks, 4) == []
+    assert clean_task_description(tasks[0]) == "A"
 
 
 def test_workspace_scope_switches_root(tmp_path, monkeypatch):

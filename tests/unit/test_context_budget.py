@@ -20,9 +20,8 @@ def test_prepare_agent_messages_injects_budget_notice():
     messages = [{"role": "system", "content": "You are a test agent."}]
     budget = prepare_agent_messages(messages, "kimi-k2.7-code")
     assert budget == int(262_144 * 0.4)
-    assert "Loop stop threshold" in messages[0]["content"]
-    assert "hard stop for this agent loop" in messages[0]["content"]
-    assert "not a per-turn ceiling" in messages[0]["content"]
+    assert "Compact threshold" in messages[0]["content"]
+    assert "no hard context stop" in messages[0]["content"]
     assert "262,144 tokens" in messages[0]["content"]
 
 

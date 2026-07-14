@@ -5,6 +5,7 @@ import json
 from dataclasses import dataclass
 
 from langbridge_code.context.message import recent_chat_turns
+from langbridge_code.context.foreground import ForegroundTracker
 from langbridge_code.settings import GOAL_EVAL_INPUT_CHARS, GOAL_EVALUATOR_MAX_STEPS
 from langbridge_code.tools import GOAL_VERIFICATION_TOOL_SCHEMAS, GOAL_VERIFICATION_TOOLS
 from langbridge_code.tools.common.purpose import without_purpose
@@ -70,38 +71,45 @@ class GoalEvaluatorAgent:
             {"role": "system", "content": EVALUATOR_PROMPT},
             {"role": "user", "content": user_content},
         ]
+        foreground = ForegroundTracker(self.label, agent_messages, self.model)
+        foreground.activate()
         last_output = []
-        for _ in range(GOAL_EVALUATOR_MAX_STEPS):
-            response = create_model_response(
-                self.api_key,
-                self.model,
-                agent_messages,
-                tool_schemas=GOAL_VERIFICATION_TOOL_SCHEMAS,
-                label=self.label,
-                stream_sink=self.trace_sink,
-            )
-            output = response.get("output", [])
-            last_output = output
-            tool_calls = [item for item in output if item.get("type") == "function_call"]
-            if not tool_calls:
+        try:
+            for _ in range(GOAL_EVALUATOR_MAX_STEPS):
+                foreground.publish()
+                response = create_model_response(
+                    self.api_key,
+                    self.model,
+                    agent_messages,
+                    tool_schemas=GOAL_VERIFICATION_TOOL_SCHEMAS,
+                    label=self.label,
+                    stream_sink=self.trace_sink,
+                )
+                output = response.get("output", [])
+                last_output = output
+                tool_calls = [item for item in output if item.get("type") == "function_call"]
+                if not tool_calls:
+                    print_step_trace(output, include_message=True, label=self.label, sink=self.trace_sink)
+                    text = extract_output_text(output)
+                    return _parse_verdict(text)
                 print_step_trace(output, include_message=True, label=self.label, sink=self.trace_sink)
-                text = extract_output_text(output)
-                return _parse_verdict(text)
-            print_step_trace(output, include_message=True, label=self.label, sink=self.trace_sink)
-            for item in output:
-                agent_messages.append(item)
-            for call in tool_calls:
-                agent_messages.append(self._run_tool(call))
+                for item in output:
+                    agent_messages.append(item)
+                for call in tool_calls:
+                    agent_messages.append(self._run_tool(call))
+                foreground.publish()
 
-        print_step_trace(last_output, include_message=True, label=self.label, sink=self.trace_sink)
-        text = extract_output_text(last_output)
-        if text.strip():
-            return _parse_verdict(text)
-        return GoalVerdict(
-            met=False,
-            reason="Evaluator stopped: max steps without a verdict.",
-            guidance="Continue working and surface verifiable evidence for the goal.",
-        )
+            print_step_trace(last_output, include_message=True, label=self.label, sink=self.trace_sink)
+            text = extract_output_text(last_output)
+            if text.strip():
+                return _parse_verdict(text)
+            return GoalVerdict(
+                met=False,
+                reason="Evaluator stopped: max steps without a verdict.",
+                guidance="Continue working and surface verifiable evidence for the goal.",
+            )
+        finally:
+            foreground.deactivate()
 
     def _run_tool(self, call):
         name = call.get("name")

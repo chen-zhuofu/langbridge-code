@@ -6,14 +6,21 @@ from pathlib import Path
 
 from langbridge_code.settings import MAX_FILE_BYTES
 from langbridge_code.tools.common.purpose import PURPOSE_PARAMETER
+from langbridge_code.util.read_file_in_range import (
+    FileTooLargeError,
+    add_line_numbers,
+    read_file_in_range,
+)
 
 WORKSPACE_ROOT = Path.cwd().resolve()
 
 from langbridge_code.agents.common.workspace import get_workspace_root  # noqa: E402
 
 DEFAULT_GLOB_LIMIT = 100
-DEFAULT_GREP_LIMIT = 250
+DEFAULT_GREP_HEAD_LIMIT = 250
+MAX_LINES_TO_READ = 2000
 RG_TIMEOUT_SECONDS = 60
+VCS_DIRECTORIES_TO_EXCLUDE = (".git", ".svn", ".hg", ".bzr", ".jj", ".sl")
 
 TOOL_SCHEMAS = [
     {
@@ -67,7 +74,11 @@ TOOL_SCHEMAS = [
     {
         "type": "function",
         "name": "read_file",
-        "description": "Read a text file under the current workspace.",
+        "description": (
+            "Read a text file under the current workspace. "
+            f"By default reads from the beginning of the file (up to {MAX_LINES_TO_READ} lines "
+            f"or {MAX_FILE_BYTES} bytes). Use offset and limit for partial reads of large files."
+        ),
         "parameters": {
             "type": "object",
             "properties": {
@@ -76,17 +87,19 @@ TOOL_SCHEMAS = [
                     "type": "string",
                     "description": "File path relative to the current workspace.",
                 },
-                "start_line": {
+                "offset": {
                     "type": "integer",
-                    "description": "Optional 1-based start line for a partial read.",
+                    "description": (
+                        "The 1-based line number to start reading from. "
+                        "Only provide if the file is too large to read at once."
+                    ),
                 },
-                "end_line": {
+                "limit": {
                     "type": "integer",
-                    "description": "Optional 1-based end line for a partial read (inclusive).",
-                },
-                "function_name": {
-                    "type": "string",
-                    "description": "Optional Python function name to extract from the file.",
+                    "description": (
+                        "The number of lines to read. "
+                        "Only provide if the file is too large to read at once."
+                    ),
                 },
             },
             "required": ["purpose", "path"],
@@ -121,7 +134,8 @@ TOOL_SCHEMAS = [
         "name": "grep",
         "description": (
             "Search file contents with ripgrep (regex). Respects .gitignore. "
-            "Use output_mode 'content' for matching lines or 'files_with_matches' for paths only."
+            "Use output_mode 'content' for matching lines, 'files_with_matches' for paths only "
+            "(default), or 'count' for match counts per file."
         ),
         "parameters": {
             "type": "object",
@@ -129,31 +143,86 @@ TOOL_SCHEMAS = [
                 "purpose": PURPOSE_PARAMETER,
                 "pattern": {
                     "type": "string",
-                    "description": "Regular expression to search for.",
+                    "description": "The regular expression pattern to search for in file contents.",
                 },
                 "path": {
                     "type": "string",
-                    "description": "File or directory path relative to the workspace.",
+                    "description": "File or directory to search in. Defaults to workspace root.",
                     "default": ".",
                 },
-                "glob_pattern": {
+                "glob": {
                     "type": "string",
-                    "description": "Optional glob to filter which files are searched (e.g. '*.py').",
+                    "description": 'Glob pattern to filter files (e.g. "*.js", "*.{ts,tsx}").',
                 },
                 "output_mode": {
                     "type": "string",
-                    "enum": ["content", "files_with_matches"],
-                    "description": "Return matching lines or only file paths.",
-                    "default": "content",
+                    "enum": ["content", "files_with_matches", "count"],
+                    "description": (
+                        'Output mode: "content" shows matching lines (supports -A/-B/-C, -n), '
+                        '"files_with_matches" shows file paths (default), '
+                        '"count" shows match counts.'
+                    ),
+                    "default": "files_with_matches",
+                },
+                "-B": {
+                    "type": "integer",
+                    "description": (
+                        'Lines before each match (rg -B). Requires output_mode: "content".'
+                    ),
+                },
+                "-A": {
+                    "type": "integer",
+                    "description": (
+                        'Lines after each match (rg -A). Requires output_mode: "content".'
+                    ),
+                },
+                "-C": {
+                    "type": "integer",
+                    "description": (
+                        'Lines before and after each match (rg -C). Requires output_mode: "content".'
+                    ),
+                },
+                "context": {
+                    "type": "integer",
+                    "description": "Alias for -C.",
+                },
+                "-n": {
+                    "type": "boolean",
+                    "description": (
+                        'Show line numbers (rg -n). Requires output_mode: "content". Defaults to true.'
+                    ),
+                    "default": True,
+                },
+                "-i": {
+                    "type": "boolean",
+                    "description": "Case insensitive search (rg -i).",
+                    "default": False,
+                },
+                "type": {
+                    "type": "string",
+                    "description": (
+                        "File type to search (rg --type). Common types: js, py, rust, go, java."
+                    ),
                 },
                 "head_limit": {
                     "type": "integer",
-                    "description": "Maximum number of lines or files to return.",
-                    "default": DEFAULT_GREP_LIMIT,
+                    "description": (
+                        "Limit output to first N lines/entries. Defaults to 250. Pass 0 for unlimited."
+                    ),
+                    "default": DEFAULT_GREP_HEAD_LIMIT,
                 },
-                "ignore_case": {
+                "offset": {
+                    "type": "integer",
+                    "description": (
+                        "Skip first N lines/entries before applying head_limit. Defaults to 0."
+                    ),
+                    "default": 0,
+                },
+                "multiline": {
                     "type": "boolean",
-                    "description": "Case-insensitive search.",
+                    "description": (
+                        "Enable multiline mode where . matches newlines (rg -U --multiline-dotall)."
+                    ),
                     "default": False,
                 },
             },
@@ -384,45 +453,57 @@ def glob(pattern, path=".", max_results=DEFAULT_GLOB_LIMIT):
 
 
 @tool("read_file")
-def read_file(path, start_line=None, end_line=None, function_name=None):
-    if function_name and (start_line is not None or end_line is not None):
-        raise ValueError("Specify function_name or a line range, not both")
-
+def read_file(path, offset=None, limit=None, start_line=None, end_line=None, function_name=None):
+    """Read tool — ported from Claude Code Read (offset/limit, line-numbered output)."""
     target = resolve_workspace_path(path)
     if not target.exists():
         raise FileNotFoundError(f"No such file: {path}")
     if not target.is_file():
         raise IsADirectoryError(f"Not a file: {path}")
 
-    data = target.read_bytes()
-    truncated = len(data) > MAX_FILE_BYTES
-    data = data[:MAX_FILE_BYTES]
-
-    try:
-        text = data.decode("utf-8")
-    except UnicodeDecodeError:
-        raise ValueError(f"File is not valid UTF-8 text: {path}")
-
     if function_name:
+        text = target.read_text(encoding="utf-8")
         return _format_function_excerpt(path, text, function_name)
 
-    lines = text.splitlines()
-    total_lines = len(lines)
-    if start_line is not None or end_line is not None:
-        start = max(1, int(start_line or 1))
-        end = min(total_lines, int(end_line or total_lines))
-        if start > end:
-            raise ValueError("start_line must be <= end_line")
-        selected = lines[start - 1 : end]
-        body = "\n".join(f"{index}| {line}" for index, line in enumerate(selected, start=start))
-        header = f"# {path} lines {start}-{end} ({total_lines} lines total)"
-        if truncated:
-            body += f"\n\n[truncated after {MAX_FILE_BYTES} bytes]"
-        return f"{header}\n{body}"
+    effective_offset = offset if offset is not None else start_line
+    if effective_offset is None:
+        effective_offset = 1
 
-    if truncated:
-        text += f"\n\n[truncated after {MAX_FILE_BYTES} bytes]"
-    return text
+    partial_read = (
+        limit is not None
+        or end_line is not None
+        or start_line is not None
+        or (offset is not None and int(offset) > 1)
+    )
+
+    effective_limit = limit
+    if effective_limit is None and end_line is not None:
+        effective_limit = int(end_line) - int(effective_offset) + 1
+    if effective_limit is None and not partial_read:
+        effective_limit = MAX_LINES_TO_READ
+
+    line_offset = 0 if int(effective_offset) == 0 else int(effective_offset) - 1
+    max_bytes = None if partial_read else MAX_FILE_BYTES
+
+    try:
+        result = read_file_in_range(target, line_offset, effective_limit, max_bytes)
+    except UnicodeDecodeError:
+        raise ValueError(f"File is not valid UTF-8 text: {path}") from None
+    except FileTooLargeError as error:
+        raise ValueError(str(error)) from error
+
+    if not result.content and result.total_lines < int(effective_offset):
+        return (
+            f"<system-reminder>Warning: the file exists but is shorter than the provided "
+            f"offset ({effective_offset}). The file has {result.total_lines} lines.</system-reminder>"
+        )
+    if result.total_lines == 0:
+        return "<system-reminder>Warning: the file exists but the contents are empty.</system-reminder>"
+
+    numbered = add_line_numbers(result.content, int(effective_offset))
+    end_line_no = int(effective_offset) + max(result.line_count - 1, 0)
+    header = f"# {path} lines {effective_offset}-{end_line_no} ({result.total_lines} lines total)"
+    return f"{header}\n{numbered}"
 
 
 def _format_function_excerpt(path, text, function_name):
@@ -476,60 +557,190 @@ def read_many(paths, max_files=DEFAULT_READ_MANY_LIMIT):
     return json.dumps({"files": files, "truncated": len(paths) > max_files}, ensure_ascii=False, indent=2)
 
 
+def _coerce_grep_kwargs(kwargs):
+    """Map Claude Code Grep schema keys (incl. -B/-A/-i) to implementation kwargs."""
+    out = dict(kwargs)
+    alias_map = {
+        "-B": "context_before",
+        "-A": "context_after",
+        "-C": "context_c",
+        "context": "context_c",
+        "-n": "show_line_numbers",
+        "-i": "case_insensitive",
+        "glob_pattern": "glob",
+        "ignore_case": "case_insensitive",
+        "file_type": "type",
+    }
+    for old, new in alias_map.items():
+        if old in out and new not in out:
+            out[new] = out.pop(old)
+        elif old in out:
+            out.pop(old)
+    return out
+
+
+def _apply_head_limit(items, limit, offset=0):
+    if limit == 0:
+        return items[offset:], None
+    effective_limit = limit if limit is not None else DEFAULT_GREP_HEAD_LIMIT
+    sliced = items[offset : offset + effective_limit]
+    was_truncated = len(items) - offset > effective_limit
+    return sliced, effective_limit if was_truncated else None
+
+
+def _format_grep_limit_info(applied_limit, applied_offset):
+    parts = []
+    if applied_limit is not None:
+        parts.append(f"limit: {applied_limit}")
+    if applied_offset:
+        parts.append(f"offset: {applied_offset}")
+    return ", ".join(parts)
+
+
+def _relativize_grep_line(line, search_target):
+    colon_index = line.find(":")
+    if colon_index <= 0:
+        return line
+    file_path = line[:colon_index]
+    rest = line[colon_index:]
+    try:
+        resolved = Path(file_path).resolve()
+        if not resolved.exists():
+            return line
+        return _relative_workspace_path(file_path) + rest
+    except (ValueError, OSError):
+        return line
+
+
+def _split_glob_patterns(glob_value):
+    patterns = []
+    for raw_pattern in glob_value.split():
+        if "{" in raw_pattern and "}" in raw_pattern:
+            patterns.append(raw_pattern)
+        else:
+            patterns.extend(part for part in raw_pattern.split(",") if part)
+    return [pattern for pattern in patterns if pattern]
+
+
 @tool("grep")
-def grep(pattern, path=".", glob_pattern=None, output_mode="content", head_limit=DEFAULT_GREP_LIMIT, ignore_case=False):
+def grep(pattern, path=".", **raw_kwargs):
+    """Grep tool — ported from Claude Code Grep (ripgrep wrapper, text output)."""
+    kwargs = _coerce_grep_kwargs(raw_kwargs)
+    glob = kwargs.get("glob")
+    file_type = kwargs.get("type")
+    output_mode = kwargs.get("output_mode", "files_with_matches")
+    context_before = kwargs.get("context_before")
+    context_after = kwargs.get("context_after")
+    context_c = kwargs.get("context_c")
+    show_line_numbers = kwargs.get("show_line_numbers", True)
+    case_insensitive = kwargs.get("case_insensitive", False)
+    head_limit = kwargs.get("head_limit")
+    offset = int(kwargs.get("offset") or 0)
+    multiline = kwargs.get("multiline", False)
+
     if not pattern:
         raise ValueError("pattern must not be empty")
-    if output_mode not in {"content", "files_with_matches"}:
-        raise ValueError("output_mode must be 'content' or 'files_with_matches'")
+    if output_mode not in {"content", "files_with_matches", "count"}:
+        raise ValueError("output_mode must be 'content', 'files_with_matches', or 'count'")
 
     target = resolve_workspace_path(path)
     if not target.exists():
         raise FileNotFoundError(f"No such path: {path}")
 
-    head_limit = max(1, min(int(head_limit), 1000))
-    args = [_rg_binary(), "--color=never", "--max-count", str(head_limit)]
-    if ignore_case:
+    args = [_rg_binary(), "--color=never", "--hidden", "--max-columns", "500"]
+    for directory in VCS_DIRECTORIES_TO_EXCLUDE:
+        args.extend(["--glob", f"!{directory}"])
+
+    if multiline:
+        args.extend(["-U", "--multiline-dotall"])
+    if case_insensitive:
         args.append("-i")
-    if glob_pattern:
-        args.extend(["--glob", glob_pattern])
     if output_mode == "files_with_matches":
         args.append("-l")
-    else:
+    elif output_mode == "count":
+        args.append("-c")
+    if show_line_numbers and output_mode == "content":
         args.append("-n")
-    args.extend([pattern, str(target)])
 
-    stdout = _run_rg(args)
-    if output_mode == "files_with_matches":
-        matches = []
-        for line in stdout.splitlines():
-            if not line.strip():
-                continue
-            try:
-                matches.append(_relative_workspace_path(line.strip()))
-            except ValueError:
-                continue
-        payload = {"pattern": pattern, "path": path, "files": matches[:head_limit]}
+    if output_mode == "content":
+        if context_c is not None:
+            args.extend(["-C", str(int(context_c))])
+        else:
+            if context_before is not None:
+                args.extend(["-B", str(int(context_before))])
+            if context_after is not None:
+                args.extend(["-A", str(int(context_after))])
+
+    if pattern.startswith("-"):
+        args.extend(["-e", pattern])
     else:
-        lines = []
-        for line in stdout.splitlines():
-            if not line.strip():
-                continue
-            parts = line.split(":", 2)
-            if len(parts) < 3:
-                continue
-            file_path, line_number, text = parts
-            try:
-                rel = _relative_workspace_path(file_path)
-            except ValueError:
-                continue
-            lines.append({"path": rel, "line": int(line_number), "text": text})
-            if len(lines) >= head_limit:
-                break
-        payload = {"pattern": pattern, "path": path, "matches": lines}
+        args.append(pattern)
 
-    payload["truncated"] = len(stdout.splitlines()) >= head_limit
-    return json.dumps(payload, ensure_ascii=False, indent=2)
+    if file_type:
+        args.extend(["--type", file_type])
+    if glob:
+        for glob_pattern in _split_glob_patterns(glob):
+            args.extend(["--glob", glob_pattern])
+
+    args.append(str(target))
+    stdout = _run_rg(args)
+    lines = [line for line in stdout.splitlines() if line.strip()]
+
+    if output_mode == "content":
+        limited, applied_limit = _apply_head_limit(lines, head_limit, offset)
+        final_lines = [_relativize_grep_line(line, target) for line in limited]
+        content = "\n".join(final_lines) if final_lines else "No matches found"
+        limit_info = _format_grep_limit_info(applied_limit, offset)
+        if limit_info:
+            content = f"{content}\n\n[Showing results with pagination = {limit_info}]"
+        return content
+
+    if output_mode == "count":
+        limited, applied_limit = _apply_head_limit(lines, head_limit, offset)
+        final_lines = [_relativize_grep_line(line, target) for line in limited]
+        total_matches = 0
+        file_count = 0
+        for line in final_lines:
+            colon_index = line.rfind(":")
+            if colon_index > 0:
+                count_str = line[colon_index + 1 :]
+                try:
+                    total_matches += int(count_str)
+                    file_count += 1
+                except ValueError:
+                    continue
+        raw_content = "\n".join(final_lines) if final_lines else "No matches found"
+        limit_info = _format_grep_limit_info(applied_limit, offset)
+        summary = (
+            f"\n\nFound {total_matches} total "
+            f"{'occurrence' if total_matches == 1 else 'occurrences'} across "
+            f"{file_count} {'file' if file_count == 1 else 'files'}."
+        )
+        if limit_info:
+            summary += f" with pagination = {limit_info}"
+        return raw_content + summary
+
+    stats = []
+    for match in lines:
+        try:
+            stats.append((match, Path(match).resolve().stat().st_mtime))
+        except (OSError, ValueError):
+            stats.append((match, 0))
+    stats.sort(key=lambda item: (-item[1], item[0]))
+    sorted_matches = [item[0] for item in stats]
+    limited, applied_limit = _apply_head_limit(sorted_matches, head_limit, offset)
+    relative_matches = []
+    for match in limited:
+        try:
+            relative_matches.append(_relative_workspace_path(match))
+        except ValueError:
+            continue
+    if not relative_matches:
+        return "No files found"
+    limit_info = _format_grep_limit_info(applied_limit, offset)
+    suffix = f" {limit_info}" if limit_info else ""
+    file_word = "file" if len(relative_matches) == 1 else "files"
+    return f"Found {len(relative_matches)} {file_word}{suffix}\n" + "\n".join(relative_matches)
 
 
 @tool("edit_file")

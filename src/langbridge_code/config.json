@@ -42,17 +42,18 @@
     "model_context_windows": {},
     "max_session_choices": 10,
     "max_session_summary_input_chars": 4000,
-    "structure_min_raw_keep": 10,
-    "structure_batch": 10,
-    "structure_compact_fraction": 0.3,
-    "structure_use_llm": true,
-    "structure_note_target_chars": 12000,
-    "structure_prose_target_chars": 16000,
+    "compact_raw_keep": 11,
+    "compact_fraction": 0.4,
+    "progress_max_fraction": 0.4,
+    "traces_resume_max_fraction": 0.3,
+    "compact_use_llm": true,
+    "compact_prose_target_chars": 16000,
+    "progress_note_reminder_rounds": 10,
     "context_debug_persist": true
   },
   "tools": {
     "filesystem": {
-      "max_file_bytes": 20000,
+      "max_file_bytes": 262144,
       "max_search_file_bytes": 200000
     },
     "execution": {

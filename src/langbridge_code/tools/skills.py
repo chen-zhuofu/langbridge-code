@@ -15,7 +15,10 @@ TOOL_SCHEMAS = [
         "description": (
             "Load a skill: a short playbook of guidelines for a kind of work. "
             "Call when one fits the current task, then follow it. Role playbooks "
-            "may also be listed in your system prompt. Available skills:\n"
+            "may also be listed in your system prompt. To load a linked reference "
+            "under a skill, pass the relative path "
+            "(e.g. clean-code-guard/references/ai-failure-modes.md). "
+            "Available skills:\n"
             + "\n".join(f"- {name}: {description}" for name, description in _AVAILABLE)
         ),
         "parameters": {

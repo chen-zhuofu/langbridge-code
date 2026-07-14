@@ -35,11 +35,23 @@ def test_glob_finds_files(isolated_workspace):
 def test_grep_finds_content(isolated_workspace):
     (isolated_workspace / "sample.py").write_text("def hello():\n    return 'world'\n", encoding="utf-8")
 
-    payload = json.loads(grep("hello", path=".", output_mode="content"))
+    output = grep("hello", path=".", output_mode="content")
 
-    assert payload["matches"][0]["path"] == "sample.py"
-    assert payload["matches"][0]["line"] == 1
-    assert "def hello" in payload["matches"][0]["text"]
+    assert "sample.py" in output
+    assert "def hello" in output
+
+
+@pytest.mark.skipif(__import__("shutil").which("rg") is None, reason="ripgrep not installed")
+def test_grep_single_file_with_trailing_colon(isolated_workspace):
+    (isolated_workspace / "core.py").write_text(
+        "def _calculate_separability_matrix(self):\n    return 1\n",
+        encoding="utf-8",
+    )
+
+    output = grep("_calculate_separability_matrix", path="core.py", output_mode="content")
+
+    assert "def _calculate_separability_matrix(self):" in output
+    assert "Tool error" not in output
 
 
 def test_write_overwrites_existing_file(isolated_workspace):
@@ -71,7 +83,7 @@ def test_read_many_reads_multiple_files(isolated_workspace):
     payload = json.loads(read_many(["a.txt", "b.txt"]))
 
     assert len(payload["files"]) == 2
-    assert payload["files"][0]["content"] == "A"
+    assert "1\tA" in payload["files"][0]["content"]
 
 
 def test_multi_edit_applies_ordered_replacements(isolated_workspace):
@@ -130,12 +142,32 @@ def test_delete_file_rejects_directories(isolated_workspace):
 def test_read_file_line_range(isolated_workspace):
     (isolated_workspace / "sample.py").write_text("line1\nline2\nline3\nline4\n", encoding="utf-8")
 
+    output = read_file("sample.py", offset=2, limit=2)
+
+    assert "# sample.py lines 2-3 (4 lines total)" in output
+    assert "2\tline2" in output
+    assert "3\tline3" in output
+    assert "line4" not in output
+
+
+def test_read_file_legacy_start_end_lines(isolated_workspace):
+    (isolated_workspace / "sample.py").write_text("line1\nline2\nline3\nline4\n", encoding="utf-8")
+
     output = read_file("sample.py", start_line=2, end_line=3)
 
     assert "# sample.py lines 2-3 (4 lines total)" in output
-    assert "2| line2" in output
-    assert "3| line3" in output
-    assert "line4" not in output
+    assert "2\tline2" in output
+
+
+def test_read_file_large_file_offset(isolated_workspace):
+    lines = [f"line {index}" for index in range(1, 1001)]
+    lines[807] = "    def _calculate_separability_matrix(self):"
+    (isolated_workspace / "core.py").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    output = read_file("core.py", offset=808, limit=5)
+
+    assert "# core.py lines 808-812 (1000 lines total)" in output
+    assert "_calculate_separability_matrix" in output
 
 
 def test_read_file_by_function_name(isolated_workspace):
@@ -150,10 +182,3 @@ def test_read_file_by_function_name(isolated_workspace):
     assert "def target():" in output
     assert "return x" in output
     assert "def helper" not in output
-
-
-def test_read_file_rejects_function_and_line_range(isolated_workspace):
-    (isolated_workspace / "sample.py").write_text("def target():\n    pass\n", encoding="utf-8")
-
-    with pytest.raises(ValueError, match="not both"):
-        read_file("sample.py", function_name="target", start_line=1)

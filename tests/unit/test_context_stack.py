@@ -1,11 +1,8 @@
-from pathlib import Path
-
 import pytest
 
 from langbridge_code.context.common.stack import (
     ASSIGNED_TASK_PREFIX,
     COMPACT_PROSE_PREFIX,
-    STRUCTURE_NOTE_PREFIX,
     ContextStack,
 )
 
@@ -22,112 +19,121 @@ def _tool_step(call_id: str, name: str, output: str) -> list[dict]:
     ]
 
 
-def _fake_note_builder(api_key, model, rounds, *, label=""):
-    round_nums = "+".join(str(index + 1) for index in range(len(rounds)))
-    return (
-        f"## Meta\n- agent: worker\n- rounds: {round_nums}\n\n"
-        f"## Tool summaries\n- grep (step {len(rounds)}, ok): structure note for rounds {round_nums}"
-    )
-
-
-def _fake_prose_compactor(api_key, model, *, compact_prose, structure_notes, label=""):
+def _fake_prose_compactor(api_key, model, *, compact_prose, rounds, label=""):
     parts = []
     if compact_prose:
         parts.append(compact_prose)
-    parts.extend(structure_notes)
+    parts.append(f"{len(rounds)} rounds folded")
     return "compact prose: " + " | ".join(parts)
 
 
 @pytest.fixture
-def stack(tmp_path):
+def stack():
     return ContextStack(
         system_content="system prompt",
-        persist_dir=tmp_path / "notes",
-        min_raw_keep=2,
-        structure_batch=4,
+        raw_keep=2,
         compact_fraction=0.4,
-        note_builder=_fake_note_builder,
         prose_compactor=_fake_prose_compactor,
     )
 
 
-def test_raw_rounds_accumulate_before_structure(stack):
-    stack.start_turn("task")
-    for index in range(5):
-        stack.complete_step(_tool_step(f"c{index}", "grep", f"out-{index}"))
-    assert len(stack.raw_rounds) == 5
-    assert not stack.structure_notes
+def test_default_raw_keep_is_eleven():
+    # One more than the 10-round progress-note cadence, so the compressed
+    # middle always overlaps progress.md.
+    assert ContextStack(system_content="sys").raw_keep == 11
 
 
-def test_structure_note_after_six_rounds(stack):
+def test_raw_rounds_accumulate_under_budget(stack):
     stack.start_turn("task")
     for index in range(6):
         stack.complete_step(_tool_step(f"c{index}", "grep", f"out-{index}"))
-
     stats = stack.maybe_advance(api_key="k", model="test-model", budget_tokens=999_999)
-
-    assert stats["structure_notes_added"] == 1
-    assert len(stack.structure_notes) == 1
-    assert stack.structure_notes[0].round_start == 1
-    assert stack.structure_notes[0].round_end == 4
-    assert len(stack.raw_rounds) == 2
-    messages = stack.to_messages()
-    assert any(STRUCTURE_NOTE_PREFIX in m.get("content", "") for m in messages if m.get("role") == "user")
-    assert sum(1 for m in messages if m.get("type") == "function_call_output") == 2
+    assert stats["prose_compacted"] is False
+    assert len(stack.raw_rounds) == 6
+    assert stack.compact_prose is None
 
 
-def test_structure_note_persisted_to_debug(stack, tmp_path, monkeypatch):
-    monkeypatch.setattr("langbridge_code.context.debug.CONTEXT_DEBUG_PERSIST", True)
-    session_dir = tmp_path / "session-test-2026-07-09T120000"
-    session_dir.mkdir()
-    (session_dir / "traces").mkdir()
-    (session_dir / "debug" / "2026-07-09T120000.00").mkdir(parents=True)
-    run_log = session_dir / "session.json"
-    run_log.write_text("{}\n")
-    from langbridge_code.util.agent_debug import set_agent_debug
-    from langbridge_code.util.trace_log import begin_trace
-
-    begin_trace(run_log, "2026-07-09T120000.00")
-    set_agent_debug("Worker", 1)
-    stack.start_turn("task")
-    for index in range(6):
-        stack.complete_step(_tool_step(f"c{index}", "grep", f"out-{index}"))
-    stack.maybe_advance(api_key="k", model="test-model", budget_tokens=999_999)
-
-    debug_dir = session_dir / "debug" / "2026-07-09T120000.00"
-    files = list(debug_dir.glob("worker_1_structure_*_output.md"))
-    assert len(files) == 1
-    assert "structure note for rounds 1+2+3+4" in files[0].read_text(encoding="utf-8")
-
-
-def test_second_structure_note_appends(stack):
-    stack.start_turn("task")
-    for index in range(10):
-        stack.complete_step(_tool_step(f"c{index}", "grep", f"out-{index}"))
-    stack.maybe_advance(api_key="k", model="test-model", budget_tokens=999_999)
-
-    assert len(stack.structure_notes) == 2
-    assert stack.structure_notes[0].round_end == 4
-    assert stack.structure_notes[1].round_start == 5
-    assert stack.structure_notes[1].round_end == 8
-    assert len(stack.raw_rounds) == 2
-
-
-def test_prose_compact_when_over_threshold(stack, monkeypatch):
+def test_compact_keeps_recent_rounds_and_folds_rest(stack, monkeypatch):
     monkeypatch.setattr(
         "langbridge_code.context.common.stack.model_context_window",
         lambda _model: 100,
     )
-    stack.compact_fraction = 0.4
+    stack.start_turn("task")
+    for index in range(6):
+        stack.complete_step(_tool_step(f"c{index}", "grep", "x" * 200))
+    stats = stack.maybe_advance(api_key="k", model="test-model", budget_tokens=40)
+
+    assert stats["prose_compacted"] is True
+    assert stack.compact_prose is not None
+    assert "4 rounds folded" in stack.compact_prose
+    assert len(stack.raw_rounds) == 2
+    assert COMPACT_PROSE_PREFIX in stack.to_messages()[1]["content"]
+
+
+def test_second_compact_merges_prior_prose(stack, monkeypatch):
+    monkeypatch.setattr(
+        "langbridge_code.context.common.stack.model_context_window",
+        lambda _model: 100,
+    )
+    stack.start_turn("task")
+    for index in range(6):
+        stack.complete_step(_tool_step(f"c{index}", "grep", "x" * 200))
+    stack.maybe_advance(api_key="k", model="test-model", budget_tokens=40)
+    first_prose = stack.compact_prose
+
+    for index in range(6, 10):
+        stack.complete_step(_tool_step(f"c{index}", "grep", "y" * 200))
+    stack.maybe_advance(api_key="k", model="test-model", budget_tokens=40)
+
+    assert first_prose in stack.compact_prose
+    assert len(stack.raw_rounds) == 2
+    # Only one compact prose message in the transcript.
+    prose_messages = [
+        m for m in stack.to_messages()
+        if str(m.get("content", "")).startswith(COMPACT_PROSE_PREFIX)
+    ]
+    assert len(prose_messages) == 1
+
+
+def test_no_compact_when_few_rounds_even_over_budget(stack, monkeypatch):
+    monkeypatch.setattr(
+        "langbridge_code.context.common.stack.model_context_window",
+        lambda _model: 10,
+    )
+    stack.start_turn("task")
+    stack.complete_step(_tool_step("c0", "grep", "x" * 500))
+    stack.complete_step(_tool_step("c1", "grep", "x" * 500))
+
+    stats = stack.maybe_advance(api_key="k", model="test-model", budget_tokens=1)
+
+    assert stats["prose_compacted"] is False
+    assert len(stack.raw_rounds) == 2
+
+
+def test_prose_compression_persisted_to_debug(stack, tmp_path, monkeypatch):
+    monkeypatch.setattr("langbridge_code.context.debug.CONTEXT_DEBUG_PERSIST", True)
+    monkeypatch.setattr(
+        "langbridge_code.context.common.stack.model_context_window",
+        lambda _model: 100,
+    )
+    session_dir = tmp_path / "session-test-2026-07-09T120000"
+    session_dir.mkdir()
+    (session_dir / "traces").mkdir()
+    (session_dir / "debug" / "2026-07-09T120000.00").mkdir(parents=True)
+    from langbridge_code.util.agent_debug import set_agent_debug
+    from langbridge_code.util.trace_log import begin_trace
+
+    begin_trace(session_dir, "2026-07-09T120000.00")
+    set_agent_debug("Worker", 1)
     stack.start_turn("task")
     for index in range(6):
         stack.complete_step(_tool_step(f"c{index}", "grep", "x" * 200))
     stack.maybe_advance(api_key="k", model="test-model", budget_tokens=40)
 
-    assert stack.compact_prose is not None
-    assert COMPACT_PROSE_PREFIX in stack.to_messages()[1]["content"]
-    assert not stack.structure_notes
-    assert len(stack.raw_rounds) == 2
+    debug_dir = session_dir / "debug" / "2026-07-09T120000.00"
+    files = list(debug_dir.glob("worker_1_prose_*_output.md"))
+    assert len(files) == 1
+    assert "rounds folded" in files[0].read_text(encoding="utf-8")
 
 
 def test_user_message_attached_to_first_step_only(stack):
@@ -152,6 +158,18 @@ def test_bootstrap_from_flat_messages(stack):
     rebuilt = stack.to_messages()
     assert rebuilt[0]["role"] == "system"
     assert any(m.get("call_id") == "c1" for m in rebuilt if m.get("type") == "function_call")
+
+
+def test_bootstrap_restores_compact_prose(stack):
+    messages = [
+        {"role": "system", "content": "system prompt"},
+        {"role": "user", "content": COMPACT_PROSE_PREFIX + "earlier work summary"},
+        {"role": "user", "content": "task"},
+        *_tool_step("c0", "grep", "one"),
+    ]
+    stack.bootstrap_from_messages(messages)
+    assert stack.compact_prose == "earlier work summary"
+    assert len(stack.raw_rounds) == 1
 
 
 def test_bootstrap_preserves_trailing_user_message(stack):
@@ -185,7 +203,7 @@ def test_maybe_advance_noop_without_api_key(stack):
     for index in range(6):
         stack.complete_step(_tool_step(f"c{index}", "grep", f"out-{index}"))
     stats = stack.maybe_advance(api_key=None, model=None)
-    assert stats["structure_notes_added"] == 0
+    assert stats["prose_compacted"] is False
     assert len(stack.raw_rounds) == 6
 
 
@@ -205,18 +223,22 @@ def test_pinned_assigned_task_in_every_to_messages(stack):
     )
 
 
-def test_pinned_survives_structure_note_advance(stack):
+def test_pinned_survives_compaction(stack, monkeypatch):
+    monkeypatch.setattr(
+        "langbridge_code.context.common.stack.model_context_window",
+        lambda _model: 100,
+    )
     stack.set_pinned_assigned_task("Add retry logic")
     stack.start_turn("step prompt")
     for index in range(6):
-        stack.complete_step(_tool_step(f"c{index}", "grep", f"out-{index}"))
-    stack.maybe_advance(api_key="k", model="test-model", budget_tokens=999_999)
+        stack.complete_step(_tool_step(f"c{index}", "grep", "x" * 200))
+    stack.maybe_advance(api_key="k", model="test-model", budget_tokens=40)
 
     messages = stack.to_messages()
     pinned = [m for m in messages if m.get("content", "").startswith(ASSIGNED_TASK_PREFIX)]
     assert len(pinned) == 1
     assert "Add retry logic" in pinned[0]["content"]
-    assert len(stack.structure_notes) == 1
+    assert stack.compact_prose is not None
 
 
 def test_bootstrap_restores_pinned_assigned_task(stack):
@@ -233,49 +255,75 @@ def test_bootstrap_restores_pinned_assigned_task(stack):
     assert rebuilt[1]["content"] == pinned
 
 
-def test_load_persisted_structure_notes_is_memory_only(tmp_path):
-    notes_dir = tmp_path / "langbridge" / "structure-notes"
-    notes_dir.mkdir(parents=True)
-    (notes_dir / "structure_0001_r1-4.md").write_text("persisted note\n", encoding="utf-8")
+def test_blocks_emitted_in_order_and_wrapped(stack):
+    stack.set_memory_block("user prefers short replies")
+    stack.set_progress_block("## Turn 1\n- built webpage")
+    stack.set_skill_index_block("- grill-me: challenge assumptions")
+    stack.start_turn("next task")
+    stack.complete_step(_tool_step("c0", "grep", "one"))
 
-    stack = ContextStack(
-        system_content="system prompt",
-        persist_dir=notes_dir,
-        min_raw_keep=2,
-        structure_batch=4,
+    contents = [str(m.get("content", "")) for m in stack.to_messages()]
+    memory_at = next(i for i, c in enumerate(contents) if c.startswith("<memory>"))
+    progress_at = next(i for i, c in enumerate(contents) if c.startswith("<progress>"))
+    skill_at = next(i for i, c in enumerate(contents) if c.startswith("<skill_index>"))
+    task_at = contents.index("next task")
+    assert memory_at < progress_at < skill_at < task_at
+    assert contents[memory_at].rstrip().endswith("</memory>")
+    assert "built webpage" in contents[progress_at]
+
+
+def test_set_block_none_or_blank_removes_it(stack):
+    stack.set_memory_block("something")
+    stack.set_memory_block("   ")
+    stack.set_progress_block(None)
+    contents = [str(m.get("content", "")) for m in stack.to_messages()]
+    assert not any(c.startswith("<memory>") for c in contents)
+    assert not any(c.startswith("<progress>") for c in contents)
+
+
+def test_blocks_survive_compaction_and_callback_fires(stack, monkeypatch):
+    monkeypatch.setattr(
+        "langbridge_code.context.common.stack.model_context_window",
+        lambda _model: 100,
     )
-    stack.bootstrap_from_messages(
-        [
-            {"role": "system", "content": "system prompt"},
-            {"role": "user", "content": "task"},
-            *_tool_step("c0", "grep", "one"),
-            *_tool_step("c1", "grep", "two"),
-            *_tool_step("c2", "grep", "three"),
-            *_tool_step("c3", "grep", "four"),
-            *_tool_step("c4", "grep", "five"),
-            *_tool_step("c5", "grep", "six"),
-        ]
-    )
-    assert stack.load_persisted_layers() is False
-    assert not stack.structure_notes
+    stack.set_memory_block("stale memory")
+    stack.set_skill_index_block("- grill-me: x")
+    fired = {}
+
+    def refresh(inner_stack):
+        fired["called"] = True
+        inner_stack.set_memory_block("fresh memory")
+        inner_stack.set_progress_block("## Turn 1\n- noted")
+
+    stack.on_compacted = refresh
+    stack.start_turn("task")
+    for index in range(6):
+        stack.complete_step(_tool_step(f"c{index}", "grep", "x" * 200))
+    stats = stack.maybe_advance(api_key="k", model="test-model", budget_tokens=40)
+
+    assert stats["prose_compacted"] is True
+    assert fired.get("called") is True
+    contents = [str(m.get("content", "")) for m in stack.to_messages()]
+    memory = next(c for c in contents if c.startswith("<memory>"))
+    assert "fresh memory" in memory and "stale memory" not in memory
+    assert any(c.startswith("<progress>") for c in contents)
+    assert any(c.startswith("<skill_index>") for c in contents)
 
 
-def test_agent_context_manager_does_not_load_disk_notes(tmp_path):
-    from langbridge_code.context.agent_context import AgentContextManager
-
-    run_log = tmp_path / "session.json"
-    run_log.parent.mkdir(parents=True, exist_ok=True)
-    run_log.write_text("{}\n")
+def test_bootstrap_absorbs_block_messages(stack):
     messages = [
-        {"role": "system", "content": "sys"},
+        {"role": "system", "content": "system prompt"},
+        {"role": "user", "content": "<memory>\nremembered fact\n</memory>"},
+        {"role": "user", "content": "<progress>\n## Turn 1\n- did stuff\n</progress>"},
+        {"role": "user", "content": "<skill_index>\n- grill-me: x\n</skill_index>"},
         {"role": "user", "content": "task"},
         *_tool_step("c0", "grep", "one"),
     ]
-    context = AgentContextManager(
-        system_content="sys",
-        run_log_path=run_log,
-        label="LangBridge",
-    )
-    context.attach(messages, bootstrap=True)
-    assert not any("from disk" in m.get("content", "") for m in messages if m.get("role") == "user")
-
+    stack.bootstrap_from_messages(messages)
+    assert stack.memory_block == "remembered fact"
+    assert "did stuff" in stack.progress_block
+    assert stack.skill_index_block == "- grill-me: x"
+    assert len(stack.raw_rounds) == 1
+    # No duplicate block messages in the rebuilt transcript.
+    contents = [str(m.get("content", "")) for m in stack.to_messages()]
+    assert sum(1 for c in contents if c.startswith("<memory>")) == 1

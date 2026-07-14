@@ -38,19 +38,28 @@ def slugify(text: str, max_len: int = 28) -> str:
 
 
 def branch_name(run_log_path, index: int, description: str) -> str:
-    stem = (run_log_path.stem if run_log_path else "session")[:24]
+    from langbridge_code.util.artifacts import artifact_dir
+
+    directory = artifact_dir(run_log_path)
+    stem = ((directory.name if directory else "session") or "session")[:24]
     return f"lb/{stem}/t{index}-{slugify(description)}"
 
 
 def worktrees_dir(run_log_path) -> Path:
-    stem = run_log_path.stem if run_log_path else "default"
+    from langbridge_code.util.artifacts import artifact_dir
+
+    directory = artifact_dir(run_log_path)
+    stem = (directory.name if directory else "default") or "default"
     return AGENT_STATE_DIR / "workflow" / "worktrees" / stem
 
 
 def registry_path(run_log_path):
-    if run_log_path is None:
+    from langbridge_code.util.artifacts import artifact_dir
+
+    directory = artifact_dir(run_log_path)
+    if directory is None:
         return None
-    return run_log_path.with_name(f"{run_log_path.stem}.worktrees.json")
+    return directory / "worktrees.json"
 
 
 def load_registry(run_log_path) -> dict:

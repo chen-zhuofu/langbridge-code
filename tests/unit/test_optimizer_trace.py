@@ -13,9 +13,8 @@ def _artifact_session(tmp_path, slug="test"):
     session_dir.mkdir()
     (session_dir / "traces").mkdir()
     (session_dir / "debug").mkdir()
-    run_log = session_dir / "session.json"
-    run_log.write_text('{"summary": "", "turns": []}\n', encoding="utf-8")
-    return run_log
+    (session_dir / "progress.md").write_text("# Session progress\n", encoding="utf-8")
+    return session_dir
 
 
 def test_trace_to_loop_rounds_from_reviewer_events(tmp_path):

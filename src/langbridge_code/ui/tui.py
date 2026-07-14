@@ -24,6 +24,12 @@ from langbridge_code.context.common.budget import (
     format_status_context_line,
     prepare_agent_messages,
 )
+from langbridge_code.context.foreground import (
+    clear_foreground,
+    current_foreground,
+    register_foreground_listener,
+    unregister_foreground_listener,
+)
 from langbridge_code.util.progress import build_main_agent_messages, finalize_main_agent_turn
 from langbridge_code.agents.system_prompt import langbridge_system_prompt
 from langbridge_code.util.goal import (
@@ -45,8 +51,6 @@ from langbridge_code.util.session import (
     label_session,
     last_turn_id,
     list_session_logs,
-    read_session_records,
-    write_session_summary,
 )
 from langbridge_code.util.trace_log import begin_trace, combine_trace_sink, end_trace, trace_sink
 from langbridge_code.ui.message_queue import UserMessageQueue
@@ -496,6 +500,7 @@ class LangBridgeTui(App):
         self._active_turn_id = None
         self._active_turn_user = ""
         self.messages = [{"role": "system", "content": langbridge_system_prompt()}]
+        self.main_agent = None
         self.pending_approval = None
         self.pending_question = None
         self.always_approve = False
@@ -524,6 +529,7 @@ class LangBridgeTui(App):
             yield Static("", id="status_right")
 
     def on_mount(self) -> None:
+        register_foreground_listener(self._on_foreground_change)
         self.title = "LangBridge Code"
         self.theme = THEME
         self.set_input_lines(self.input_lines)
@@ -535,6 +541,9 @@ class LangBridgeTui(App):
             self.start_new_session()
             self.update_status()
             self.query_one("#input", ChatInput).focus()
+
+    def on_unmount(self) -> None:
+        unregister_foreground_listener(self._on_foreground_change)
 
     def _on_startup_session_choice(self, path) -> None:
         if path is not None:
@@ -873,7 +882,6 @@ class LangBridgeTui(App):
         trace_id = format_trace_timestamp()
         begin_trace(self.run_log_path, trace_id)
         combined_sink = combine_trace_sink(trace_sink, self.post_trace_event)
-        turn_messages = build_main_agent_messages(self.run_log_path, text)
 
         outcome = ""
         stopped = False
@@ -881,18 +889,7 @@ class LangBridgeTui(App):
         reply = ""
 
         try:
-            session = MainAgentSession(
-                self.api_key,
-                self.model,
-                turn_messages,
-                self.run_log_path,
-                self.turn_id,
-                target=text,
-                trace_sink=combined_sink,
-                approval_callback=self.request_approval,
-                phase_sink=self.post_workflow_phase,
-                question_callback=self.request_user_answer,
-            )
+            session = self._ensure_main_agent(turn_id, text, combined_sink)
             goal = self.session_goal or load_goal(self.run_log_path)
             if goal and goal.active:
                 reply, goal = session.run_goal_loop(
@@ -927,6 +924,7 @@ class LangBridgeTui(App):
             outcome = format_api_error(error)
         finally:
             end_trace()
+            self.call_from_thread(self._sync_main_messages)
             self.call_from_thread(self._release_composer_after_worker)
             try:
                 finalize_main_agent_turn(
@@ -951,11 +949,40 @@ class LangBridgeTui(App):
                     self.call_from_thread(self.finish_goal_loop, goal, reply or "")
                 else:
                     self.call_from_thread(self.finish_turn, reply or "")
-        if self.run_log_path:
-            self.run_worker(
-                lambda: write_session_summary(self.api_key, self.model, self.run_log_path),
-                thread=True,
+
+    def _ensure_main_agent(self, turn_id, text, combined_sink):
+        """Reuse the in-session main agent, or create one after /new or /resume."""
+        if self.main_agent is None:
+            seed = [{"role": "system", "content": langbridge_system_prompt()}]
+            self.main_agent = MainAgentSession(
+                self.api_key,
+                self.model,
+                seed,
+                self.run_log_path,
+                turn_id,
+                target=text,
+                trace_sink=combined_sink,
+                approval_callback=self.request_approval,
+                phase_sink=self.post_workflow_phase,
+                question_callback=self.request_user_answer,
+                history_briefing_pending=True,
             )
+        else:
+            self.main_agent.bind_turn(
+                turn_id,
+                target=text,
+                run_log_path=self.run_log_path,
+                trace_sink=combined_sink,
+                approval_callback=self.request_approval,
+                phase_sink=self.post_workflow_phase,
+                question_callback=self.request_user_answer,
+            )
+        self.messages = self.main_agent.messages
+        return self.main_agent
+
+    def _sync_main_messages(self) -> None:
+        if self.main_agent is not None:
+            self.messages = self.main_agent.messages
 
     def _on_goal_round(self, reply):
         cleaned = strip_bug_status(reply) if reply else ""
@@ -1202,19 +1229,19 @@ class LangBridgeTui(App):
         self.update_status()
 
     def finish_stopped(self):
-        if self.turn_snapshot is not None:
-            self.messages = self.turn_snapshot
+        # Keep live main-agent context; do not roll back LLM messages on /stop.
+        self._sync_main_messages()
         self.write_system("\u25a0 Stopped.", style=RED)
         self.reset_after_turn()
 
     def finish_turn_error(self, message):
-        if self.turn_snapshot is not None:
-            self.messages = self.turn_snapshot
+        self._sync_main_messages()
         self.write_system(f"\u25a0 {message}", style=RED)
         self.reset_after_turn()
 
     def reset_after_turn(self, *, drain_queue: bool = False):
         self.clear_thinking()
+        clear_foreground()
         self.turn_active = False
         self.turn_snapshot = None
         self.pending_question = None
@@ -1269,10 +1296,10 @@ class LangBridgeTui(App):
         self.resume_session(path)
 
     def resume_session(self, path):
-        records = read_session_records(path)
+        self.main_agent = None
         self.messages = [{"role": "system", "content": langbridge_system_prompt()}]
         self.run_log_path = path
-        self.turn_id = last_turn_id(records)
+        self.turn_id = last_turn_id(path)
         self.session_goal = load_goal(path)
         self.turn_active = False
         self.pending_question = None
@@ -1281,43 +1308,45 @@ class LangBridgeTui(App):
         self.workflow_step = ""
         self._log().clear()
         self.write_system(f"Resumed: {label_session(path)}", style="dim")
-        self._replay_session_records(records)
+        self._replay_progress(path)
         self.update_banner()
         self._sync_streaming_phase()
         self._ensure_input_writable(focus=True)
         self.update_status()
 
-    def _replay_session_records(self, records):
-        for record in records:
-            user = record.get("user")
-            assistant = record.get("assistant", "")
-            steps = record.get("steps") or []
-            if user:
-                self.write_user(user)
-            if assistant:
-                cleaned = strip_bug_status(assistant)
-                if cleaned:
-                    self.write_assistant(cleaned)
-            elif steps:
-                self.write_system(
-                    "\u25a0 Agent was working\u2026 (interrupted mid-turn)",
-                    style=YELLOW,
-                )
-            elif user:
-                self.write_system(
-                    "\u25a0 No reply yet (turn interrupted before the agent finished)",
-                    style=YELLOW,
-                )
+    def _replay_progress(self, path):
+        """Show a short resume hint from progress.md (no session chat log)."""
+        from langbridge_code.util.progress import PROGRESS_HEADER, read_progress
+
+        content = read_progress(path).strip()
+        if not content or content == PROGRESS_HEADER.strip():
+            self.write_system("No progress recorded yet for this session.", style="dim")
+            return
+        sections = []
+        current = []
+        for line in content.splitlines():
+            if line.startswith("## Turn ") and current:
+                sections.append("\n".join(current))
+                current = [line]
+            else:
+                current.append(line)
+        if current:
+            sections.append("\n".join(current))
+        last = sections[-1] if sections else content
+        preview = last.strip()
+        if len(preview) > 1200:
+            preview = preview[:1200].rstrip() + "\n…"
+        self.write_system(preview, style="dim")
 
     def cmd_delete(self, arg):
         path = self._session_at(arg)
         if path is None:
             return
-        session_dir = artifact_dir(path)
+        session_dir = artifact_dir(path) or path
         try:
             import shutil
 
-            if session_dir is not None and session_dir.is_dir():
+            if session_dir.is_dir():
                 shutil.rmtree(session_dir)
             elif path.is_file():
                 path.unlink()
@@ -1325,7 +1354,7 @@ class LangBridgeTui(App):
             self.write_system(f"Could not delete session: {error}", style=RED)
             return
         self.session_logs = [item for item in self.session_logs if item != path]
-        self.write_system(f"Deleted session: {session_dir.name if session_dir else path.name}", style="dim")
+        self.write_system(f"Deleted session: {session_dir.name}", style="dim")
 
     def _session_at(self, arg):
         self.session_logs = list_session_logs()
@@ -1343,6 +1372,7 @@ class LangBridgeTui(App):
         self.turn_id = 0
         self._active_turn_id = None
         self._active_turn_user = ""
+        self.main_agent = None
         self.messages = [{"role": "system", "content": langbridge_system_prompt()}]
         self.session_goal = None
         self.message_queue.clear()
@@ -1379,6 +1409,25 @@ class LangBridgeTui(App):
             body.append(f"{value}\n")
         self.query_one("#banner", Static).update(body)
 
+    def _on_foreground_change(self) -> None:
+        self.call_from_thread(self.update_status)
+
+    def _status_context_line(self) -> str:
+        foreground = current_foreground()
+        if foreground is not None:
+            return format_status_context_line(
+                foreground.messages,
+                foreground.model,
+                label=foreground.label,
+            )
+        if self.main_agent is not None:
+            idle_messages = self.main_agent.messages
+        elif self.run_log_path:
+            idle_messages = build_main_agent_messages(self.run_log_path, "")
+        else:
+            idle_messages = self.messages
+        return format_status_context_line(idle_messages, self.model, label="LangBridge")
+
     def update_status(self):
         left = Text()
         left.append(self.model, style=ACCENT)
@@ -1402,7 +1451,7 @@ class LangBridgeTui(App):
         self.query_one("#status_left", Static).update(left)
 
         right = Text()
-        right.append(format_status_context_line(self.messages, self.model), style="dim")
+        right.append(self._status_context_line(), style="dim")
         header_hint = "ctrl+b header" if self.banner_visible else "ctrl+b show header"
         right.append(f"   {header_hint} \u00b7 ctrl+c quit \u00b7 /help", style="dim")
         self.query_one("#status_right", Static).update(right)

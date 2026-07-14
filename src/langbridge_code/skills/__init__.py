@@ -17,9 +17,9 @@ AGENT_ROLES = (
 )
 
 # Expertise playbooks only — general guidance lives in each agent's system prompt.
-EXPLORER_SKILL_NAMES = (
-    "superpowers_systematic-debugging",
-)
+# Explorer debugging guidance is inlined in EXPLORER_PROMPT (no role playbooks).
+# Karpathy think-before-coding / surgical-changes are inlined in WORKER_CODING_GENERAL.
+EXPLORER_SKILL_NAMES: tuple[str, ...] = ()
 
 PLANNER_SKILL_NAMES = (
     "superpowers_brainstorming",
@@ -27,8 +27,6 @@ PLANNER_SKILL_NAMES = (
 )
 
 WORKER_CODING_SKILL_NAMES = (
-    "karpathy_think-before-coding",
-    "karpathy_surgical-changes",
     "superpowers_test-driven-development",
     "superpowers_systematic-debugging",
     "superpowers_receiving-code-review",
@@ -36,14 +34,24 @@ WORKER_CODING_SKILL_NAMES = (
 
 WORKER_SLIDE_SKILL_NAMES: tuple[str, ...] = ()
 
-REVIEWER_CODING_SKILL_NAMES: tuple[str, ...] = ()
+REVIEWER_CODING_SKILL_NAMES = (
+    "clean-code-guard",
+    "test-guard",
+    "docs-guard",
+    "wp-guard",
+    "woo-guard",
+)
 
 REVIEWER_SLIDE_SKILL_NAMES: tuple[str, ...] = ()
 
 # Legacy aliases for tests and training checkpoints.
-LANGBRIDGE_SKILL_NAMES: tuple[str, ...] = ()
+LANGBRIDGE_SKILL_NAMES = ("grilling", "writing-simple-plans")
 CODER_SKILL_NAMES = WORKER_CODING_SKILL_NAMES
 REVIEWER_SKILL_NAMES = REVIEWER_CODING_SKILL_NAMES
+
+
+def langbridge_skill_catalog():
+    return skill_catalog_text_for(LANGBRIDGE_SKILL_NAMES)
 
 
 def normalize_task_type(task_type):
@@ -66,8 +74,29 @@ def _skill_dirs():
 
 
 def load_skill(name):
-    """Return the body of a skill's SKILL.md (YAML frontmatter stripped)."""
+    """Return a skill playbook or a file under that skill directory.
+
+    Names:
+      - ``clean-code-guard`` → that skill's ``SKILL.md`` (frontmatter stripped)
+      - ``clean-code-guard/references/ai-failure-modes.md`` → that reference file
+    """
+    name = name.strip().strip("/")
+    if not name or ".." in Path(name).parts:
+        raise FileNotFoundError(name)
+
     for root in _skill_dirs():
+        # Progressive disclosure: skill/references/foo.md
+        if "/" in name:
+            target = (root / name).resolve()
+            try:
+                target.relative_to(root.resolve())
+            except ValueError:
+                continue
+            if target.is_file():
+                text = target.read_text(encoding="utf-8")
+                return _strip_frontmatter(text).strip() if target.name == "SKILL.md" else text.strip()
+            continue
+
         skill_md = root / name / "SKILL.md"
         if skill_md.exists():
             return _strip_frontmatter(skill_md.read_text(encoding="utf-8")).strip()
@@ -134,6 +163,66 @@ def worker_skill_catalog(task_type="coding"):
 def reviewer_skill_catalog(task_type="coding"):
     names = REVIEWER_SLIDE_SKILL_NAMES if normalize_task_type(task_type) == "slide" else REVIEWER_CODING_SKILL_NAMES
     return skill_catalog_text_for(names)
+
+
+SKILL_SELECT_SYSTEM = """You select which skills might help with a task.
+
+You get a skill index ("- name: description" lines) and the current task.
+Reply with one skill name per line — only names from the index that are
+plausibly relevant to THIS task. If none apply, reply exactly NONE."""
+
+
+def select_skill_index(api_key, model, task: str, catalog: str, *, label: str = "skill prefetch") -> str:
+    """One-pass LLM pick of likely-relevant skill index lines from a role catalog.
+
+    Falls back to the full catalog when there is no API access or the call fails
+    — the index lines are cheap and read_skill loads bodies on demand.
+    """
+    catalog = (catalog or "").strip()
+    if not catalog:
+        return ""
+    if not (api_key and model):
+        return catalog
+    try:
+        from langbridge_code.llm.client import create_model_response
+        from langbridge_code.llm.parse import extract_output_text, truncate_text
+
+        data = create_model_response(
+            api_key,
+            model,
+            [
+                {"role": "system", "content": SKILL_SELECT_SYSTEM},
+                {
+                    "role": "user",
+                    "content": (
+                        f"Skill index:\n{catalog}\n\n"
+                        f"Task:\n{truncate_text((task or '').strip(), 4_000)}"
+                    ),
+                },
+            ],
+            label=label,
+        )
+        reply = extract_output_text(data.get("output", [])).strip()
+    except Exception:
+        return catalog
+    if not reply:
+        return catalog
+    if reply.upper().startswith("NONE"):
+        return ""
+    picked = {line.strip().strip("-").strip() for line in reply.splitlines() if line.strip()}
+    selected = [
+        line
+        for line in catalog.splitlines()
+        if line.strip().startswith("- ") and line.strip()[2:].split(":", 1)[0].strip() in picked
+    ]
+    return "\n".join(selected) if selected else catalog
+
+
+def ensure_skill_index_block(stack, api_key, model, task, catalog, *, label="skill prefetch"):
+    """Set the <skill_index> context block once per session (idempotent)."""
+    if stack.skill_index_block or not (catalog or "").strip():
+        return
+    stack.set_skill_index_block(select_skill_index(api_key, model, task, catalog, label=label))
 
 
 def _frontmatter(text):

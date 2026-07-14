@@ -49,7 +49,7 @@ def format_context_budget_line(messages, model: str) -> str:
         f"Model context window: {snap['window_tokens']:,} tokens.",
         f"Current transcript size: {snap['used_tokens']:,} tokens "
         f"({snap['used_pct_of_window']}% of model window).",
-        f"Loop stop threshold: {snap['budget_tokens']:,} tokens ({pct}% of model window) "
+        f"Compact threshold: {snap['budget_tokens']:,} tokens ({pct}% of model window) "
         f"— currently {snap['used_pct_of_budget']}% of that threshold.",
         CONTEXT_BUDGET_BODY,
     ]
@@ -82,10 +82,11 @@ def prepare_agent_messages(messages, model: str, *, base_system_prompt: str | No
     return context_budget_tokens(model)
 
 
-def format_status_context_line(messages, model: str) -> str:
+def format_status_context_line(messages, model: str, *, label: str | None = None) -> str:
     snap = context_budget_snapshot(messages, model)
+    prefix = f"{label} context" if label else "context"
     return (
-        f"context {snap['used_pct_of_budget']:.1f}% "
+        f"{prefix} {snap['used_pct_of_budget']:.1f}% "
         f"({format_token_count(snap['used_tokens'])}/"
         f"{format_token_count(snap['budget_tokens'])}, "
         f"window {format_token_count(snap['window_tokens'])})"

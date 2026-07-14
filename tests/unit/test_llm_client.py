@@ -59,6 +59,48 @@ def test_to_chat_messages_with_tool_roundtrip():
     assert messages[4]["role"] == "user"
 
 
+def test_to_chat_messages_preserves_reasoning_content_for_tool_calls():
+    agent_input = [
+        {"role": "user", "content": "fix the bug"},
+        {
+            "type": "reasoning",
+            "summary": [{"type": "summary_text", "text": "I should grep first."}],
+        },
+        {
+            "type": "function_call",
+            "name": "grep",
+            "call_id": "call_1",
+            "arguments": json.dumps({"pattern": "bug"}),
+        },
+        {"type": "function_call_output", "call_id": "call_1", "output": "hit"},
+    ]
+
+    messages = to_chat_messages(agent_input)
+
+    assert messages[1]["role"] == "assistant"
+    assert messages[1]["reasoning_content"] == "I should grep first."
+    assert messages[1]["tool_calls"][0]["function"]["name"] == "grep"
+    assert messages[2]["role"] == "tool"
+
+
+def test_to_chat_messages_preserves_reasoning_content_for_final_reply():
+    agent_input = [
+        {"role": "user", "content": "done?"},
+        {
+            "type": "reasoning",
+            "summary": [{"type": "summary_text", "text": "Tests passed."}],
+        },
+        {"role": "assistant", "content": "Fixed."},
+    ]
+
+    messages = to_chat_messages(agent_input)
+
+    assert messages[1]["role"] == "assistant"
+    assert messages[1]["reasoning_content"] == "Tests passed."
+    assert messages[1]["content"] == "Fixed."
+    assert "tool_calls" not in messages[1]
+
+
 def test_from_chat_message_maps_tool_calls():
     message = _Message(
         tool_calls=[_ToolCall("call_9", "run_tests", json.dumps({"path": "."}))],
@@ -119,6 +161,39 @@ def test_create_model_response_fails_fast_on_tpd(monkeypatch):
         create_model_response("key", "kimi-k2.7-code", [{"role": "user", "content": "hi"}])
 
     assert sleeps == []
+
+
+def test_create_model_response_enables_moonshot_thinking(monkeypatch):
+    captured = {}
+
+    class _Message:
+        content = "ok"
+        tool_calls = None
+        reasoning_content = "think"
+
+    class _Choice:
+        message = _Message()
+
+    class _Response:
+        choices = [_Choice()]
+
+    def create(**kwargs):
+        captured.update(kwargs)
+        return _Response()
+
+    client = type("Client", (), {})()
+    client.chat = type("Chat", (), {})()
+    client.chat.completions = type("Completions", (), {})()
+    client.chat.completions.create = create
+
+    monkeypatch.setattr("langbridge_code.llm.client.make_client", lambda _key: client)
+    monkeypatch.setattr("langbridge_code.llm.client.uses_responses_api", lambda: False)
+    monkeypatch.setattr("langbridge_code.llm.client.API_STREAMING_ENABLED", False)
+
+    data = create_model_response("key", "kimi-k2.7-code", [{"role": "user", "content": "hi"}])
+
+    assert captured["extra_body"]["thinking"] == {"type": "enabled", "keep": "all"}
+    assert data["output"][0]["type"] == "reasoning"
 
 
 def test_format_api_error_for_quota():

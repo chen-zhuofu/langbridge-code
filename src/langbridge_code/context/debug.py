@@ -1,4 +1,4 @@
-"""Optional debug dumps for context compression (structure notes + prose)."""
+"""Optional debug dumps for context compression (prose compaction)."""
 from __future__ import annotations
 
 import json
@@ -79,42 +79,6 @@ def format_raws(rounds: list[list[dict]]) -> str:
             lines.append(f"- **{role}** {_truncate(str(content), 2000)}")
         lines.append("")
     return "\n".join(lines).strip() + "\n"
-
-
-def record_structure_compression(
-    *,
-    ctx: DebugAgentContext | None = None,
-    round_start: int,
-    round_end: int,
-    raw_readable: str,
-    output: str,
-    llm_input: str = "",
-) -> None:
-    if not enabled():
-        return
-    ctx = ctx or current_debug_context()
-    if ctx is None:
-        return
-    directory = debug_trace_dir(ctx.run_log_path, ctx.trace_id)
-    if directory is None:
-        return
-    prefix = agent_file_prefix(ctx.label, ctx.instance_id)
-    seq = _next_compress_seq(ctx.run_log_path, ctx.trace_id, prefix)
-    base = f"{prefix}_structure_r{round_start}-{round_end}"
-    meta = {
-        "type": "structure",
-        "agent": ctx.label,
-        "instance_id": ctx.instance_id,
-        "round_start": round_start,
-        "round_end": round_end,
-        "seq": seq,
-        "ts": datetime.now(timezone.utc).isoformat(),
-    }
-    _write_text(directory / f"{base}_meta.json", json.dumps(meta, indent=2))
-    _write_text(directory / f"{base}_input.md", raw_readable)
-    if llm_input.strip():
-        _write_text(directory / f"{base}_llm_input.md", llm_input)
-    _write_text(directory / f"{base}_output.md", output)
 
 
 def record_prose_compression(

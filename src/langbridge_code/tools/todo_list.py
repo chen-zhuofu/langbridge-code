@@ -1,8 +1,11 @@
-"""read_plan and clear_plan tools for the main agent; read_plan for worker context."""
+"""Plan tools: read_plan for workers; update_plan/clear_plan for main agent only."""
+import re
+
 from langbridge_code.agents.common import worktree as worktree_mod
 from langbridge_code.agents.common.todo_list import (
     clean_task_text,
     find_matching_unfinished_task,
+    format_dependency_dispatch_guidance,
     load_tasks,
     mark_subtask_done_in_content,
     read_todo_list,
@@ -16,12 +19,14 @@ READ_PLAN_TOOL_SCHEMA = {
     "name": "read_plan",
     "description": (
         "Read the session todo_list markdown. Fastest way to see project context: "
-        "goal, task_type, completed [x] items, and next [ ] items. "
+        "goal, task_type, completed [x] items, next [ ] items, and a Ready/Blocked "
+        "dependency wave (based on <!-- depends: N --> markers). "
         "Call before agent_worker when the user continues, asks for status, or you "
-        "need to dispatch work. Trust [x] items as already done — do not re-read "
-        "source files or re-run tests just to verify completed tasks. "
-        "Workers may call this for read-only context (Out of scope, Changes required); "
-        "they still implement only the subtask in their assigned task."
+        "need to dispatch work. Spawn one agent_worker per Ready item when several "
+        "are ready; do not dispatch Blocked items early. Trust [x] items as already "
+        "done — do not re-read source files or re-run tests just to verify completed "
+        "tasks. Workers may call this for read-only context (Out of scope, Changes "
+        "required); they still implement only the subtask in their assigned task."
     ),
     "parameters": {
         "type": "object",
@@ -41,7 +46,7 @@ CLEAR_PLAN_TOOL_SCHEMA = {
         "Call only after ask_user confirmed the user wants to replace or abandon "
         "the current unfinished plan (or when the plan is already empty). "
         "Then call agent_planner for the new project — replace_existing_plan is "
-        "not needed after a successful clear."
+        "not needed after a successful clear. Main agent only."
     ),
     "parameters": {
         "type": "object",
@@ -53,9 +58,42 @@ CLEAR_PLAN_TOOL_SCHEMA = {
     },
 }
 
-TOOL_SCHEMAS = [READ_PLAN_TOOL_SCHEMA, CLEAR_PLAN_TOOL_SCHEMA]
+UPDATE_PLAN_TOOL_SCHEMA = {
+    "type": "function",
+    "name": "update_plan",
+    "description": (
+        "Write or replace the full session plan markdown. Main agent only. "
+        "Call this after you have reviewed an agent_planner draft (or after you "
+        "edited it yourself). If the draft has ambiguities, ask_user first — only "
+        "commit when the plan matches what the user wants. Start content with "
+        "<!-- task_type: coding --> or <!-- task_type: slide -->. Include Desired "
+        "end state, Success criteria, Key discoveries, Out of scope, Current state, "
+        "Design options, Open questions, Todo list with <!-- depends: ... --> and "
+        "<!-- verify: ... --> on coding todos, and Changes required when known. "
+        "Do not dispatch agent_worker until this tool has succeeded."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "purpose": PURPOSE_PARAMETER,
+            "content": {
+                "type": "string",
+                "description": "Full markdown content of the todo_list / plan.",
+            },
+        },
+        "required": ["purpose", "content"],
+        "additionalProperties": False,
+    },
+}
+
+TOOL_SCHEMAS = [READ_PLAN_TOOL_SCHEMA, CLEAR_PLAN_TOOL_SCHEMA, UPDATE_PLAN_TOOL_SCHEMA]
 
 TOOLS = {}
+
+_PLAN_FENCE = re.compile(
+    r"```(?:markdown|md)?\s*\n(?P<body>.*?)\n```",
+    re.DOTALL | re.IGNORECASE,
+)
 
 
 def tool(name):
@@ -74,11 +112,14 @@ def read_plan(run_log_path=None):
         sections.append("Todo list is empty.")
     else:
         sections.append(content)
+        guidance = format_dependency_dispatch_guidance(load_tasks(run_log_path))
+        if guidance:
+            sections.append(guidance)
     if run_log_path is not None:
         branches = worktree_mod.ready_branches(run_log_path)
         if branches:
             sections.append(
-                "Ready feature branches (delegate agent_worker to merge each into main workspace):\n"
+                "Ready feature branches (merge each yourself with merge_branch, one call per branch):\n"
                 + "\n".join(f"- {branch}" for branch in branches)
             )
     return "\n\n".join(sections)
@@ -94,8 +135,47 @@ def clear_plan(run_log_path=None):
     lines = [f"Cleared todo_list ({path.name})."]
     if remaining:
         lines.append(f"Discarded {remaining} unchecked item(s).")
-    lines.append("Call agent_planner to write a new plan.")
+    lines.append("Call agent_planner to draft a new plan, then update_plan to commit it.")
     return "\n".join(lines)
+
+
+@tool("update_plan")
+def update_plan(content, run_log_path=None):
+    from langbridge_code.agents.common.todo_list import write_task_type_marker
+
+    text = content or ""
+    # Normalize task_type marker if the main agent echoed PLAN_TASK_TYPE style.
+    lowered = text.lstrip().lower()
+    if not lowered.startswith("<!-- task_type:"):
+        if "plan_task_type: slide" in lowered or "plan_task_type: presentation" in lowered:
+            text = write_task_type_marker(text, "slide")
+        elif "plan_task_type: coding" in lowered:
+            text = write_task_type_marker(text, "coding")
+    path = write_todo_list(text, run_log_path)
+    return f"Updated todo_list ({len(text)} chars) at {path.name}."
+
+
+def extract_plan_markdown(report: str) -> str | None:
+    """Pull full plan markdown from a planner final reply (fenced or # Plan heading)."""
+    text = report or ""
+    for match in _PLAN_FENCE.finditer(text):
+        body = match.group("body").strip()
+        if "## Todo list" in body or re.search(r"^\s*-\s*\[[ xX]\]", body, re.MULTILINE):
+            return body
+    start = text.find("# Plan")
+    if start == -1:
+        return None
+    chunk = text[start:].strip()
+    summary_at = chunk.rfind("\n## Summary\n")
+    if summary_at > 0:
+        todo_at = chunk.find("## Todo list")
+        if todo_at != -1 and summary_at > todo_at:
+            after_todo = chunk[todo_at:summary_at]
+            if "- [ ]" in after_todo or "- [x]" in after_todo:
+                chunk = chunk[:summary_at].strip()
+    if "## Todo list" in chunk or re.search(r"^\s*-\s*\[[ xX]\]", chunk, re.MULTILINE):
+        return chunk
+    return None
 
 
 def _mark_subtask_complete(subtask, run_log_path=None):

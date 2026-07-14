@@ -1,4 +1,4 @@
-from langbridge_code.tools.agent_planner import update_plan
+from langbridge_code.tools.todo_list import update_plan
 from langbridge_code.tools.agent_planner import (
     build_agent_planner_tool,
     planner_replace_blocked_message,
@@ -68,7 +68,9 @@ def test_agent_planner_allows_replace_when_confirmed(tmp_path, monkeypatch):
         replace_existing_plan=True,
     )
     assert calls == [True]
-    assert "type=coding" in result
+    assert "DRAFT" in result
+    assert "Suggested PLAN_TASK_TYPE: coding" in result
+    assert "update_plan" in result
 
 
 def test_agent_planner_allowed_after_clear_plan(tmp_path, monkeypatch):
@@ -90,4 +92,5 @@ def test_agent_planner_allowed_after_clear_plan(tmp_path, monkeypatch):
     )
     result = tool(prompt="build deck", description="plan")
     assert calls == [True]
-    assert "type=slide" in result
+    assert "DRAFT" in result
+    assert "Suggested PLAN_TASK_TYPE: slide" in result

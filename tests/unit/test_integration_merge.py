@@ -1,11 +1,10 @@
-from langbridge_code.agents.common.todo_list import TodoTask
+from langbridge_code.agents.common.todo_list import TodoTask, write_todo_list
 from langbridge_code.agents.common import worktree as worktree_mod
 from langbridge_code.tools.agent_worker_reviewer import (
     build_agent_worker_tool,
     integration_pending_message,
     is_integration_task,
     is_merge_task_prompt,
-    is_parallel_prompt,
     pending_integration_tasks,
 )
 
@@ -30,6 +29,7 @@ def test_integration_pending_message_lists_main_agent_steps(tmp_path):
     )
     message = integration_pending_message(tasks, ["Build auth"], run_log_path=run_log)
     assert "Main agent next steps" in message
+    assert "merge_branch" in message
     assert "agent_worker" in message
     assert "lb/session/t1-auth" in message
     assert "Verify merged codebase" in message
@@ -106,18 +106,20 @@ def test_dispatch_worker_does_not_auto_refine_plan(tmp_path, monkeypatch):
     assert "stopped (review did not pass)" in reply
 
 
-def test_is_parallel_prompt():
-    assert is_parallel_prompt("Add auth <!-- parallel paths:src/auth/** -->")
-    assert not is_parallel_prompt("Add auth")
-
-
-def test_dispatch_parallel_worker_uses_worktree(tmp_path, monkeypatch):
+def test_dispatch_ready_wave_worker_uses_worktree(tmp_path, monkeypatch):
     monkeypatch.setattr("langbridge_code.settings.PARALLEL_AGENTS_ENABLED", True)
     monkeypatch.setattr(
         "langbridge_code.tools.agent_worker_reviewer.PARALLEL_AGENTS_ENABLED",
         True,
     )
     run_log = tmp_path / "run.json"
+    write_todo_list(
+        "# Todo\n\n"
+        "- [ ] Add auth <!-- depends: none -->\n"
+        "- [ ] Add billing <!-- depends: none -->\n"
+        "- [ ] Wire <!-- depends: 1, 2 -->\n",
+        run_log_path=run_log,
+    )
     info = worktree_mod.WorktreeInfo("lb/run/t1-auth", tmp_path / "wt", "Add auth")
     captured = {}
 
@@ -151,7 +153,7 @@ def test_dispatch_parallel_worker_uses_worktree(tmp_path, monkeypatch):
         target="ship",
     )
     reply = agent_worker(
-        prompt="Add auth <!-- parallel paths:src/auth/** -->",
+        prompt="Add auth <!-- depends: none -->",
         description="auth",
     )
 
@@ -163,37 +165,21 @@ def test_dispatch_parallel_worker_uses_worktree(tmp_path, monkeypatch):
 def test_is_merge_task_prompt():
     assert is_merge_task_prompt("Merge branch lb/session/t1-auth into main workspace")
     assert is_merge_task_prompt("Run git merge lb/foo/bar")
-    assert not is_merge_task_prompt("Add auth <!-- parallel paths:src/auth/** -->")
+    assert not is_merge_task_prompt("Add auth <!-- depends: none -->")
 
 
-def test_dispatch_merge_worker_skips_worktree(tmp_path, monkeypatch):
-    monkeypatch.setattr("langbridge_code.settings.PARALLEL_AGENTS_ENABLED", True)
-    monkeypatch.setattr(
-        "langbridge_code.tools.agent_worker_reviewer.PARALLEL_AGENTS_ENABLED",
-        True,
-    )
+def test_agent_worker_rejects_merge_prompts(tmp_path, monkeypatch):
+    """Merges are the main agent's job (merge_branch tool), never a worker's."""
     run_log = tmp_path / "run.json"
     worktree_mod.record_branch(
         run_log,
         worktree_mod.WorktreeInfo("lb/run/t1-auth", tmp_path / "wt", "Add auth"),
         "ready",
     )
-    captured = {"worktree": False, "context": ""}
-
-    monkeypatch.setattr(
-        "langbridge_code.tools.agent_worker_reviewer.worktree_mod.create_worktree",
-        lambda *args, **kwargs: captured.update(worktree=True) or worktree_mod.WorktreeInfo(
-            "lb/run/t1-auth", tmp_path / "wt", "Add auth"
-        ),
-    )
-
-    def fake_loop(api_key, model, task, context, **kwargs):
-        captured["context"] = context
-        return True, "REVIEW_VERDICT: PASS"
-
+    loop_calls = []
     monkeypatch.setattr(
         "langbridge_code.tools.agent_worker_reviewer.run_worker_reviewer_loop",
-        fake_loop,
+        lambda *args, **kwargs: loop_calls.append(True) or (True, "REVIEW_VERDICT: PASS"),
     )
     monkeypatch.setattr(
         "langbridge_code.tools.agent_worker_reviewer.emit_phase",
@@ -208,14 +194,13 @@ def test_dispatch_merge_worker_skips_worktree(tmp_path, monkeypatch):
         messages=[],
         target="ship",
     )
-    branch = "lb/run/t1-auth"
     reply = agent_worker(
-        prompt=f"Merge branch {branch} into the main workspace",
+        prompt="Merge branch lb/run/t1-auth into the main workspace",
         description="merge",
     )
 
-    assert not captured["worktree"]
-    assert "Git merge task" in captured["context"]
-    assert branch in captured["context"]
-    assert "Single-task completed" in reply
-    assert worktree_mod.ready_branches(run_log) == []
+    assert reply.startswith("Tool error:")
+    assert "merge_branch" in reply
+    assert not loop_calls
+    # The ready branch stays queued for the main agent to merge itself.
+    assert worktree_mod.ready_branches(run_log) == ["lb/run/t1-auth"]

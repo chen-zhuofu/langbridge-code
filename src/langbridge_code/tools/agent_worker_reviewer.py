@@ -9,7 +9,7 @@ from enum import Enum
 from pathlib import Path
 
 from langbridge_code.agents.common import control
-from langbridge_code.agents.common.limits import now, over_context_budget, over_time_budget
+from langbridge_code.agents.common.limits import now, over_time_budget
 from langbridge_code.agents.common.phases import emit_phase
 from langbridge_code.agents.system_prompt import worker_system_prompt, reviewer_system_prompt
 from langbridge_code.llm.client import create_model_response
@@ -23,6 +23,7 @@ from langbridge_code.util.agent_worklog import (
 from langbridge_code.context.common.budget import prepare_agent_messages
 from langbridge_code.context.message import recent_chat_turns
 from langbridge_code.context.agent_context import finish_step, init_agent_context
+from langbridge_code.context.foreground import ForegroundTracker
 from langbridge_code.settings import (
     MAX_WORKER_REVIEWER_SECONDS,
     MAX_WORKER_REVIEWER_STEPS,
@@ -36,7 +37,9 @@ from langbridge_code.settings import (
 from langbridge_code.agents.common.todo_list import (
     TodoTask,
     clean_task_text,
+    load_tasks,
     read_task_type,
+    ready_task_indices,
     render_todo_list,
     resolve_single_worker_task,
     write_task_type_marker,
@@ -55,9 +58,13 @@ from langbridge_code.tools import (
     skills,
     testing,
 )
-from langbridge_code.tools.agent_explorer import AGENT_EXPLORER_TOOL_SCHEMA, build_agent_explorer_tool
 from langbridge_code.tools.common.purpose import PURPOSE_PARAMETER, without_purpose
-from langbridge_code.skills import normalize_task_type
+from langbridge_code.skills import (
+    ensure_skill_index_block,
+    normalize_task_type,
+    reviewer_skill_catalog,
+    worker_skill_catalog,
+)
 from langbridge_code.agents.common import worktree as worktree_mod
 from langbridge_code.agents.common.workspace import workspace_scope
 from langbridge_code.tools import todo_list as plan_tools
@@ -165,10 +172,6 @@ _WORKTREE_INDEX_LOCK = threading.Lock()
 _worktree_index_by_session: dict[str, int] = {}
 
 _INTEGRATION_MARKER = re.compile(r"<!--\s*integration\s*-->", re.IGNORECASE)
-_PARALLEL_MARKER = re.compile(
-    r"<!--\s*parallel(?:\s+paths:\s*(?P<paths>[^>]+))?\s*-->",
-    re.IGNORECASE,
-)
 _VERIFY_MARKER = re.compile(r"<!--\s*verify:\s*(?P<cmd>[^>]+)\s*-->", re.IGNORECASE)
 _HTML_COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
 
@@ -205,30 +208,6 @@ def clean_task_description(task: TodoTask) -> str:
     return clean_task_text(task.description)
 
 
-def is_parallel_prompt(task: str) -> bool:
-    return bool(_PARALLEL_MARKER.search(task or ""))
-
-
-def parallel_prompt_paths(task: str) -> str:
-    match = _PARALLEL_MARKER.search(task or "")
-    if not match:
-        return ""
-    return (match.group("paths") or "").strip()
-
-
-def is_parallel_task(task: TodoTask) -> bool:
-    blob = f"{task.description}\n{task.note}"
-    return bool(_PARALLEL_MARKER.search(blob))
-
-
-def parallel_task_paths(task: TodoTask) -> str:
-    blob = f"{task.description}\n{task.note}"
-    match = _PARALLEL_MARKER.search(blob)
-    if not match:
-        return ""
-    return (match.group("paths") or "").strip()
-
-
 def task_verify_command(task: TodoTask) -> str:
     blob = f"{task.description}\n{task.note}"
     match = _VERIFY_MARKER.search(blob)
@@ -237,40 +216,43 @@ def task_verify_command(task: TodoTask) -> str:
     return match.group("cmd").strip()
 
 
-def parallel_implementation_tasks(tasks: list[TodoTask]) -> list[TodoTask]:
+def ready_implementation_tasks(tasks: list[TodoTask]) -> list[TodoTask]:
+    """Unfinished non-integration todos whose depends are satisfied."""
     return [
-        task
-        for task in tasks
-        if task.unfinished and not is_integration_task(task) and is_parallel_task(task)
+        tasks[index]
+        for index in ready_task_indices(tasks)
+        if not is_integration_task(tasks[index])
     ]
 
 
 def next_parallel_batch(tasks: list[TodoTask], max_workers: int) -> list[TodoTask]:
-    batch = parallel_implementation_tasks(tasks)
+    """Ready wave of 2+ implementation todos (topology-derived concurrency)."""
+    batch = ready_implementation_tasks(tasks)
     if len(batch) < 2:
         return []
     return batch[: max(1, min(max_workers, len(batch)))]
 
 
+def task_in_ready_parallel_wave(task: str, run_log_path) -> bool:
+    """True when this prompt matches a ready wave of 2+ concurrent implementation todos."""
+    if run_log_path is None:
+        return False
+    tasks = load_tasks(run_log_path)
+    batch = next_parallel_batch(tasks, max_workers=16)
+    if len(batch) < 2:
+        return False
+    needle = clean_task_text(task).lower()
+    if not needle:
+        return False
+    for item in batch:
+        desc = clean_task_text(item.description).lower()
+        if desc == needle or needle in desc or desc in needle:
+            return True
+    return False
+
+
 def pending_integration_tasks(tasks: list[TodoTask]) -> list[TodoTask]:
     return [task for task in tasks if task.unfinished and is_integration_task(task)]
-
-
-def _validate_merge_prompt_single_branch(task: str, run_log_path) -> str | None:
-    branches = re.findall(r"lb/[\w/-]+", task or "", re.IGNORECASE)
-    if len(branches) > 1:
-        return (
-            "merge prompt references multiple branches "
-            f"({', '.join(branches)}); one branch per agent_worker call."
-        )
-    if len(branches) == 1 and run_log_path is not None:
-        ready = worktree_mod.ready_branches(run_log_path)
-        if ready and branches[0] not in ready and branches[0].lower() not in {b.lower() for b in ready}:
-            return (
-                f"branch {branches[0]!r} is not in ready branches. "
-                "read_plan and merge one ready branch per call."
-            )
-    return None
 
 
 def is_merge_task_prompt(task: str) -> bool:
@@ -284,32 +266,15 @@ def is_merge_task_prompt(task: str) -> bool:
     return bool(re.search(r"\blb/", task or "", re.IGNORECASE) and "merge" in cleaned)
 
 
-def _branches_named_in_task(run_log_path, task: str) -> list[str]:
-    return [branch for branch in worktree_mod.ready_branches(run_log_path) if branch in (task or "")]
-
-
-def _merge_task_context(run_log_path, task: str) -> str:
-    branches = _branches_named_in_task(run_log_path, task) or worktree_mod.ready_branches(run_log_path)
-    lines = [
-        "Git merge task — work in the main workspace (not a parallel worktree).",
-        "Run `git merge <branch>` for the assigned branch.",
-        "If conflicts arise, resolve with edit_file, `git add`, then complete the merge.",
-        "Run any verify check from the task before READY_FOR_REVIEW.",
-    ]
-    if branches:
-        lines.append("Ready branches:")
-        lines.extend(f"- {branch}" for branch in branches)
-    return "\n".join(lines)
-
-
 def integration_pending_message(tasks: list[TodoTask], completed: list[str], *, run_log_path=None) -> str:
     integration = pending_integration_tasks(tasks)
     lines = [
-        "Implementation tasks are complete. Merge and integration run via agent_worker.",
+        "Implementation tasks are complete. Merge the branches yourself, then delegate integration.",
         "",
         "Main agent next steps:",
-        "1. Delegate agent_worker once per ready feature branch to merge it into the main workspace.",
-        "2. If merge or conflict resolution fails, refine the task and re-dispatch agent_worker.",
+        "1. Call merge_branch once per ready feature branch (main workspace).",
+        "2. On conflicts, resolve the files yourself (edit_file + git add + git commit), "
+        "then call merge_branch again to confirm.",
         "3. When the tree is clean, delegate agent_worker for the integration verification todo.",
         "",
     ]
@@ -334,17 +299,27 @@ AGENT_WORKER_TOOL_SCHEMA = {
         "Launch the worker-reviewer subagent for exactly one todo subtask. "
         "Pass a focused prompt for a single unchecked item from read_plan (description, "
         "verify comment, and relevant Changes required snippets). "
+        "The worker starts with zero context: include the exploration already done "
+        "(by you or agent_explorer) that the subtask needs — exact file paths, key "
+        "functions/classes, line ranges, and how the pieces connect — so it does "
+        "not re-explore what is already known. "
         "Rejected if the prompt lists multiple todos, checkboxes, or branches. "
         "Do not paste the entire plan or multiple todos — one subtask per call. "
         "Worker may read_plan for read-only context but implements only your assigned subtask. "
-    "When read_plan shows multiple <!-- parallel --> todos, the main agent may call "
-    "agent_worker several times in one turn; parallel tasks run in isolated git worktrees. "
-    "After parallel work, read_plan lists ready branches — delegate agent_worker to merge "
-    "each branch into the main workspace (one branch per call). "
+    "When read_plan shows multiple Ready todos (depends satisfied — often "
+    "<!-- depends: none -->), the main agent may call agent_worker several times "
+    "in one turn; concurrent tasks run in isolated git worktrees. "
+    "After parallel work, read_plan lists ready branches — merge them yourself with "
+    "the merge_branch tool (never via agent_worker). "
+    "Do not dispatch a todo until every number listed in its <!-- depends: ... --> is [x]. "
     "On reviewer PASS the matched todo is marked complete automatically. "
-    "On failure, call agent_planner to refine the plan; do not re-dispatch the "
-        "same task until the plan changes. Returns a final summary only. "
-        "Delegate integration verification via agent_worker when merges are complete."
+    "On failure, partial work stays in the working tree (nothing is reverted) and "
+    "the summary describes the leftover state. You decide what happens next: "
+    "re-dispatch agent_worker to continue from that partial state, or split the "
+    "task via agent_planner/update_plan — a split plan must account for the "
+        "partial changes already on disk. Returns a final summary only. "
+        "After you merged all ready branches with merge_branch, delegate integration "
+        "verification via agent_worker."
     ),
     "parameters": {
         "type": "object",
@@ -352,7 +327,12 @@ AGENT_WORKER_TOOL_SCHEMA = {
             "purpose": PURPOSE_PARAMETER,
             "prompt": {
                 "type": "string",
-                "description": "Full task description for the subagent.",
+                "description": (
+                    "Full task description for the subagent. Include known "
+                    "exploration findings the task needs: file paths, key "
+                    "functions/classes with line numbers, and relevant snippets "
+                    "— the worker cannot see your chat or explorer traces."
+                ),
             },
             "description": {
                 "type": "string",
@@ -436,19 +416,7 @@ def build_code_worker_toolkit(
     trace_sink=None,
     phase_sink=None,
 ):
-    tools = {
-        **CODE_WORKER_TOOLS,
-        "agent_explorer": build_agent_explorer_tool(
-            api_key=api_key,
-            model=model,
-            run_log_path=run_log_path,
-            turn_id=turn_id,
-            trace_sink=trace_sink,
-            phase_sink=phase_sink,
-        ),
-    }
-    schemas = list(CODE_WORKER_TOOL_SCHEMAS) + [AGENT_EXPLORER_TOOL_SCHEMA]
-    return tools, schemas
+    return dict(CODE_WORKER_TOOLS), list(CODE_WORKER_TOOL_SCHEMAS)
 
 
 def build_worker_toolkit(task_type="coding", **kwargs):
@@ -467,19 +435,7 @@ def build_slide_worker_toolkit(
     trace_sink=None,
     phase_sink=None,
 ):
-    tools = {
-        **SLIDE_WORKER_TOOLS,
-        "agent_explorer": build_agent_explorer_tool(
-            api_key=api_key,
-            model=model,
-            run_log_path=run_log_path,
-            turn_id=turn_id,
-            trace_sink=trace_sink,
-            phase_sink=phase_sink,
-        ),
-    }
-    schemas = list(SLIDE_WORKER_TOOL_SCHEMAS) + [AGENT_EXPLORER_TOOL_SCHEMA]
-    return tools, schemas
+    return dict(SLIDE_WORKER_TOOLS), list(SLIDE_WORKER_TOOL_SCHEMAS)
 
 
 def build_reviewer_toolkit(
@@ -493,21 +449,9 @@ def build_reviewer_toolkit(
     phase_sink=None,
 ):
     normalized = normalize_task_type(task_type)
-    base_tools = SLIDE_REVIEWER_TOOLS if normalized == "slide" else REVIEWER_TOOLS
-    base_schemas = SLIDE_REVIEWER_TOOL_SCHEMAS if normalized == "slide" else REVIEWER_TOOL_SCHEMAS
-    tools = {
-        **base_tools,
-        "agent_explorer": build_agent_explorer_tool(
-            api_key=api_key,
-            model=model,
-            run_log_path=run_log_path,
-            turn_id=turn_id,
-            trace_sink=trace_sink,
-            phase_sink=phase_sink,
-        ),
-    }
-    schemas = list(base_schemas) + [AGENT_EXPLORER_TOOL_SCHEMA]
-    return tools, schemas
+    if normalized == "slide":
+        return dict(SLIDE_REVIEWER_TOOLS), list(SLIDE_REVIEWER_TOOL_SCHEMAS)
+    return dict(REVIEWER_TOOLS), list(REVIEWER_TOOL_SCHEMAS)
 
 
 def new_worker_session(
@@ -646,6 +590,21 @@ class WorkerSession:
         self.step = 0
         self.assigned_task: str | None = None
         self._send_start_time: float | None = None
+        self._foreground: ForegroundTracker | None = None
+
+    def _activate_foreground(self) -> None:
+        if self._foreground is None:
+            self._foreground = ForegroundTracker(self.label, self.messages, self.model)
+        self._foreground.activate()
+
+    def _publish_foreground(self) -> None:
+        if self._foreground is not None:
+            self._foreground.publish()
+
+    def _deactivate_foreground(self) -> None:
+        if self._foreground is not None:
+            self._foreground.deactivate()
+            self._foreground = None
 
     def _apply_assigned_task(self, assigned_task=None) -> None:
         if assigned_task and str(assigned_task).strip():
@@ -653,6 +612,14 @@ class WorkerSession:
             self.context.stack.set_pinned_assigned_task(self.assigned_task)
         elif self.assigned_task:
             self.context.stack.set_pinned_assigned_task(self.assigned_task)
+        ensure_skill_index_block(
+            self.context.stack,
+            self.api_key,
+            self.model,
+            self.assigned_task or "",
+            worker_skill_catalog(self.task_type),
+            label=f"{self.label} skill prefetch",
+        )
 
     def begin_send(self, user_prompt, *, assigned_task=None) -> None:
         """Start a worker phase: pin task and optional turn line."""
@@ -664,11 +631,13 @@ class WorkerSession:
         else:
             self.context.sync()
         self._send_start_time = now()
+        self._activate_foreground()
 
     def run_one_step(self, loop_budget: WorkerReviewerLoopBudget | None = None) -> tuple[StepOutcome, str | None]:
         """Run one model step (one tool round or final text)."""
         if loop_budget is not None:
             if loop_budget.exhausted():
+                self._deactivate_foreground()
                 return StepOutcome.EXHAUSTED, None
             loop_budget.consume_step()
             time_start = loop_budget.start_time
@@ -677,22 +646,23 @@ class WorkerSession:
             step_count = loop_budget.used_steps
         else:
             if self.step >= MAX_WORKER_STEPS:
+                self._deactivate_foreground()
                 return StepOutcome.EXHAUSTED, None
             time_start = self._send_start_time or now()
             time_limit = MAX_WORKER_SECONDS
 
         if over_time_budget(time_start, time_limit):
+            self._deactivate_foreground()
             return StepOutcome.TIMEOUT, None
 
         control.checkpoint()
+        self.context.compact_to_budget(api_key=self.api_key, model=self.model)
         budget = prepare_agent_messages(
             self.messages,
             self.model,
             base_system_prompt=self._worker_system_prompt,
         )
-        if over_context_budget(self.messages, budget):
-            return StepOutcome.CONTEXT, None
-
+        self._publish_foreground()
         response = control.run_interruptible(
             lambda: create_model_response(
                 self.api_key,
@@ -710,7 +680,9 @@ class WorkerSession:
             print_step_trace(output, include_message=True, label=self.label, sink=self.trace_sink)
             if output:
                 finish_step(self.context, list(output), self, budget)
+                self._publish_foreground()
             self._send_start_time = None
+            self._deactivate_foreground()
             return StepOutcome.FINAL, extract_output_text(output)
 
         print_step_trace(output, include_message=True, label=self.label, sink=self.trace_sink)
@@ -731,6 +703,7 @@ class WorkerSession:
             )
         self.step += 1
         finish_step(self.context, step_items, self, budget)
+        self._publish_foreground()
         return StepOutcome.TOOL, None
 
     def send(self, user_prompt, *, assigned_task=None, loop_budget=None):
@@ -747,6 +720,7 @@ class WorkerSession:
                 return self._finish(max_steps_report(self.tool_history))
 
     def _finish(self, report):
+        self._deactivate_foreground()
         write_worklog_finish(self.run_log_path, self.label, self.worklog_id, self.turn_id, report)
         return report
 
@@ -782,6 +756,21 @@ class ReviewerSession:
         self.step = 0
         self.assigned_task: str | None = None
         self._send_start_time: float | None = None
+        self._foreground: ForegroundTracker | None = None
+
+    def _activate_foreground(self) -> None:
+        if self._foreground is None:
+            self._foreground = ForegroundTracker(self.label, self.messages, self.model)
+        self._foreground.activate()
+
+    def _publish_foreground(self) -> None:
+        if self._foreground is not None:
+            self._foreground.publish()
+
+    def _deactivate_foreground(self) -> None:
+        if self._foreground is not None:
+            self._foreground.deactivate()
+            self._foreground = None
 
     def _apply_assigned_task(self, assigned_task=None) -> None:
         if assigned_task and str(assigned_task).strip():
@@ -789,6 +778,14 @@ class ReviewerSession:
             self.context.stack.set_pinned_assigned_task(self.assigned_task)
         elif self.assigned_task:
             self.context.stack.set_pinned_assigned_task(self.assigned_task)
+        ensure_skill_index_block(
+            self.context.stack,
+            self.api_key,
+            self.model,
+            self.assigned_task or "",
+            reviewer_skill_catalog(self.task_type),
+            label=f"{self.label} skill prefetch",
+        )
 
     def begin_send(self, user_prompt, *, assigned_task=None) -> None:
         self._apply_assigned_task(assigned_task)
@@ -799,32 +796,35 @@ class ReviewerSession:
         else:
             self.context.sync()
         self._send_start_time = now()
+        self._activate_foreground()
 
     def run_one_step(self, loop_budget: WorkerReviewerLoopBudget | None = None) -> tuple[StepOutcome, str | None]:
         if loop_budget is not None:
             if loop_budget.exhausted():
+                self._deactivate_foreground()
                 return StepOutcome.EXHAUSTED, None
             loop_budget.consume_step()
             time_start = loop_budget.start_time
             time_limit = loop_budget.max_seconds
         else:
             if self.step >= MAX_REVIEWER_STEPS:
+                self._deactivate_foreground()
                 return StepOutcome.EXHAUSTED, None
             time_start = self._send_start_time or now()
             time_limit = MAX_REVIEWER_SECONDS
 
         if over_time_budget(time_start, time_limit):
+            self._deactivate_foreground()
             return StepOutcome.TIMEOUT, None
 
         control.checkpoint()
+        self.context.compact_to_budget(api_key=self.api_key, model=self.model)
         budget = prepare_agent_messages(
             self.messages,
             self.model,
             base_system_prompt=self._reviewer_system_prompt,
         )
-        if over_context_budget(self.messages, budget):
-            return StepOutcome.CONTEXT, None
-
+        self._publish_foreground()
         response = control.run_interruptible(
             lambda: create_model_response(
                 self.api_key,
@@ -842,7 +842,9 @@ class ReviewerSession:
             print_step_trace(output, include_message=True, label=self.label, sink=self.trace_sink)
             if output:
                 finish_step(self.context, list(output), self, budget)
+                self._publish_foreground()
             self._send_start_time = None
+            self._deactivate_foreground()
             return StepOutcome.FINAL, extract_output_text(output)
 
         print_step_trace(output, include_message=True, label=self.label, sink=self.trace_sink)
@@ -856,6 +858,7 @@ class ReviewerSession:
             )
         self.step += 1
         finish_step(self.context, step_items, self, budget)
+        self._publish_foreground()
         return StepOutcome.TOOL, None
 
     def send(self, user_prompt, *, assigned_task=None, loop_budget=None):
@@ -884,6 +887,7 @@ class ReviewerSession:
         return {"type": "function_call_output", "call_id": call_id, "output": output}
 
     def _finish(self, report):
+        self._deactivate_foreground()
         write_worklog_finish(self.run_log_path, self.label, self.worklog_id, self.turn_id, report)
         return report
 
@@ -1016,22 +1020,33 @@ def commit_task(label, task, cwd=None):
     return snapshot_head(cwd)
 
 
-def revert_snapshot(commit, cwd=None):
-    if not commit or not _is_git_repo(cwd):
-        return False
-    reset = _run_git("reset", "--hard", commit, cwd=cwd)
-    if reset.returncode != 0:
-        return False
-    clean = _run_git(
-        "clean",
-        "-fd",
-        "-e",
-        "agent-state",
-        "-e",
-        ".langbridge",
-        cwd=cwd,
+def partial_work_note(snapshot, cwd=None) -> str:
+    """Describe work left in the tree after a failed loop (nothing is reverted)."""
+    root = _git_cwd(cwd)
+    if not _is_git_repo(root):
+        return ""
+    parts = []
+    diff_args = ["diff", "--stat"] + ([snapshot] if snapshot else [])
+    stat = _run_git(*diff_args, cwd=root).stdout.strip()
+    if stat:
+        parts.append(stat)
+    untracked = _run_git("ls-files", "--others", "--exclude-standard", cwd=root).stdout.strip()
+    untracked_lines = [
+        line
+        for line in untracked.splitlines()
+        if not line.startswith(("agent-state/", ".langbridge"))
+    ]
+    if untracked_lines:
+        parts.append("Untracked files:\n" + "\n".join(untracked_lines))
+    if not parts:
+        return ""
+    body = "\n".join(parts)
+    return (
+        "\n\nPartial work left in the working tree (not reverted):\n"
+        + body[:2000]
+        + "\nMain agent decides: re-dispatch agent_worker to continue from this state, "
+        "or split the task via agent_planner/update_plan accounting for these changes."
     )
-    return clean.returncode == 0
 
 
 def git_diff_since(snapshot: str | None, cwd=None) -> str:
@@ -1142,13 +1157,12 @@ def run_worker_reviewer_loop(
 
             outcome, text = worker.run_one_step(loop_budget)
             if outcome in {StepOutcome.EXHAUSTED, StepOutcome.TIMEOUT, StepOutcome.CONTEXT}:
-                if use_git:
-                    revert_snapshot(snapshot, git_root)
                 append_event(
                     run_log_path,
                     {"event": "loop_stop", "phase": "worker", "outcome": outcome.value},
                 )
-                return False, _loop_stop_report(outcome, worker_report=worker_report, reviewer_report=reviewer_report)
+                report = _loop_stop_report(outcome, worker_report=worker_report, reviewer_report=reviewer_report)
+                return False, report + (partial_work_note(snapshot, git_root) if use_git else "")
 
             if outcome == StepOutcome.TOOL:
                 continue
@@ -1165,9 +1179,7 @@ def run_worker_reviewer_loop(
                 },
             )
             if not worker_ready_for_review(worker_report):
-                if use_git:
-                    revert_snapshot(snapshot, git_root)
-                return False, worker_report
+                return False, worker_report + (partial_work_note(snapshot, git_root) if use_git else "")
 
             diff = git_diff_since(snapshot, git_root) if use_git else ""
             phase = "reviewer"
@@ -1189,13 +1201,12 @@ def run_worker_reviewer_loop(
 
             outcome, text = reviewer.run_one_step(loop_budget)
             if outcome in {StepOutcome.EXHAUSTED, StepOutcome.TIMEOUT, StepOutcome.CONTEXT}:
-                if use_git:
-                    revert_snapshot(snapshot, git_root)
                 append_event(
                     run_log_path,
                     {"event": "loop_stop", "phase": "reviewer", "outcome": outcome.value},
                 )
-                return False, _loop_stop_report(outcome, worker_report=worker_report, reviewer_report=reviewer_report)
+                report = _loop_stop_report(outcome, worker_report=worker_report, reviewer_report=reviewer_report)
+                return False, report + (partial_work_note(snapshot, git_root) if use_git else "")
 
             if outcome == StepOutcome.TOOL:
                 continue
@@ -1227,10 +1238,9 @@ def run_worker_reviewer_loop(
                 {"event": "handoff_to_worker", "steps_used": loop_budget.used_steps, "comment": feedback[:8000]},
             )
 
-    if use_git:
-        revert_snapshot(snapshot, git_root)
     append_event(run_log_path, {"event": "max_steps", "steps_used": loop_budget.used_steps})
-    return False, reviewer_report or worker_report
+    report = reviewer_report or worker_report
+    return False, report + (partial_work_note(snapshot, git_root) if use_git else "")
 
 
 def _next_worktree_index(run_log_path) -> int:
@@ -1242,15 +1252,13 @@ def _next_worktree_index(run_log_path) -> int:
 
 
 def _parallel_worktree_context(task: str, worktree_path: Path) -> str:
-    scope = parallel_prompt_paths(task)
-    lines = [
-        "You are working in an isolated git worktree for this task only.",
-        f"Worktree path: {worktree_path}",
-        "Do not modify files outside this worktree.",
-    ]
-    if scope:
-        lines.append(f"Scope (stay within): {scope}")
-    return "\n".join(lines)
+    return "\n".join(
+        [
+            "You are working in an isolated git worktree for this task only.",
+            f"Worktree path: {worktree_path}",
+            "Do not modify files outside this worktree.",
+        ]
+    )
 
 
 def _run_worker_in_worktree(
@@ -1310,9 +1318,9 @@ def dispatch_worker(
     use_worktree = (
         PARALLEL_AGENTS_ENABLED
         and normalized == "coding"
-        and is_parallel_prompt(task)
         and not is_merge_task_prompt(task)
         and worktree_mod.is_git_repo()
+        and task_in_ready_parallel_wave(task, run_log_path)
     )
     worktree_info = None
     if use_worktree:
@@ -1347,9 +1355,6 @@ def dispatch_worker(
         return f"[{description or 'worker'}] Parallel worktree {status}.{branch_note}\n\n{detail[:4000]}{_todo_completion_suffix(task, passed, run_log_path)}"
 
     task_context = context(task)
-    if is_merge_task_prompt(task) and run_log_path is not None:
-        merge_ctx = _merge_task_context(run_log_path, task)
-        task_context = "\n\n".join(part for part in (merge_ctx, task_context) if part)
 
     passed, detail = run_worker_reviewer_loop(
         api_key,
@@ -1363,9 +1368,6 @@ def dispatch_worker(
         turn_id=turn_id,
         approval_callback=approval_callback,
     )
-    if passed and is_merge_task_prompt(task) and run_log_path is not None:
-        for branch in _branches_named_in_task(run_log_path, task):
-            worktree_mod.mark_branch_status(run_log_path, branch, "merged")
     status = "completed" if passed else "stopped (review did not pass)"
     return f"[{description or 'worker'}] Single-task {status}.\n\n{detail[:4000]}{_todo_completion_suffix(task, passed, run_log_path)}"
 
@@ -1396,9 +1398,11 @@ def build_agent_worker_tool(
             return f"Tool error: {error}"
         task = canonical or ""
         if is_merge_task_prompt(task):
-            merge_error = _validate_merge_prompt_single_branch(task, run_log_path)
-            if merge_error:
-                return f"Tool error: {merge_error}"
+            return (
+                "Tool error: merge tasks are not delegated to agent_worker. "
+                "Merge ready branches yourself with the merge_branch tool "
+                "(one branch per call); resolve conflicts with edit_file + git add + git commit."
+            )
         return dispatch_worker(
             task,
             description,

@@ -1,18 +1,12 @@
-import json
 import sys
-from datetime import datetime
 
-from langbridge_code.llm.client import create_model_response
-from langbridge_code.settings import (
-    MAX_SESSION_CHOICES,
-    MAX_SESSION_SUMMARY_INPUT_CHARS,
-)
-from langbridge_code.llm.parse import extract_output_text, truncate_text
+from langbridge_code.settings import MAX_SESSION_CHOICES
 from langbridge_code.util.artifacts import (
     create_artifact_session,
     label_artifact_session,
     list_artifact_sessions,
 )
+from langbridge_code.util.progress import last_progress_turn_id
 
 
 def create_run_log_path(first_user_message: str | None = None):
@@ -72,92 +66,6 @@ def label_session(path):
     return label_artifact_session(path)
 
 
-def read_session_log(path):
-    if not path.exists():
-        return {"summary": "", "turns": []}
-    data = json.loads(path.read_text(encoding="utf-8"))
-    if isinstance(data, list):
-        return {"summary": "", "turns": data}
-    return {"summary": data.get("summary", ""), "turns": data.get("turns", [])}
-
-
-def read_session_records(path):
-    return read_session_log(path)["turns"]
-
-
-def write_session_summary(api_key, model, run_log_path):
-    session_log = read_session_log(run_log_path)
-    if session_log["summary"]:
-        return
-
-    session_log["summary"] = create_session_summary(api_key, model, session_log["turns"])
-    run_log_path.write_text(
-        json.dumps(session_log, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
-
-
-def create_session_summary(api_key, model, records):
-    prompt = (
-        "Summarize this coding-agent CLI session as a short title for a session picker. "
-        "Return only the title, no punctuation wrapper, under 12 words.\n\n"
-        f"{session_summary_input(records)}"
-    )
-    data = create_text_response(
-        api_key,
-        model,
-        [
-            {"role": "system", "content": "You write concise session titles."},
-            {"role": "user", "content": prompt},
-        ],
-    )
-    return extract_output_text(data.get("output", [])).strip()
-
-
-def create_text_response(api_key, model, agent_input):
-    return create_model_response(api_key, model, agent_input, label="session summary")
-
-
-def session_summary_input(records):
-    lines = []
-    for record in records[-5:]:
-        user = record.get("user")
-        assistant = record.get("assistant")
-        if user:
-            lines.append(f"User: {truncate_text(user, 300)}")
-        if assistant:
-            lines.append(f"Assistant: {truncate_text(assistant, 300)}")
-
-    return truncate_text("\n".join(lines), MAX_SESSION_SUMMARY_INPUT_CHARS)
-
-
-def last_turn_id(records):
-    turn_ids = [record.get("turn_id", 0) for record in records]
-    return max(turn_ids, default=0)
-
-
-def last_completed_turn_id(records):
-    """Highest turn id with a finished assistant reply (no orphan/in-flight turns)."""
-    completed = [
-        record.get("turn_id", 0)
-        for record in records
-        if (record.get("assistant") or "").strip()
-    ]
-    return max(completed, default=0)
-
-
-def recent_session_dialogue(run_log_path, *, limit: int = 3) -> str:
-    if not run_log_path:
-        return ""
-    records = read_session_records(run_log_path)[-limit:]
-    lines = []
-    for record in records:
-        user = (record.get("user") or "").strip()
-        assistant = (record.get("assistant") or "").strip()
-        if user and not assistant:
-            continue
-        if user:
-            lines.append(f"User: {truncate_text(user, 500)}")
-        if assistant:
-            lines.append(f"Assistant: {truncate_text(assistant, 500)}")
-    return "\n".join(lines)
+def last_turn_id(run_log_path) -> int:
+    """Highest turn id recorded in progress.md for this session."""
+    return last_progress_turn_id(run_log_path)

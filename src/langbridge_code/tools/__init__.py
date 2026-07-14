@@ -4,6 +4,7 @@ from langbridge_code.tools import (
     filesystem,
     git_tools,
     lsp,
+    merge_branch,
     skills,
     testing,
     todo_list,
@@ -56,6 +57,7 @@ MAIN_TOOL_SCHEMAS = (
     filesystem.TOOL_SCHEMAS
     + execution.TOOL_SCHEMAS
     + git_tools.TOOL_SCHEMAS
+    + merge_branch.TOOL_SCHEMAS
     + lsp.TOOL_SCHEMAS
     + testing.TOOL_SCHEMAS
     + todo_list.TOOL_SCHEMAS
@@ -70,6 +72,7 @@ MAIN_TOOLS = {
         filesystem.TOOLS
         | execution.TOOLS
         | git_tools.TOOLS
+        | merge_branch.TOOLS
         | lsp.TOOLS
         | testing.TOOLS
         | todo_list.TOOLS

@@ -82,18 +82,42 @@ def to_chat_tools(tool_schemas):
     return tools
 
 
+def _reasoning_text(item) -> str:
+    parts = []
+    for part in item.get("summary") or []:
+        if isinstance(part, dict) and part.get("type") == "summary_text":
+            text = part.get("text")
+            if text:
+                parts.append(str(text))
+    if parts:
+        return "".join(parts)
+    content = item.get("content")
+    return str(content) if content else ""
+
+
 def to_chat_messages(agent_input):
+    """Convert internal agent items to OpenAI-compatible chat messages.
+
+    Preserves Kimi/Moonshot ``reasoning_content`` on assistant turns so
+    thinking models (kimi-k2.7-code, kimi-k2.6 with keep=all) keep continuity
+    across multi-step tool calls.
+    """
     messages = []
     pending_calls = []
+    pending_reasoning = None
 
-    def flush_calls():
-        nonlocal pending_calls
-        if not pending_calls:
+    def flush_assistant(*, content=None):
+        nonlocal pending_calls, pending_reasoning
+        if not pending_calls and content is None and not pending_reasoning:
             return
-        messages.append({
+        message = {
             "role": "assistant",
-            "content": None,
-            "tool_calls": [
+            "content": content,
+        }
+        if pending_reasoning:
+            message["reasoning_content"] = pending_reasoning
+        if pending_calls:
+            message["tool_calls"] = [
                 {
                     "id": call["call_id"],
                     "type": "function",
@@ -103,23 +127,35 @@ def to_chat_messages(agent_input):
                     },
                 }
                 for call in pending_calls
-            ],
-        })
+            ]
+        messages.append(message)
         pending_calls = []
+        pending_reasoning = None
 
     for item in agent_input:
         role = item.get("role")
-        if role in {"system", "user", "assistant"}:
-            flush_calls()
+        item_type = item.get("type")
+
+        if item_type == "reasoning":
+            text = _reasoning_text(item)
+            if text:
+                pending_reasoning = text
+            continue
+
+        if role in {"system", "user"}:
+            flush_assistant()
             messages.append({"role": role, "content": item.get("content", "")})
             continue
 
-        item_type = item.get("type")
+        if role == "assistant":
+            flush_assistant(content=item.get("content", ""))
+            continue
+
         if item_type == "function_call":
             pending_calls.append(item)
             continue
         if item_type == "function_call_output":
-            flush_calls()
+            flush_assistant()
             messages.append({
                 "role": "tool",
                 "tool_call_id": item["call_id"],
@@ -127,12 +163,10 @@ def to_chat_messages(agent_input):
             })
             continue
         if item_type == "message":
-            flush_calls()
             text = extract_output_text([item])
-            if text:
-                messages.append({"role": "assistant", "content": text})
+            flush_assistant(content=text or None)
 
-    flush_calls()
+    flush_assistant()
     return messages
 
 
@@ -256,6 +290,10 @@ def _stream_chat_completion(client, kwargs, *, label, stream_sink):
     return {"output": from_chat_message(message)}
 
 
+DEFAULT_OPENAI_REASONING = {"summary": "auto"}
+DEFAULT_MOONSHOT_THINKING = {"type": "enabled", "keep": "all"}
+
+
 def create_model_response(
     api_key,
     model,
@@ -266,23 +304,29 @@ def create_model_response(
     label="agent",
     stream_sink=None,
 ):
+    """Call the provider LLM. Thinking/reasoning is enabled on every request."""
     print_llm_request(label, model, agent_input, tool_schemas)
     client = make_client(api_key)
     last_error = None
     for attempt in range(8):
         try:
             if uses_responses_api():
-                kwargs = {"model": model, "input": agent_input}
+                kwargs = {
+                    "model": model,
+                    "input": agent_input,
+                    "reasoning": reasoning if reasoning is not None else DEFAULT_OPENAI_REASONING,
+                }
                 if tool_schemas:
                     kwargs["tools"] = tool_schemas
-                if reasoning is not None:
-                    kwargs["reasoning"] = reasoning
                 response = client.responses.create(**kwargs)
                 data = response.model_dump(exclude_none=True)
             else:
                 kwargs = {
                     "model": model,
                     "messages": to_chat_messages(agent_input),
+                    # Moonshot/Kimi: enable thinking + preserve prior reasoning.
+                    # kimi-k2.7-code always thinks; keep=all is required for multi-step tools.
+                    "extra_body": {"thinking": DEFAULT_MOONSHOT_THINKING},
                 }
                 if tool_schemas:
                     kwargs["tools"] = to_chat_tools(tool_schemas)

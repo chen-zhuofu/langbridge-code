@@ -5,7 +5,7 @@ import subprocess
 from pathlib import Path
 
 from langbridge_code.agents.common import control
-from langbridge_code.agents.common.limits import now, over_context_budget, over_time_budget
+from langbridge_code.agents.common.limits import now, over_time_budget
 from langbridge_code.agents.system_prompt.explorer import explorer_system_prompt
 from langbridge_code.llm.client import create_model_response
 from langbridge_code.llm.parse import extract_output_text, print_step_trace
@@ -18,6 +18,7 @@ from langbridge_code.util.agent_worklog import (
 )
 from langbridge_code.context.common.budget import prepare_agent_messages
 from langbridge_code.context.agent_context import finish_step, init_agent_context
+from langbridge_code.context.foreground import ForegroundTracker
 from langbridge_code.settings import (
     MAX_EXPLORER_SECONDS,
     MAX_EXPLORER_STEPS,
@@ -152,10 +153,15 @@ AGENT_EXPLORER_TOOL_SCHEMA = {
     "type": "function",
     "name": "agent_explorer",
     "description": (
-        "Delegate read-only codebase investigation to the explore subagent. "
-        "Use for broad search across many files or naming patterns. Multiple explorer "
-        "calls in one turn may run in parallel (read-only). Do not parallelize planner "
-        "or worker subagents. Returns a summary only."
+        "Offload read-only codebase investigation so greps/reads stay OUT of your "
+        "main-agent context. You get ONE findings summary back — not the explore "
+        "trace. Ask for concrete, reusable findings (file paths, key "
+        "functions/classes, line ranges) and forward the relevant parts verbatim "
+        "when you later dispatch agent_worker, so workers do not repeat the "
+        "exploration. Use for broad search across files or naming patterns. "
+        "Multiple explorer calls in one turn may run in parallel (read-only). Do "
+        "not parallelize planner or worker. Prefer this over doing large "
+        "explorations yourself."
     ),
     "parameters": {
         "type": "object",
@@ -239,48 +245,55 @@ class ExploreSession:
     def send(self, user_prompt):
         self.context.begin_turn(user_prompt)
         write_worklog_received(self.run_log_path, self.label, self.worklog_id, self.turn_id, user_prompt)
+        foreground = ForegroundTracker(self.label, self.messages, self.model)
+        foreground.activate()
         start_time = now()
-        for _ in range(MAX_EXPLORER_STEPS):
-            control.checkpoint()
-            if over_time_budget(start_time, MAX_EXPLORER_SECONDS):
-                return self._finish(f"{self.label} stopped: out of time.")
-            budget = prepare_agent_messages(
-                self.messages,
-                self.model,
-                base_system_prompt=self._explorer_system_prompt,
-            )
-            if over_context_budget(self.messages, budget):
-                return self._finish(f"{self.label} stopped: context budget exceeded.")
-            response = control.run_interruptible(
-                lambda: create_model_response(
-                    self.api_key,
-                    self.model,
+        try:
+            for _ in range(MAX_EXPLORER_STEPS):
+                control.checkpoint()
+                if over_time_budget(start_time, MAX_EXPLORER_SECONDS):
+                    return self._finish(f"{self.label} stopped: out of time.")
+                self.context.compact_to_budget(api_key=self.api_key, model=self.model)
+                budget = prepare_agent_messages(
                     self.messages,
-                    tool_schemas=self.tool_schemas,
-                    reasoning={"summary": "auto"},
-                    label=self.label,
-                    stream_sink=self.trace_sink,
+                    self.model,
+                    base_system_prompt=self._explorer_system_prompt,
                 )
-            )
-            output = response.get("output", [])
-            tool_calls = [item for item in output if item.get("type") == "function_call"]
-            if not tool_calls:
+                foreground.publish()
+                response = control.run_interruptible(
+                    lambda: create_model_response(
+                        self.api_key,
+                        self.model,
+                        self.messages,
+                        tool_schemas=self.tool_schemas,
+                        reasoning={"summary": "auto"},
+                        label=self.label,
+                        stream_sink=self.trace_sink,
+                    )
+                )
+                output = response.get("output", [])
+                tool_calls = [item for item in output if item.get("type") == "function_call"]
+                if not tool_calls:
+                    print_step_trace(output, include_message=True, label=self.label, sink=self.trace_sink)
+                    if output:
+                        finish_step(self.context, list(output), self, budget)
+                        foreground.publish()
+                    return self._finish(extract_output_text(output))
                 print_step_trace(output, include_message=True, label=self.label, sink=self.trace_sink)
-                if output:
-                    finish_step(self.context, list(output), self, budget)
-                return self._finish(extract_output_text(output))
-            print_step_trace(output, include_message=True, label=self.label, sink=self.trace_sink)
-            write_worklog_step(self.run_log_path, self.label, self.worklog_id, self.turn_id, self.step, output)
-            step_items = list(output)
-            for call in tool_calls:
-                tool_output = self._run_tool(call)
-                step_items.append(tool_output)
-                write_worklog_observation(
-                    self.run_log_path, self.label, self.worklog_id, self.turn_id, self.step, tool_output
-                )
-            self.step += 1
-            finish_step(self.context, step_items, self, budget)
-        return self._finish(f"{self.label} stopped: max steps.")
+                write_worklog_step(self.run_log_path, self.label, self.worklog_id, self.turn_id, self.step, output)
+                step_items = list(output)
+                for call in tool_calls:
+                    tool_output = self._run_tool(call)
+                    step_items.append(tool_output)
+                    write_worklog_observation(
+                        self.run_log_path, self.label, self.worklog_id, self.turn_id, self.step, tool_output
+                    )
+                self.step += 1
+                finish_step(self.context, step_items, self, budget)
+                foreground.publish()
+            return self._finish(f"{self.label} stopped: max steps.")
+        finally:
+            foreground.deactivate()
 
     def _run_tool(self, call):
         name = call.get("name")

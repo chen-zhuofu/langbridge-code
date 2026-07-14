@@ -1,33 +1,28 @@
 from langbridge_code.ui.tui import LangBridgeTui
 
 
-def test_replay_session_records_shows_interrupted_turn():
+def test_replay_progress_shows_last_turn_stub():
     tui = LangBridgeTui.__new__(LangBridgeTui)
     lines = []
 
-    tui.write_user = lambda text: lines.append(("user", text))
-    tui.write_assistant = lambda text: lines.append(("assistant", text))
     tui.write_system = lambda text, **kwargs: lines.append(("system", text))
 
-    records = [
-        {
-            "turn_id": 1,
-            "user": "你现在是新版了",
-            "assistant": "是的，已更新。",
-            "steps": [],
-        },
-        {
-            "turn_id": 2,
-            "user": "帮我开发一个网页游戏吧",
-            "assistant": "",
-            "steps": [],
-        },
-    ]
-    tui._replay_session_records(records)
+    from pathlib import Path
+    import tempfile
 
-    assert lines == [
-        ("user", "你现在是新版了"),
-        ("assistant", "是的，已更新。"),
-        ("user", "帮我开发一个网页游戏吧"),
-        ("system", "\u25a0 No reply yet (turn interrupted before the agent finished)"),
-    ]
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "session-demo"
+        path.mkdir()
+        (path / "progress.md").write_text(
+            "# Session progress\n\n"
+            "## Turn 1\n\n**In:** hello\n\n**Out:** hi\n\n"
+            "## Turn 2\n\n**In:** build game\n\n**Out:** working\n",
+            encoding="utf-8",
+        )
+        tui._replay_progress(path)
+
+    assert len(lines) == 1
+    assert lines[0][0] == "system"
+    assert "## Turn 2" in lines[0][1]
+    assert "build game" in lines[0][1]
+    assert "## Turn 1" not in lines[0][1]

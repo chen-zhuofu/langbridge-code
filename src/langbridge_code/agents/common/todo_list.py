@@ -1,6 +1,7 @@
 """Shared session todo_list file I/O and parsing (planner + worker)."""
 import re
 from dataclasses import dataclass
+from pathlib import Path
 
 from langbridge_code.settings import TODO_LIST_PATH
 from langbridge_code.util.artifacts import todo_list_path as artifact_todo_list_path
@@ -15,6 +16,10 @@ _TASK_LINE = re.compile(
     re.IGNORECASE,
 )
 _HTML_COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
+_DEPENDS_MARKER = re.compile(
+    r"<!--\s*depends:\s*(?P<body>[^>]+?)\s*-->",
+    re.IGNORECASE,
+)
 _CONTINUATION_RE = re.compile(
     r"^(?:继续[吧吗？?]*|continue|resume|go on)[\s?！!。\.]*$",
     re.IGNORECASE,
@@ -38,7 +43,10 @@ def todo_list_path(run_log_path=None):
     path = artifact_todo_list_path(run_log_path)
     if path is not None:
         return path
-    return run_log_path.with_name("todo_list.md")
+    candidate = Path(run_log_path)
+    if candidate.suffix:
+        return candidate.with_name("todo_list.md")
+    return candidate / "todo_list.md"
 
 
 def read_todo_list(run_log_path=None):
@@ -127,6 +135,111 @@ def clean_task_text(text: str) -> str:
     return " ".join(stripped.split())
 
 
+def _task_blob(task: TodoTask) -> str:
+    return f"{task.description}\n{task.note}"
+
+
+def parse_depends_indices(task: TodoTask) -> list[int] | None:
+    """Return 1-based dependency indices from ``<!-- depends: ... -->``.
+
+    - ``none`` / empty → ``[]``
+    - ``1, 2`` → ``[1, 2]``
+    - marker missing → ``None``
+    """
+    match = _DEPENDS_MARKER.search(_task_blob(task))
+    if not match:
+        return None
+    body = match.group("body").strip().lower()
+    if body in ("none", "-", "n/a", "na", ""):
+        return []
+    indices: list[int] = []
+    for part in re.split(r"[,;\s]+", body):
+        if part.isdigit():
+            value = int(part)
+            if value not in indices:
+                indices.append(value)
+    return indices
+
+
+def resolved_depends_indices(tasks: list[TodoTask], index: int) -> list[int]:
+    """1-based dependency indices for ``tasks[index]``.
+
+    Explicit ``<!-- depends: ... -->`` wins. Otherwise sequential: first todo has
+    no deps; later todos depend on the previous todo only.
+    """
+    explicit = parse_depends_indices(tasks[index])
+    if explicit is not None:
+        return explicit
+    if index <= 0:
+        return []
+    return [index]  # previous todo is 1-based index == index
+
+
+def is_task_deps_satisfied(tasks: list[TodoTask], index: int) -> bool:
+    """True when every dependency of ``tasks[index]`` is marked done."""
+    if index < 0 or index >= len(tasks):
+        return False
+    for dep in resolved_depends_indices(tasks, index):
+        if dep < 1 or dep > len(tasks):
+            return False
+        if dep - 1 == index:
+            continue
+        if not tasks[dep - 1].done:
+            return False
+    return True
+
+
+def ready_task_indices(tasks: list[TodoTask]) -> list[int]:
+    """0-based indices of unfinished todos whose depends are satisfied."""
+    return [
+        index
+        for index, task in enumerate(tasks)
+        if task.unfinished and is_task_deps_satisfied(tasks, index)
+    ]
+
+
+def format_dependency_dispatch_guidance(tasks: list[TodoTask]) -> str:
+    """Human-readable ready/blocked waves for the main agent (read_plan)."""
+    if not tasks:
+        return ""
+    ready_lines: list[str] = []
+    blocked_lines: list[str] = []
+    for index, task in enumerate(tasks):
+        number = index + 1
+        label = clean_task_text(task.description) or task.description.strip()
+        deps = resolved_depends_indices(tasks, index)
+        deps_text = "none" if not deps else ", ".join(str(d) for d in deps)
+        if task.done:
+            continue
+        if is_task_deps_satisfied(tasks, index):
+            ready_lines.append(f"{number}. {label} (depends: {deps_text})")
+        else:
+            waiting = ", ".join(
+                str(d) for d in deps if 1 <= d <= len(tasks) and not tasks[d - 1].done
+            )
+            blocked_lines.append(
+                f"{number}. {label} (depends: {deps_text}; waiting on: {waiting or '?'})"
+            )
+    if not ready_lines and not blocked_lines:
+        return ""
+    parts = [
+        "Dependency dispatch (1-based todo numbers top→bottom):",
+        "Spawn one agent_worker per Ready item in the same turn when multiple are ready; "
+        "merge ready branches before starting a todo that depended on them.",
+        "",
+        "Ready now:",
+    ]
+    if ready_lines:
+        parts.extend(f"- {line}" for line in ready_lines)
+    else:
+        parts.append("- (none)")
+    if blocked_lines:
+        parts.append("")
+        parts.append("Blocked:")
+        parts.extend(f"- {line}" for line in blocked_lines)
+    return "\n".join(parts)
+
+
 def _normalize_match(text: str) -> str:
     return clean_task_text(text).lower()
 
@@ -171,7 +284,7 @@ def unfinished_tasks_referenced_in_prompt(tasks: list[TodoTask], prompt: str) ->
 
 
 def _worker_task_text(task: TodoTask) -> str:
-    """Task line for worker dispatch — keep verify/parallel HTML markers."""
+    """Task line for worker dispatch — keep verify/depends HTML markers."""
     return (task.description or "").strip()
 
 

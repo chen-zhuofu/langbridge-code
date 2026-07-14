@@ -44,8 +44,8 @@ def test_goal_evaluator_parses_needs_work_verdict():
 
 
 def test_run_goal_loop_continues_until_evaluator_says_met(tmp_path):
-    run_log = tmp_path / "session.json"
-    run_log.write_text("[]", encoding="utf-8")
+    run_log = tmp_path / "session-demo"
+    run_log.mkdir()
     goal = new_goal("tests pass", max_turns=5)
     messages = [{"role": "system", "content": "test"}]
     session = MainAgentSession(
@@ -62,10 +62,7 @@ def test_run_goal_loop_continues_until_evaluator_says_met(tmp_path):
         GoalVerdict(met=True, reason="transcript shows passing tests"),
     ]
 
-    with (
-        patch("langbridge_code.agents.main_agent.GoalEvaluatorAgent", return_value=evaluator),
-        patch("langbridge_code.agents.main_agent.schedule_append_turn_progress"),
-    ):
+    with patch("langbridge_code.agents.main_agent.GoalEvaluatorAgent", return_value=evaluator):
         reply, result = session.run_goal_loop(goal, initial_prompt="tests pass")
 
     assert reply == "all tests passed"
@@ -78,18 +75,15 @@ def test_run_goal_loop_continues_until_evaluator_says_met(tmp_path):
 
 
 def test_run_goal_loop_stops_at_turn_limit(tmp_path):
-    run_log = tmp_path / "session.json"
-    run_log.write_text("[]", encoding="utf-8")
+    run_log = tmp_path / "session-demo"
+    run_log.mkdir()
     goal = SessionGoal(condition="tests pass", max_turns=1, status=STATUS_ACTIVE)
     session = MainAgentSession("key", "model", [{"role": "system", "content": "x"}], run_log, 1)
     session.send = MagicMock(return_value="not done")
     evaluator = MagicMock()
     evaluator.evaluate.return_value = GoalVerdict(met=False, reason="still failing", guidance="retry")
 
-    with (
-        patch("langbridge_code.agents.main_agent.GoalEvaluatorAgent", return_value=evaluator),
-        patch("langbridge_code.agents.main_agent.schedule_append_turn_progress"),
-    ):
+    with patch("langbridge_code.agents.main_agent.GoalEvaluatorAgent", return_value=evaluator):
         _, result = session.run_goal_loop(goal, initial_prompt="tests pass")
 
     assert result.status != STATUS_ACHIEVED

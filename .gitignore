@@ -2,7 +2,7 @@ build/
 .DS_Store
 # runtime agent state: session history, worklogs, component plans, todo_list
 agent-state/
-# session artifacts (session.json, todo_list, progress, traces)
+# session artifacts (todo_list, progress, traces)
 src/langbridge_code/artifacts/
 artifacts/
 # stray session-history dirs from older runs (RUNS_DIR now lives under agent-state/)

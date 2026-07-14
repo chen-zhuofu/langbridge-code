@@ -1,15 +1,14 @@
 """Artifact session paths: langbridge_code/artifacts/session-{slug}-{timestamp}/."""
 from __future__ import annotations
 
-import json
 import re
 from datetime import datetime
 from pathlib import Path
 
 from langbridge_code.settings import ARTIFACTS_DIR
 
-SESSION_JSON = "session.json"
 PROGRESS_MD = "progress.md"
+TRACES_MD = "traces.md"
 TODO_LIST_MD = "todo_list.md"
 TRACES_DIRNAME = "traces"
 DEBUG_DIRNAME = "debug"
@@ -51,16 +50,17 @@ def session_dir_name(first_user_message: str, when: datetime | None = None) -> s
 
 
 def artifact_dir(run_log_path) -> Path | None:
+    """Resolve the session artifact directory from a run_log_path.
+
+    ``run_log_path`` is normally the session directory itself. Legacy file
+    anchors (e.g. old ``session.json`` paths) resolve to their parent.
+    """
     if run_log_path is None:
         return None
     path = Path(run_log_path)
-    if path.name == SESSION_JSON:
+    if path.suffix:
         return path.parent
-    return path.parent if path.suffix == ".json" else path
-
-
-def session_json_path(session_dir: Path) -> Path:
-    return session_dir / SESSION_JSON
+    return path
 
 
 def progress_path(run_log_path) -> Path | None:
@@ -68,6 +68,13 @@ def progress_path(run_log_path) -> Path | None:
     if directory is None:
         return None
     return directory / PROGRESS_MD
+
+
+def traces_md_path(run_log_path) -> Path | None:
+    directory = artifact_dir(run_log_path)
+    if directory is None:
+        return None
+    return directory / TRACES_MD
 
 
 def todo_list_path(run_log_path) -> Path | None:
@@ -99,6 +106,7 @@ def debug_trace_dir(run_log_path, trace_id: str) -> Path | None:
 
 
 def create_artifact_session(first_user_message: str, when: datetime | None = None) -> Path:
+    """Create a session artifact directory and return its path."""
     ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
     name = session_dir_name(first_user_message, when=when)
     session_dir = ARTIFACTS_DIR / name
@@ -109,39 +117,25 @@ def create_artifact_session(first_user_message: str, when: datetime | None = Non
     session_dir.mkdir(parents=True)
     (session_dir / TRACES_DIRNAME).mkdir(exist_ok=True)
     (session_dir / DEBUG_DIRNAME).mkdir(exist_ok=True)
-    path = session_json_path(session_dir)
-    path.write_text(
-        json.dumps({"summary": "", "turns": []}, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
-    return path
+    (session_dir / PROGRESS_MD).write_text("# Session progress\n", encoding="utf-8")
+    (session_dir / TRACES_MD).write_text("# Session traces\n", encoding="utf-8")
+    return session_dir
 
 
 def list_artifact_sessions() -> list[Path]:
+    """Return session directories, newest first."""
     if not ARTIFACTS_DIR.exists():
         return []
     paths = []
     for session_dir in ARTIFACTS_DIR.glob("session-*"):
-        if not session_dir.is_dir():
-            continue
-        session_json = session_dir / SESSION_JSON
-        if session_json.is_file():
-            paths.append(session_json)
+        if session_dir.is_dir():
+            paths.append(session_dir)
     return sorted(paths, key=lambda path: path.stat().st_mtime, reverse=True)
 
 
-def label_artifact_session(session_json_path: Path) -> str:
-    from langbridge_code.util.session import read_session_log
-
-    try:
-        session_log = read_session_log(session_json_path)
-        summary = session_log.get("summary") or ""
-    except (OSError, json.JSONDecodeError):
-        summary = "unreadable session"
-    folder = session_json_path.parent.name
-    if summary:
-        return f"{folder} — {summary}"
-    return folder
+def label_artifact_session(session_path: Path) -> str:
+    path = Path(session_path)
+    return path.name if path.is_dir() else path.parent.name
 
 
 def agent_file_prefix(label: str, instance_id: int | None) -> str:

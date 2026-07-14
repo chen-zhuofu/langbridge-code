@@ -200,12 +200,15 @@ def _bind(cfg):
         "MODEL_CONTEXT_WINDOWS": context.get("model_context_windows", {}),
         "MAX_SESSION_CHOICES": context["max_session_choices"],
         "MAX_SESSION_SUMMARY_INPUT_CHARS": context["max_session_summary_input_chars"],
-        "STRUCTURE_MIN_RAW_KEEP": int(context.get("structure_min_raw_keep", 10)),
-        "STRUCTURE_BATCH": int(context.get("structure_batch", 10)),
-        "STRUCTURE_COMPACT_FRACTION": float(context.get("structure_compact_fraction", 0.3)),
-        "STRUCTURE_USE_LLM": context.get("structure_use_llm", True),
-        "STRUCTURE_NOTE_TARGET_CHARS": int(context.get("structure_note_target_chars", 12000)),
-        "STRUCTURE_PROSE_TARGET_CHARS": int(context.get("structure_prose_target_chars", 16000)),
+        # Raw tail kept on compaction: one more than the progress-note cadence
+        # (11 > 10) so the compressed middle always overlaps progress.md.
+        "COMPACT_RAW_KEEP": int(context.get("compact_raw_keep", 11)),
+        "COMPACT_FRACTION": float(context.get("compact_fraction", 0.4)),
+        "PROGRESS_MAX_FRACTION": float(context.get("progress_max_fraction", 0.4)),
+        "TRACES_RESUME_MAX_FRACTION": float(context.get("traces_resume_max_fraction", 0.3)),
+        "COMPACT_USE_LLM": context.get("compact_use_llm", True),
+        "COMPACT_PROSE_TARGET_CHARS": int(context.get("compact_prose_target_chars", 16000)),
+        "PROGRESS_NOTE_REMINDER_ROUNDS": int(context.get("progress_note_reminder_rounds", 10)),
         "CONTEXT_DEBUG_PERSIST": _env_bool(
             "LANGBRIDGE_CONTEXT_DEBUG_PERSIST",
             context.get("context_debug_persist", True),
@@ -243,6 +246,16 @@ def _bind(cfg):
     globals().update({
         "WORKSPACE_ROOT": workspace_root,
         "AGENT_STATE_DIR": agent_state_dir,
+        "PROJECT_MEMORY_PATH": _path_override(
+            "LANGBRIDGE_PROJECT_MEMORY_PATH",
+            paths.get("project_memory_path"),
+            workspace_root / ".langbridge" / "memory.md",
+        ),
+        "USER_MEMORY_PATH": _path_override(
+            "LANGBRIDGE_USER_MEMORY_PATH",
+            paths.get("user_memory_path"),
+            CONFIG_DIR / "memory.md",
+        ),
         "ARTIFACTS_DIR": _path_override(
             "LANGBRIDGE_ARTIFACTS_DIR",
             paths.get("artifacts_dir"),

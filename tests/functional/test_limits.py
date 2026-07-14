@@ -28,9 +28,15 @@ def test_over_context_budget_compares_estimated_tokens():
     assert over_context_budget(messages, 1) is True
 
 
-def test_specialist_stops_on_context_budget(monkeypatch):
+def test_specialist_keeps_running_over_context_budget(monkeypatch):
+    """No context hard stop: the loop continues and relies on compaction."""
+
     def fake_response(api_key, model, messages, tool_schemas, label, **kwargs):
-        raise AssertionError("model should not be called once the context budget is gone")
+        return {
+            "output": [
+                {"type": "message", "content": [{"type": "output_text", "text": READY}]}
+            ]
+        }
 
     monkeypatch.setattr("langbridge_code.tools.agent_worker_reviewer.create_model_response", fake_response)
     monkeypatch.setattr("langbridge_code.context.common.budget.context_budget_tokens", lambda model, fraction=None: 1)
@@ -39,8 +45,8 @@ def test_specialist_stops_on_context_budget(monkeypatch):
     session.messages.append({"role": "user", "content": "x" * 10_000})
     report = session.send("user")
 
-    assert report.startswith("WORKER_STATUS: IN_PROGRESS")
-    assert "exceeded the context budget" in report
+    assert "exceeded the context budget" not in report
+    assert "READY_FOR_REVIEW" in report
 
 
 def test_specialist_stops_on_time_budget(monkeypatch):

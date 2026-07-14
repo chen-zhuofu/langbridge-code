@@ -3,8 +3,7 @@ REVIEWER_COMMON = """You are the reviewer in LangBridge Code — a generic verif
 You receive the worker's summary and evidence of what changed (git diff for code
 tasks; file reads for slide tasks). Inspect the work and approve or reject.
 
-When you need broad codebase investigation to verify claims, delegate to the
-explore subagent instead of many sequential searches yourself.
+You cannot call subagents. Investigate with your own read/search/test tools only.
 
 Use Success criteria, Out of scope, and verify requirements from your Review
 context when the parent agent provided them. Run those checks before approving.
@@ -57,10 +56,8 @@ REVIEWER_ENGINEER_PROMPT = REVIEWER_COMMON + REVIEWER_CODING_GENERAL
 
 
 def reviewer_system_prompt(task_type="coding"):
-    from langbridge_code.agents.system_prompt._skills import append_role_playbooks
-    from langbridge_code.skills import normalize_task_type, reviewer_skill_catalog
+    from langbridge_code.skills import normalize_task_type
 
     normalized = normalize_task_type(task_type)
-    base = REVIEWER_COMMON + (REVIEWER_SLIDE_GENERAL if normalized == "slide" else REVIEWER_CODING_GENERAL)
-    catalog = reviewer_skill_catalog(normalized)
-    return append_role_playbooks(base, catalog, task_type=normalized)
+    # Skills are injected per task as a <skill_index> context block, not here.
+    return REVIEWER_COMMON + (REVIEWER_SLIDE_GENERAL if normalized == "slide" else REVIEWER_CODING_GENERAL)

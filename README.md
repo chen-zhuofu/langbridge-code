@@ -126,19 +126,19 @@ Each tool call includes a required `purpose` field: a short, user-visible senten
 explaining why the agent is calling that tool. It feeds the live thinking line in the TUI.
 
 Each run writes session artifacts under `src/langbridge_code/artifacts/session-{slug}-{timestamp}/`:
-`session.json` (chat history), `todo_list.md`, `progress.md`, and `traces/*.log`.
-A turn is recorded in `session.json` when the agent **starts** processing that
-message (including the next queued message after the prior turn finishes). On
-startup you can resume a previous session or start a new one.
+`todo_list.md`, `progress.md`, and `traces/*.log`.
+On startup you can resume a previous session or start a new one.
 
 ### Living agents vs. traces (memory)
 
+Within one chat session the **main agent stays alive** across user messages.
 Within one specialist session an agent stays **alive** across tool steps. Worker and
 Reviewer are **fresh sessions** each handoff — they do not share message history.
 
-Cross-turn memory for LangBridge lives in `progress.md` (per-turn summaries), not in
-replayed tool traces. Worklogs are unified into per-turn **trace logs** under the
-session's `traces/` directory for audit/debug — not the agents' working memory.
+Cross-turn memory for resume/cold-start uses `progress.md` (per-turn summaries).
+Live turns rely on the main agent's conversation history (with context compaction).
+Worklogs are unified into per-turn **trace logs** under the session's `traces/`
+directory for audit/debug — not the agents' working memory.
 
 ### Status tokens (machine-checkable)
 

@@ -2,7 +2,7 @@
 import json
 
 from langbridge_code.agents.common import control
-from langbridge_code.agents.common.limits import now, over_context_budget, over_time_budget
+from langbridge_code.agents.common.limits import now, over_time_budget
 from langbridge_code.llm.client import create_model_response
 from langbridge_code.llm.parse import extract_output_text, print_step_trace
 from langbridge_code.tools.common.purpose import without_purpose
@@ -14,6 +14,7 @@ from langbridge_code.util.agent_worklog import (
 )
 from langbridge_code.context.common.budget import prepare_agent_messages
 from langbridge_code.context.agent_context import finish_step, init_agent_context
+from langbridge_code.context.foreground import ForegroundTracker
 from langbridge_code.settings import (
     MAX_PLANNER_SECONDS,
     MAX_PLANNER_STEPS,
@@ -26,48 +27,17 @@ from langbridge_code.tools import (
     lsp,
     skills,
 )
-from langbridge_code.tools.ask_user import ASK_USER_TOOL_SCHEMA, resolve_ask_user
 from langbridge_code.agents.common.phases import emit_phase
 from langbridge_code.agents.system_prompt.planner import PLANNER_WORKFLOW_SUMMARY, planner_system_prompt
 from langbridge_code.tools.common.purpose import PURPOSE_PARAMETER
 from langbridge_code.agents.common.todo_list import (
     load_tasks,
-    read_task_type,
     read_todo_list,
     unfinished_count,
     write_task_type_marker,
     write_todo_list,
 )
-
-UPDATE_PLAN_TOOL_SCHEMA = {
-    "type": "function",
-    "name": "update_plan",
-    "description": (
-        "Write the full session plan markdown (planner only). Research the repo first "
-        "(list_dir, glob, read_file, grep) — every factual claim needs `path:line` "
-        "evidence. Include Desired end state, Success criteria, Key discoveries, "
-        "Out of scope, Current state, Design options, Open questions, Todo list with "
-        "<!-- verify: command --> on coding todos, and Changes required (file:line + "
-        "code snippets from the repo) when edits are known. Replaces the entire plan."
-    ),
-    "parameters": {
-        "type": "object",
-        "properties": {
-            "purpose": PURPOSE_PARAMETER,
-            "content": {
-                "type": "string",
-                "description": "Full markdown content of the todo_list.",
-            },
-        },
-        "required": ["purpose", "content"],
-        "additionalProperties": False,
-    },
-}
-
-
-def update_plan(content, run_log_path=None):
-    path = write_todo_list(content, run_log_path)
-    return f"Updated todo_list ({len(content)} chars) at {path.name}."
+from langbridge_code.tools.todo_list import extract_plan_markdown
 
 
 def persist_task_type(run_log_path, task_type: str) -> None:
@@ -96,7 +66,7 @@ def format_unfinished_todo_summary(run_log_path, *, limit: int = 5) -> str:
 
 PLANNER_TOOL_NAMES = (
     FILE_READ_TOOL_NAMES
-    | {"update_plan", "read_skill", "ask_user", "lsp"}
+    | {"read_skill", "lsp"}
     | GIT_READ_TOOL_NAMES
 )
 PLANNER_TOOL_SCHEMAS = [
@@ -108,12 +78,11 @@ PLANNER_TOOL_SCHEMAS = [
         + skills.TOOL_SCHEMAS
     )
     if schema["name"] in PLANNER_TOOL_NAMES
-] + [UPDATE_PLAN_TOOL_SCHEMA, ASK_USER_TOOL_SCHEMA]
+]
 PLANNER_TOOLS = {
     **{name: filesystem.TOOLS[name] for name in FILE_READ_TOOL_NAMES},
     **{name: git_tools_mod.TOOLS[name] for name in GIT_READ_TOOL_NAMES},
     "lsp": lsp.TOOLS["lsp"],
-    "update_plan": update_plan,
     **skills.TOOLS,
 }
 
@@ -122,13 +91,15 @@ AGENT_PLANNER_TOOL_SCHEMA = {
     "type": "function",
     "name": "agent_planner",
     "description": (
-        "Launch the planner subagent to create the session todo_list. "
-        "May ask clarifying questions via ask_user. Returns a final summary only. "
-        "Blocked while an unfinished todo_list exists unless the main agent called "
-        "clear_plan first or replace_existing_plan=true after ask_user confirmed "
-        "replacing the current plan. "
-        "When unfinished todos exist and the user starts a new multi-step task, "
-        "read_plan then ask_user (continue / replace / /new) before calling this."
+        "Offload plan research/drafting so repo exploration stays OUT of your "
+        "main-agent context. You get ONE draft result back — not the planner's "
+        "tool trace. Review that draft as if you wrote it; ask the user if "
+        "ambiguous; then update_plan. Do not dispatch agent_worker until "
+        "update_plan has committed. Blocked while an unfinished todo_list exists "
+        "unless you called clear_plan first or set replace_existing_plan=true "
+        "after the user confirmed replacing. When unfinished todos exist and the "
+        "user starts a new multi-step task, read_plan then ask whether to "
+        "continue / replace / /new before calling this."
     ),
     "parameters": {
         "type": "object",
@@ -166,7 +137,8 @@ def planner_replace_blocked_message(run_log_path) -> str | None:
         f"agent_planner would overwrite ({remaining} item(s) remaining).",
         "Call read_plan, then ask_user how to proceed before planning again.",
         "If the user chooses to replace the plan, call clear_plan then "
-        "agent_planner (or agent_planner with replace_existing_plan=true).",
+        "agent_planner (or agent_planner with replace_existing_plan=true), review "
+        "the draft, ask_user if unsure, then update_plan to commit.",
         "If they want to continue the old plan, use agent_worker.",
         "If they want the new task in a fresh session, tell them to run /new and "
         "repeat the request there.",
@@ -183,7 +155,6 @@ def run_planner(
     trace_sink=None,
     run_log_path=None,
     turn_id=None,
-    question_callback=None,
 ) -> str:
     session = PlannerSession(
         api_key,
@@ -195,7 +166,6 @@ def run_planner(
         trace_sink=trace_sink,
         run_log_path=run_log_path,
         turn_id=turn_id,
-        question_callback=question_callback,
     )
     return session.send(prompt)
 
@@ -204,25 +174,26 @@ def initial_plan_prompt(user_task: str) -> str:
     return (
         f"{PLANNER_WORKFLOW_SUMMARY}\n"
         "Create an evidence-based plan for this user task.\n\n"
-        "Before update_plan:\n"
+        "Before your final reply:\n"
         "1. Read user-named files and primary context FULLY (no limit/offset).\n"
         "2. grep/glob the repo; cite `path:line` for every discovery.\n"
-        "3. If the user corrected any assumption, verify with read_file/grep first.\n\n"
-        "update_plan must use the full structure: Desired end state, Success criteria,\n"
+        "3. If assumptions are unclear, put them in Open questions — do NOT ask the user.\n\n"
+        "Your final reply must start with PLAN_TASK_TYPE, then a ```markdown fenced\n"
+        "block with the FULL plan: Desired end state, Success criteria,\n"
         "Key discoveries, Out of scope, Current state, Design options (if non-trivial),\n"
-        "Open questions, Todo list, Changes required (file:line + code snippets when known).\n"
-        "Each coding todo needs <!-- verify: <command> -->.\n\n"
+        "Open questions, Todo list (each with <!-- depends: ... --> and <!-- verify: ... -->),\n"
+        "Changes required (file:line + code snippets when known).\n"
+        "You have no update_plan or ask_user — the main agent commits the plan.\n\n"
         "Todo lines must be:\n"
-        "  - [ ] <description> <!-- verify: ... -->\n"
+        "  - [ ] <description> <!-- depends: none|N,M --> <!-- verify: ... -->\n"
         "Decide coding vs slide — entire todo_list is one type only.\n"
         "For coding: build and verify working software; no design docs unless asked.\n"
         "For slide: build the deck deliverable (.pptx); verify content and structure.\n"
         "Split independent edits into separate todos; file/function-level steps are fine.\n"
         "No padding or duplicates.\n"
         "For 3+ coding implementation steps, end with <!-- integration --> verification.\n"
-        "For 2+ independent non-overlapping steps, mark <!-- parallel paths:... -->.\n\n"
-        "Final reply: PLAN_TASK_TYPE line, then ## Key discoveries (`path:line`),\n"
-        "then ## Summary.\n\n"
+        "Ready todos (depends satisfied) are dispatched together — no parallel marker.\n\n"
+        "After the fenced plan, add a brief ## Summary.\n\n"
         f"User task:\n{user_task}"
     )
 
@@ -247,8 +218,13 @@ def refine_plan_prompt(
     return (
         "The task below did not complete in the workflow outer loop. Replace ONLY "
         "that task in the todo_list with 2-4 smaller steps. Each line must be "
-        "  - [ ] <description> <!-- verify: <exact command> -->\n"
+        "  - [ ] <description> <!-- depends: ... --> <!-- verify: <exact command> -->\n"
         f"This is a {task_type} session — keep steps appropriate for that specialist.\n"
+        "The failed task's partial work was NOT reverted — it is still in the "
+        "working tree. Inspect it (git_status/git_diff/read_file) and write the "
+        "smaller steps against that half-done state: build on edits that are "
+        "sound, and add an explicit fix/cleanup step for edits that are wrong. "
+        "Say in each step what already exists so the worker does not redo it.\n"
         "Keep plan sections (Desired end state, Out of scope, Key discoveries, etc.) "
         "unchanged unless new evidence from read_file/grep requires updates.\n"
         "If the failure reason contradicts your assumptions, grep/read_file to verify "
@@ -256,7 +232,8 @@ def refine_plan_prompt(
         "Keep already-done items unchanged. Do not add steps that duplicate ones "
         "already in the list, and do not introduce new design-doc/planning steps. "
         "The smaller steps must directly address what went wrong below.\n"
-        "Use update_plan to write the full revised plan markdown.\n\n"
+        "Put the FULL revised plan in a ```markdown fence in your final reply.\n"
+        "Do not ask the user — note ambiguities under Open questions.\n\n"
         f"Current todo_list:\n{todo or '(empty)'}\n\n"
         f"Failed task: {failed_task}\n\n"
         f"What went wrong:\n{reason[:3000]}"
@@ -276,7 +253,6 @@ class PlannerSession:
         trace_sink=None,
         run_log_path=None,
         turn_id=None,
-        question_callback=None,
     ):
         self.api_key = api_key
         self.model = model
@@ -286,7 +262,6 @@ class PlannerSession:
         self.trace_sink = trace_sink
         self.run_log_path = run_log_path
         self.turn_id = turn_id
-        self.question_callback = question_callback
         self._planner_system_prompt = system_prompt
         self.messages, self.context, self.worklog_id = init_agent_context(
             system_prompt=system_prompt,
@@ -296,63 +271,79 @@ class PlannerSession:
         self.step = 0
 
     def send(self, user_prompt):
+        from langbridge_code.skills import (
+            PLANNER_SKILL_NAMES,
+            ensure_skill_index_block,
+            skill_catalog_text_for,
+        )
+
+        ensure_skill_index_block(
+            self.context.stack,
+            self.api_key,
+            self.model,
+            user_prompt,
+            skill_catalog_text_for(PLANNER_SKILL_NAMES),
+            label=f"{self.label} skill prefetch",
+        )
         self.context.begin_turn(user_prompt)
         write_worklog_received(self.run_log_path, self.label, self.worklog_id, self.turn_id, user_prompt)
+        foreground = ForegroundTracker(self.label, self.messages, self.model)
+        foreground.activate()
         start_time = now()
-        for _ in range(MAX_PLANNER_STEPS):
-            control.checkpoint()
-            if over_time_budget(start_time, MAX_PLANNER_SECONDS):
-                return self._finish("Planner stopped: out of time.")
-            budget = prepare_agent_messages(
-                self.messages,
-                self.model,
-                base_system_prompt=self._planner_system_prompt,
-            )
-            if over_context_budget(self.messages, budget):
-                return self._finish("Planner stopped: context budget exceeded.")
-            response = control.run_interruptible(
-                lambda: create_model_response(
-                    self.api_key,
-                    self.model,
+        try:
+            for _ in range(MAX_PLANNER_STEPS):
+                control.checkpoint()
+                if over_time_budget(start_time, MAX_PLANNER_SECONDS):
+                    return self._finish("Planner stopped: out of time.")
+                self.context.compact_to_budget(api_key=self.api_key, model=self.model)
+                budget = prepare_agent_messages(
                     self.messages,
-                    tool_schemas=self.tool_schemas,
-                    reasoning={"summary": "auto"},
-                    label=self.label,
-                    stream_sink=self.trace_sink,
+                    self.model,
+                    base_system_prompt=self._planner_system_prompt,
                 )
-            )
-            output = response.get("output", [])
-            tool_calls = [item for item in output if item.get("type") == "function_call"]
-            print_step_trace(output, include_message=True, label=self.label, sink=self.trace_sink)
-            if not tool_calls:
-                if output:
-                    finish_step(self.context, list(output), self, budget)
-                return self._finish(extract_output_text(output))
-            write_worklog_step(self.run_log_path, self.label, self.worklog_id, self.turn_id, self.step, output)
-            step_items = list(output)
-            for call in tool_calls:
-                tool_output = self._run_tool(call)
-                step_items.append(tool_output)
-                write_worklog_observation(
-                    self.run_log_path, self.label, self.worklog_id, self.turn_id, self.step, tool_output
+                foreground.publish()
+                response = control.run_interruptible(
+                    lambda: create_model_response(
+                        self.api_key,
+                        self.model,
+                        self.messages,
+                        tool_schemas=self.tool_schemas,
+                        reasoning={"summary": "auto"},
+                        label=self.label,
+                        stream_sink=self.trace_sink,
+                    )
                 )
-            finish_step(self.context, step_items, self, budget)
-            self.step += 1
-        return self._finish("Planner stopped: max steps.")
+                output = response.get("output", [])
+                tool_calls = [item for item in output if item.get("type") == "function_call"]
+                print_step_trace(output, include_message=True, label=self.label, sink=self.trace_sink)
+                if not tool_calls:
+                    if output:
+                        finish_step(self.context, list(output), self, budget)
+                        foreground.publish()
+                    return self._finish(extract_output_text(output))
+                write_worklog_step(self.run_log_path, self.label, self.worklog_id, self.turn_id, self.step, output)
+                step_items = list(output)
+                for call in tool_calls:
+                    tool_output = self._run_tool(call)
+                    step_items.append(tool_output)
+                    write_worklog_observation(
+                        self.run_log_path, self.label, self.worklog_id, self.turn_id, self.step, tool_output
+                    )
+                finish_step(self.context, step_items, self, budget)
+                foreground.publish()
+                self.step += 1
+            return self._finish("Planner stopped: max steps.")
+        finally:
+            foreground.deactivate()
 
     def _run_tool(self, call):
         name = call.get("name")
         call_id = call.get("call_id")
         try:
             arguments = without_purpose(json.loads(call.get("arguments") or "{}"))
-            if name == "ask_user":
-                output = resolve_ask_user(arguments, self.question_callback)
-            elif name not in self.tools:
+            if name not in self.tools:
                 raise ValueError(f"Unknown planner tool: {name}")
-            else:
-                if name == "update_plan":
-                    arguments["run_log_path"] = self.run_log_path
-                output = self.tools[name](**arguments)
+            output = self.tools[name](**arguments)
         except Exception as error:
             output = f"Tool error: {error}"
         return {"type": "function_call_output", "call_id": call_id, "output": output}
@@ -370,7 +361,6 @@ def dispatch_planner(
     model,
     run_log_path,
     turn_id,
-    question_callback,
     trace_sink=None,
     phase_sink=None,
     replace_existing_plan=False,
@@ -388,18 +378,30 @@ def dispatch_planner(
         trace_sink=trace_sink,
         run_log_path=run_log_path,
         turn_id=turn_id,
-        question_callback=question_callback,
     )
+    plan_md = extract_plan_markdown(report)
     task_type = parse_plan_task_type(report)
-    if task_type:
-        persist_task_type(run_log_path, task_type)
-    tasks = load_tasks(run_log_path)
-    type_label = task_type or read_task_type(run_log_path) or "unknown"
-    header = (
-        f"[{description or 'planner'}] Plan ready. "
-        f"type={type_label}, todos={len(tasks)}, unfinished={unfinished_count(tasks)}."
-    )
-    return f"{header}\n\n{report[:4000]}"
+    type_label = task_type or "unknown"
+    review_lines = [
+        f"[{description or 'planner'}] Plan DRAFT ready (not committed).",
+        f"Suggested PLAN_TASK_TYPE: {type_label}.",
+        "",
+        "Main agent MUST:",
+        "1. Review this draft as if you wrote it (scope, depends, verify, Open questions).",
+        "2. ask_user if anything is ambiguous — do not guess.",
+        "3. Call update_plan with the final markdown (edited as needed).",
+        "   Start the content with "
+        f"`<!-- task_type: {type_label if type_label in {'coding', 'slide'} else 'coding'} -->`.",
+        "4. Only then read_plan / agent_worker.",
+    ]
+    if plan_md:
+        review_lines.append(f"Extracted draft length: {len(plan_md)} chars (see fenced plan below).")
+    else:
+        review_lines.append(
+            "No fenced plan found — recover the full markdown from the report, then update_plan."
+        )
+    header = "\n".join(review_lines)
+    return f"{header}\n\n{report[:6000]}"
 
 
 def build_agent_planner_tool(
@@ -411,21 +413,18 @@ def build_agent_planner_tool(
     trace_sink=None,
     phase_sink=None,
     question_callback=None,
+    **kwargs,
 ):
     def agent_planner(prompt, description="", replace_existing_plan=False):
-        task = (prompt or "").strip()
-        if not task:
-            return "Tool error: prompt must be a non-empty string."
         return dispatch_planner(
-            task,
-            description,
+            prompt,
+            description=description,
             api_key=api_key,
             model=model,
             run_log_path=run_log_path,
             turn_id=turn_id,
             trace_sink=trace_sink,
             phase_sink=phase_sink,
-            question_callback=question_callback,
             replace_existing_plan=replace_existing_plan,
         )
 

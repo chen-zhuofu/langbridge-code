@@ -33,7 +33,6 @@ class AgentContextManager:
         self.label = label
         self._stack = ContextStack(
             system_content=system_content,
-            persist_dir=None,
             label=label,
         )
         self._messages: list[dict] | None = None
@@ -49,8 +48,6 @@ class AgentContextManager:
         self._messages = messages
         if bootstrap and messages:
             self._stack.bootstrap_from_messages(messages)
-        if self._stack.load_persisted_layers():
-            self._stack.reconcile_after_persisted_load()
         self.sync()
         return messages
 
@@ -83,6 +80,17 @@ class AgentContextManager:
         self.sync()
         return stats
 
+    def compact_to_budget(self, *, api_key, model, budget_tokens=None) -> dict:
+        """Force token-driven compaction before a model call; rebuilds messages."""
+        stats = self._stack.maybe_advance(
+            api_key=api_key,
+            model=model,
+            budget_tokens=budget_tokens,
+        )
+        if stats.get("prose_compacted"):
+            self.sync()
+        return stats
+
 
 def init_agent_context(
     *,
@@ -112,3 +120,21 @@ def finish_step(context: AgentContextManager, step_items: list[dict], session, b
         model=session.model,
         budget_tokens=budget,
     )
+    run_log_path = getattr(session, "run_log_path", None)
+    rounds = context.stack.raw_rounds
+    if not run_log_path or not rounds:
+        return
+    label = getattr(session, "label", "")
+    turn_id = getattr(session, "turn_id", 0) or 0
+    from langbridge_code.util.session_traces import append_agent_trace_round, append_raw_round
+
+    append_agent_trace_round(
+        run_log_path,
+        label,
+        getattr(session, "worklog_id", None),
+        turn_id,
+        rounds[-1],
+        step=getattr(session, "step", None),
+    )
+    if label == "LangBridge":
+        append_raw_round(run_log_path, turn_id, rounds[-1])

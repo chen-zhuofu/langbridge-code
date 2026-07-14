@@ -188,15 +188,16 @@ def test_resolve_single_worker_task_accepts_one_todo(tmp_path):
 def test_resolve_single_worker_task_keeps_todo_markers(tmp_path):
     run_log = tmp_path / "run.json"
     common.write_todo_list(
-        "# Todo\n\n- [ ] Add auth <!-- parallel paths:src/auth/** -->\n",
+        "# Todo\n\n- [ ] Add auth <!-- depends: none --> <!-- verify: pytest tests/auth.py -v -->\n",
         run_log_path=run_log,
     )
     canonical, error = common.resolve_single_worker_task(
-        "Add auth <!-- parallel paths:src/auth/** -->",
+        "Add auth <!-- depends: none --> <!-- verify: pytest tests/auth.py -v -->",
         run_log,
     )
     assert error is None
-    assert "parallel paths" in canonical
+    assert "depends: none" in canonical
+    assert "verify:" in canonical
 
 
 def test_resolve_single_worker_task_rejects_multiple_todos(tmp_path):

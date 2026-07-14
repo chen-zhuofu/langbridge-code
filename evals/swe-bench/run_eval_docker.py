@@ -10,11 +10,12 @@ base_commit *with all dependencies installed*, so here the agent can actually ru
 Per instance this:
   1. pulls the official image (swebench namespace) if missing,
   2. starts a container and copies the langbridge source into it,
-  3. installs `openai` into the container's `testbed` conda env (the only runtime
-     dep the headless path needs; numpy/textual/prompt_toolkit are TUI-only),
+  3. bootstraps a Python 3.12 venv via uv (SWE-bench images ship Python 3.9;
+     langbridge-code requires >=3.11) and installs runtime deps,
   4. runs the headless agent in /testbed with the issue text on stdin,
   5. captures `git diff` as the model_patch,
-  6. writes predictions.jsonl the official swebench grader can consume.
+  6. copies LangBridge session traces/artifacts out of the container,
+  7. writes predictions.jsonl the official swebench grader can consume.
 
 Run under the docker group, e.g.:
     sg docker -c "uv run python evals/swe-bench/run_eval_docker.py --count 10"
@@ -23,6 +24,7 @@ Run under the docker group, e.g.:
 import argparse
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -30,6 +32,12 @@ import time
 from pathlib import Path
 
 from datasets import load_dataset
+from langbridge_code.settings import (
+    API_BASE_URL,
+    DEFAULT_MODEL,
+    active_api_provider,
+    load_api_key,
+)
 from swebench.harness.test_spec.test_spec import make_test_spec
 
 
@@ -47,15 +55,33 @@ DATASETS = {
 # Inside the container.
 CONTAINER_SRC = "/opt/langbridge/src"
 CONTAINER_ARTIFACTS = "/root/lb_artifacts"
+CONTAINER_LANGBRIDGE_ARTIFACTS = f"{CONTAINER_SRC}/langbridge_code/artifacts"
+CONTAINER_VENV = "/opt/lb-venv"
+AGENT_PYTHON = f"{CONTAINER_VENV}/bin/python"
 CONTAINER_PROBLEM = "/tmp/problem.txt"
 REPO_DIR = "/testbed"
 
+BOOTSTRAP_AGENT_VENV = f"""
+set -e
+if [ ! -x {AGENT_PYTHON} ]; then
+  curl -LsSf https://astral.sh/uv/install.sh | sh
+  export PATH="/root/.local/bin:$PATH"
+  uv python install 3.12
+  uv venv {CONTAINER_VENV} --python 3.12
+  uv pip install --python {AGENT_PYTHON} openai httpx numpy
+fi
+{AGENT_PYTHON} -c "import langbridge_code.headless"
+"""
 
-def load_instances(dataset_name, split, count):
-    data = load_dataset(dataset_name, split=split)
+
+def load_instances(dataset_name, split, count, instance_ids=None):
+    rows = list(load_dataset(dataset_name, split=split))
+    if instance_ids:
+        wanted = set(instance_ids)
+        return [row for row in rows if row["instance_id"] in wanted]
     if count:
-        data = data.select(range(min(count, len(data))))
-    return list(data)
+        rows = rows[:count]
+    return rows
 
 
 def docker(args, **kwargs):
@@ -98,6 +124,70 @@ def container_exec(name, command, env=None, timeout=None, workdir=None, stdin_pa
             stdin.close()
 
 
+def build_agent_env(api_key, model):
+    provider = active_api_provider()
+    env = {
+        "PYTHONPATH": CONTAINER_SRC,
+        "LANGBRIDGE_API_PROVIDER": provider,
+        "LANGBRIDGE_ARTIFACTS_DIR": CONTAINER_LANGBRIDGE_ARTIFACTS,
+        "LANGBRIDGE_RUNS_DIR": f"{CONTAINER_ARTIFACTS}/session-history",
+        "LANGBRIDGE_TODO_LIST_PATH": f"{CONTAINER_ARTIFACTS}/todo_list.md",
+    }
+    if provider == "moonshot":
+        env["MOONSHOT_API_KEY"] = api_key
+        env["KIMI_API_KEY"] = api_key
+    else:
+        env["OPENAI_API_KEY"] = api_key
+    if API_BASE_URL:
+        env["LANGBRIDGE_API_BASE_URL"] = API_BASE_URL
+    if model:
+        env["LANGBRIDGE_MODEL"] = model
+    else:
+        env["LANGBRIDGE_MODEL"] = DEFAULT_MODEL
+    return env
+
+
+def _container_has_path(container, path: str) -> bool:
+    return container_exec(container, f"test -e {path}").returncode == 0
+
+
+def _copy_container_path(container, container_path: str, host_dir: Path) -> Path | None:
+    """Copy a container file/dir into host_dir, returning the host path or None."""
+    if not _container_has_path(container, container_path):
+        return None
+    host_dir.mkdir(parents=True, exist_ok=True)
+    name = Path(container_path).name
+    dest = host_dir / name
+    if dest.exists():
+        if dest.is_dir():
+            shutil.rmtree(dest)
+        else:
+            dest.unlink()
+    result = docker(["cp", f"{container}:{container_path}", str(host_dir)])
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"docker cp failed for {container_path}: {(result.stderr or result.stdout).strip()}"
+        )
+    return dest
+
+
+def export_container_artifacts(container, artifacts_dir: Path) -> dict[str, str]:
+    """Pull LangBridge traces/sessions out of the container before it is removed."""
+    exports: dict[str, str] = {}
+    for key, container_path in (
+        ("langbridge_artifacts", CONTAINER_LANGBRIDGE_ARTIFACTS),
+        ("lb_artifacts", CONTAINER_ARTIFACTS),
+    ):
+        try:
+            copied = _copy_container_path(container, container_path, artifacts_dir)
+        except RuntimeError as error:
+            (artifacts_dir / f"{key}_copy_error.txt").write_text(str(error), encoding="utf-8")
+            continue
+        if copied is not None:
+            exports[key] = str(copied.relative_to(artifacts_dir))
+    return exports
+
+
 def run_instance(instance, namespace, artifacts_root, api_key, model, timeout):
     instance_id = instance["instance_id"]
     artifacts_dir = artifacts_root / instance_id
@@ -111,6 +201,7 @@ def run_instance(instance, namespace, artifacts_root, api_key, model, timeout):
     returncode = None
     timed_out = False
     error = ""
+    artifact_exports: dict[str, str] = {}
 
     ensure_image(image)
 
@@ -126,13 +217,18 @@ def run_instance(instance, namespace, artifacts_root, api_key, model, timeout):
         if copy.returncode != 0:
             raise RuntimeError(f"docker cp src failed: {copy.stderr.strip()}")
 
-        # The headless path only needs openai at runtime.
-        install = container_exec(container, "pip install -q openai", timeout=600)
-        (artifacts_dir / "pip_install.txt").write_text(
+        # Bootstrap an isolated Python 3.12 venv for the agent (testbed is 3.9).
+        install = container_exec(
+            container,
+            f"export PYTHONPATH={CONTAINER_SRC} && {BOOTSTRAP_AGENT_VENV}",
+            timeout=900,
+            env={"PYTHONPATH": CONTAINER_SRC},
+        )
+        (artifacts_dir / "agent_bootstrap.txt").write_text(
             (install.stdout or "") + (install.stderr or ""), encoding="utf-8"
         )
         if install.returncode != 0:
-            raise RuntimeError("pip install openai failed; see pip_install.txt")
+            raise RuntimeError("agent venv bootstrap failed; see agent_bootstrap.txt")
 
         # Hand the issue text to the agent via stdin.
         with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as handle:
@@ -145,19 +241,12 @@ def run_instance(instance, namespace, artifacts_root, api_key, model, timeout):
         finally:
             os.unlink(problem_path)
 
-        env = {
-            "OPENAI_API_KEY": api_key,
-            "PYTHONPATH": CONTAINER_SRC,
-            "LANGBRIDGE_RUNS_DIR": f"{CONTAINER_ARTIFACTS}/session-history",
-            "LANGBRIDGE_TODO_LIST_PATH": f"{CONTAINER_ARTIFACTS}/todo_list.md",
-        }
-        if model:
-            env["LANGBRIDGE_MODEL"] = model
+        env = build_agent_env(api_key, model)
 
         try:
             result = container_exec(
                 container,
-                f"python -m langbridge_code.headless < {CONTAINER_PROBLEM}",
+                f"{AGENT_PYTHON} -m langbridge_code.headless < {CONTAINER_PROBLEM}",
                 env=env,
                 timeout=timeout,
                 workdir=REPO_DIR,
@@ -180,6 +269,10 @@ def run_instance(instance, namespace, artifacts_root, api_key, model, timeout):
     except Exception as failure:  # noqa: BLE001 - record any setup/runtime failure
         error = str(failure)
     finally:
+        try:
+            artifact_exports = export_container_artifacts(container, artifacts_dir)
+        except Exception as copy_error:  # noqa: BLE001 - still remove the container
+            error = error or str(copy_error)
         docker(["rm", "-f", container])
 
     prediction = {
@@ -196,6 +289,7 @@ def run_instance(instance, namespace, artifacts_root, api_key, model, timeout):
         "returncode": returncode,
         "timed_out": timed_out,
         "error": error,
+        "artifact_exports": artifact_exports,
     }
     return prediction, summary
 
@@ -211,19 +305,27 @@ def main():
     parser.add_argument("--dataset", default=None, help="Explicit HF dataset id; overrides --difficulty.")
     parser.add_argument("--split", default="test")
     parser.add_argument("--count", type=int, default=10)
+    parser.add_argument(
+        "--instance-id",
+        action="append",
+        dest="instance_ids",
+        help="Run only this instance id (repeatable). Overrides --count.",
+    )
     parser.add_argument("--namespace", default="swebench", help="Docker Hub namespace for prebuilt images.")
     parser.add_argument("--model", default=os.environ.get("LANGBRIDGE_MODEL", ""))
     parser.add_argument("--timeout", type=int, default=1800, help="Per-instance agent timeout (s).")
     parser.add_argument("--out", default=str(PROJECT_ROOT / "evals" / "swe-bench" / "out"))
     args = parser.parse_args()
 
-    api_key = os.environ.get("OPENAI_API_KEY")
+    try:
+        api_key = load_api_key()
+    except (KeyboardInterrupt, EOFError):
+        sys.exit("No API key available.")
     if not api_key:
-        config_path = Path.home() / ".langbridge" / "config.json"
-        if config_path.exists():
-            api_key = json.loads(config_path.read_text()).get("api_key")
-    if not api_key:
-        sys.exit("No API key found. Set OPENAI_API_KEY or create ~/.langbridge/config.json.")
+        sys.exit(
+            "No API key found. Set MOONSHOT_API_KEY / OPENAI_API_KEY or create "
+            "~/.langbridge-code/config.json before running the eval."
+        )
 
     dataset = args.dataset or DATASETS[args.difficulty]
 
@@ -231,7 +333,7 @@ def main():
     artifacts_root = out_dir / "artifacts"
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    instances = load_instances(dataset, args.split, args.count)
+    instances = load_instances(dataset, args.split, args.count, args.instance_ids)
     print(f"Loaded {len(instances)} instances from {dataset} [{args.split}].")
 
     predictions = []
@@ -248,6 +350,8 @@ def main():
         print(f"  -> patch: {summary['has_patch']} ({summary['patch_chars']} chars), "
               f"{summary['duration_s']}s, timed_out={summary['timed_out']}"
               + (f", error={summary['error']}" if summary["error"] else ""))
+        if summary.get("artifact_exports"):
+            print(f"  -> traces: {summary['artifact_exports']}")
 
     predictions_path = out_dir / "predictions.jsonl"
     with predictions_path.open("w", encoding="utf-8") as handle:

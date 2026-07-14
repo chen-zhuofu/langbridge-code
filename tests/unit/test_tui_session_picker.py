@@ -8,8 +8,9 @@ from langbridge_code.ui.tui import LangBridgeTui
 def test_session_picker_enter_resumes_selection(tmp_path, monkeypatch):
     sessions = []
     for name in ("one", "two"):
-        path = tmp_path / f"{name}.jsonl"
-        path.write_text('{"turns": []}', encoding="utf-8")
+        path = tmp_path / f"session-{name}"
+        path.mkdir()
+        (path / "progress.md").write_text("# Session progress\n", encoding="utf-8")
         sessions.append(path)
 
     monkeypatch.setattr("langbridge_code.ui.tui.list_session_logs", lambda: list(sessions))
