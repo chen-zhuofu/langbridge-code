@@ -76,7 +76,7 @@ sg docker -c "uv run python evals/swe-bench/run_eval_docker.py --count 10"
 
 This runs the agent **inside each instance's official SWE-bench image** — the
 repo is checked out at `base_commit` *with all dependencies installed*, so the
-agent's `run_tests` / `execute_program` calls actually work and it can verify
+agent's `bash` / `pytest` calls actually work and it can verify
 its own fix. Per instance it:
 1. pulls the prebuilt image (`swebench` namespace) if missing,
 2. starts a container and copies the langbridge source in,
@@ -87,8 +87,8 @@ its own fix. Per instance it:
 6. writes `evals/swe-bench/out/predictions.jsonl` and `run_summary.json`.
 
 The agent runs under the container's `testbed` Python (3.9). Our code is 3.9
-compatible, so `run_tests` (which uses `sys.executable -m pytest`) targets the
-repo's real test environment.
+compatible, so `python -m pytest` via bash targets the repo's real test
+environment.
 
 Requires Docker access (be in the `docker` group, or wrap with `sg docker -c`).
 Options: `--dataset`, `--split`, `--count`, `--namespace`, `--model`,
@@ -129,7 +129,7 @@ pass and PASS_TO_PASS still pass). The per-instance logs go to
 ## Known limitation (legacy host runner only)
 
 `run_eval.py` runs in a plain checkout **without the repo's dependencies
-installed**, so its own `run_tests` / `execute_program` calls may fail. L4 can
+installed**, so its own `bash` / `pytest` calls may fail. L4 can
 still read code and produce a patch, but it cannot verify against the real test
 environment. This caps quality. The Docker runner (`run_eval_docker.py`) fixes
 this by running the agent inside the same per-instance image used for grading.

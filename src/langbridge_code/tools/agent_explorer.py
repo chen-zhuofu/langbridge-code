@@ -1,6 +1,5 @@
 """Explore subagent loop (agent_explorer tool implementation)."""
 import json
-import re
 import subprocess
 from pathlib import Path
 
@@ -27,62 +26,42 @@ from langbridge_code.settings import (
     MAX_EXPLORER_STEPS,
     WORKSPACE_ROOT,
 )
-from langbridge_code.tools import FILE_READ_TOOL_NAMES, GIT_READ_TOOL_NAMES
-from langbridge_code.tools import browser, execution, filesystem, git_tools, lsp, skills, web
+from langbridge_code.tools import FILE_READ_TOOL_NAMES
+from langbridge_code.tools import execution, filesystem, skills, web
 from langbridge_code.agents.common.phases import emit_phase
 
 EXPLORE_TOOL_NAMES = (
     FILE_READ_TOOL_NAMES
-    | {"bash", "read_webpage", "browse_webpage", "read_skill", "lsp"}
-    | GIT_READ_TOOL_NAMES
+    | {"bash", "read_webpage", "read_skill"}
 )
 EXPLORE_TOOL_SCHEMAS = [
     schema
     for schema in (
         filesystem.TOOL_SCHEMAS
         + execution.TOOL_SCHEMAS
-        + git_tools.TOOL_SCHEMAS
-        + lsp.TOOL_SCHEMAS
         + web.TOOL_SCHEMAS
-        + browser.TOOL_SCHEMAS
         + skills.TOOL_SCHEMAS
     )
     if schema["name"] in EXPLORE_TOOL_NAMES
 ]
 
-_WRITE_BASH_PATTERN = re.compile(
-    r"(^|[;&|]\s*)(rm\s|rmdir\s|mv\s|cp\s|touch\s|mkdir\s|"
-    r"chmod\s|chown\s|tee\s|truncate\s|>"
-    r"|>>\s|sed\s+-i|git\s+(add|commit|push|checkout\s+-b|merge|rebase|reset|clean)|"
-    r"pip\s+install|uv\s+add|npm\s+install|yarn\s+add|cargo\s+install)",
-    re.IGNORECASE,
-)
-
 
 def explore_bash_guard(arguments):
-    command = (arguments.get("command") or "").strip()
-    if not command:
-        return None
-    if _WRITE_BASH_PATTERN.search(command):
-        return "Explore agent may only run read-only shell commands."
-    return None
+    return execution.bash_write_guard(
+        arguments.get("command") or "",
+        role="Explore agent",
+    )
 
 
 def read_only_bash(**kwargs):
-    guard_error = explore_bash_guard(kwargs)
-    if guard_error:
-        raise PermissionError(guard_error)
-    return execution.TOOLS["bash"](**kwargs)
+    return execution.read_only_bash(role="Explore agent", **kwargs)
 
 
 EXPLORE_TOOLS = {
     name: tool
     for name, tool in (
         filesystem.TOOLS
-        | git_tools.TOOLS
-        | lsp.TOOLS
         | web.TOOLS
-        | browser.TOOLS
         | skills.TOOLS
     ).items()
     if name in EXPLORE_TOOL_NAMES and name != "bash"

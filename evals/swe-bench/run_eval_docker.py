@@ -5,7 +5,7 @@ Why this exists: the host-based runner (run_eval.py) checks out the repo without
 its dependencies, so the agent cannot run the repo's tests and usually produces
 an empty patch. Each SWE-bench instance image already has the repo checked out at
 base_commit *with all dependencies installed*, so here the agent can actually run
-`run_tests` / `pytest` and verify its own fix.
+`pytest` via bash and verify its own fix.
 
 Per instance this:
   1. pulls the official image (swebench namespace) if missing,

@@ -1,6 +1,10 @@
+import re
 from pathlib import Path
 
 SKILLS_DIR = Path(__file__).resolve().parent
+
+_ARGUMENTS_INDEX_RE = re.compile(r"\$ARGUMENTS\[(\d+)\]")
+_SHORTHAND_INDEX_RE = re.compile(r"\$(\d+)(?!\w)")
 
 AGENT_ROLES = (
     "langbridge",
@@ -8,9 +12,7 @@ AGENT_ROLES = (
     "planner",
     "worker",
     "worker_coder",
-    "worker_presenter",
     "reviewer_code",
-    "reviewer_slide",
 )
 
 # Expertise playbooks only — general guidance lives in each agent's system prompt.
@@ -29,8 +31,6 @@ WORKER_CODING_SKILL_NAMES = (
     "superpowers_receiving-code-review",
 )
 
-WORKER_SLIDE_SKILL_NAMES: tuple[str, ...] = ()
-
 REVIEWER_CODING_SKILL_NAMES = (
     "clean-code-guard",
     "test-guard",
@@ -38,8 +38,6 @@ REVIEWER_CODING_SKILL_NAMES = (
     "wp-guard",
     "woo-guard",
 )
-
-REVIEWER_SLIDE_SKILL_NAMES: tuple[str, ...] = ()
 
 LANGBRIDGE_SKILL_NAMES = ("grilling", "writing-simple-plans")
 
@@ -49,8 +47,7 @@ def langbridge_skill_catalog():
 
 
 def normalize_task_type(task_type):
-    if task_type in ("presentation", "slide"):
-        return "slide"
+    """Only coding remains; legacy slide/presentation values coerce to coding."""
     return "coding"
 
 
@@ -150,13 +147,11 @@ def skill_catalog_text_for_roles(roles):
 
 
 def worker_skill_catalog(task_type="coding"):
-    names = WORKER_SLIDE_SKILL_NAMES if normalize_task_type(task_type) == "slide" else WORKER_CODING_SKILL_NAMES
-    return skill_catalog_text_for(names)
+    return skill_catalog_text_for(WORKER_CODING_SKILL_NAMES)
 
 
 def reviewer_skill_catalog(task_type="coding"):
-    names = REVIEWER_SLIDE_SKILL_NAMES if normalize_task_type(task_type) == "slide" else REVIEWER_CODING_SKILL_NAMES
-    return skill_catalog_text_for(names)
+    return skill_catalog_text_for(REVIEWER_CODING_SKILL_NAMES)
 
 
 SKILL_SELECT_SYSTEM = """You select which skills might help with a task.
@@ -239,3 +234,108 @@ def _strip_frontmatter(text):
         if end != -1:
             return text[end + len("\n---") :].lstrip("\n")
     return text
+
+
+# TUI-local slash commands — never treated as skill invokes if they reach Python.
+RESERVED_SLASH_COMMANDS = frozenset(
+    {
+        "exit",
+        "quit",
+        "help",
+        "copy",
+        "new",
+        "sessions",
+        "resume",
+        "delete",
+        "approve",
+        "yolo",
+        "deny",
+        "pause",
+        "stop",
+        "queue",
+        "goal",
+        "banner",
+    }
+)
+
+
+def parse_skill_slash(text: str):
+    """Parse ``/skill-name args`` into ``(name, args)``, or ``None``.
+
+    Reserved TUI commands return ``None`` so they are not treated as skills.
+    """
+    text = (text or "").strip()
+    if not text.startswith("/"):
+        return None
+    first, _, rest = text[1:].partition(" ")
+    name = first.strip()
+    if not name or "/" in name or ".." in name:
+        return None
+    if name.lower() in RESERVED_SLASH_COMMANDS:
+        return None
+    return name, rest.strip()
+
+
+def substitute_arguments(content: str, args: str | None, *, append_if_no_placeholder: bool = True) -> str:
+    """Replace ``$ARGUMENTS`` / ``$ARGUMENTS[n]`` / ``$n`` like Claude Code.
+
+    If there are no placeholders and ``args`` is non-empty, append
+    ``ARGUMENTS: ...`` so the model still sees the user input.
+    """
+    if args is None:
+        return content
+    parsed = [part for part in args.split() if part] if args.strip() else []
+    original = content
+
+    def indexed(match):
+        index = int(match.group(1))
+        return parsed[index] if index < len(parsed) else ""
+
+    content = _ARGUMENTS_INDEX_RE.sub(indexed, content)
+    content = _SHORTHAND_INDEX_RE.sub(indexed, content)
+    content = content.replace("$ARGUMENTS", args)
+    if content == original and append_if_no_placeholder and args:
+        content = f"{content}\n\nARGUMENTS: {args}"
+    return content
+
+
+def format_skill_slash_turn(name: str, body: str, args: str = "") -> str:
+    """Build the user-turn content for a slash-invoked skill."""
+    filled = substitute_arguments(body, args if args else "")
+    return (
+        f"The user invoked the /{name} skill via slash command. Follow this skill now.\n\n"
+        f'<skill name="{name}">\n{filled}\n</skill>'
+    )
+
+
+def resolve_skill_slash(text: str):
+    """Resolve a possible skill slash invoke.
+
+    Returns ``(status, payload)``:
+      - ``("passthrough", text)`` — not a skill slash; use text as-is
+      - ``("expanded", content)`` — known skill; use expanded turn content
+      - ``("unknown", name)`` — slash that is neither reserved nor a skill
+    """
+    text = (text or "").strip()
+    parsed = parse_skill_slash(text)
+    if parsed is None:
+        return "passthrough", text
+    name, args = parsed
+    try:
+        body = load_skill(name)
+    except FileNotFoundError:
+        return "unknown", name
+    return "expanded", format_skill_slash_turn(name, body, args)
+
+
+def expand_skill_slash(text: str) -> str:
+    """Expand a skill slash into turn content, or return ``text`` unchanged.
+
+    Raises ``FileNotFoundError`` for unknown non-reserved slash commands.
+    """
+    status, payload = resolve_skill_slash(text)
+    if status == "passthrough":
+        return payload
+    if status == "unknown":
+        raise FileNotFoundError(payload)
+    return payload

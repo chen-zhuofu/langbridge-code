@@ -6,7 +6,8 @@ Layout per scope:
 
 User memory is about the PERSON using LangBridge — their preferences and
 standing feedback across projects. Project memory is specific to this repo.
-Both belong to the main agent only; subagents have neither.
+The main agent, workers, and reviewers all share the same indexes: they
+prefetch into a <memory> block and may fork the Memory Writer to update them.
 
 Reads (prefetch): one LLM pass looks at the combined memory.md index and the
 current task, picks relevant files; the workflow reads them into a <memory>
@@ -26,10 +27,11 @@ Memory types:
 Both scopes have their own memory.md index and memory/ entry directory; both
 indexes are always considered during prefetch.
 
-The main agent invokes a tool-using Memory Writer fork as soon as durable
-information appears. The fork reuses the live context (prefix cache), reads both
-indexes, and uses ordinary file tools in a restricted staged workspace to add,
-edit, or delete entries. A background run at turn end catches anything missed.
+Agents invoke a tool-using Memory Writer fork as soon as durable information
+appears. The fork reuses the live context (prefix cache), reads both indexes,
+and uses ordinary file tools in a restricted staged workspace to add, edit, or
+delete entries. A background run at phase/turn end catches anything missed —
+and exits with no file changes when nothing durable is worth saving.
 """
 from __future__ import annotations
 
@@ -467,17 +469,16 @@ type: user|feedback|reference|project
 ---
 <durable markdown body>
 
-Create, edit, and delete only files under `user/` and `project/`. The indexes are
-rebuilt after you finish, so focus on entry files. When all useful changes are done,
-reply with a brief summary and stop."""
+Create, edit, and delete only files under `user/` and `project/`. To delete a
+file, use bash (`rm path`). The indexes are rebuilt after you finish, so focus
+on entry files. If nothing durable is worth adding, updating, or deleting, make
+no file changes. When done, reply with a brief summary and stop."""
 
 MEMORY_FILE_TOOL_NAMES = {
-    "list_dir",
     "read_file",
-    "read_many",
     "write",
-    "edit_file",
-    "delete_file",
+    "Edit",
+    "bash",
 }
 
 
@@ -529,14 +530,16 @@ def run_memory_writer_agent(api_key, model, messages) -> str:
     """Run a prefix-cache-friendly, tool-using Memory Writer fork."""
     from langbridge_code.agents.common.fork import fork_agent
     from langbridge_code.agents.common.workspace import workspace_scope
-    from langbridge_code.tools import filesystem
+    from langbridge_code.tools import execution, filesystem
 
+    available_schemas = filesystem.TOOL_SCHEMAS + execution.TOOL_SCHEMAS
+    available_tools = filesystem.TOOLS | execution.TOOLS
     schemas = [
         schema
-        for schema in filesystem.TOOL_SCHEMAS
+        for schema in available_schemas
         if schema["name"] in MEMORY_FILE_TOOL_NAMES
     ]
-    tools = {name: filesystem.TOOLS[name] for name in MEMORY_FILE_TOOL_NAMES}
+    tools = {name: available_tools[name] for name in MEMORY_FILE_TOOL_NAMES}
     with _memory_writer_lock:
         with tempfile.TemporaryDirectory(prefix="langbridge-memory-") as temporary:
             root = Path(temporary)

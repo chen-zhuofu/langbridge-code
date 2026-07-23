@@ -29,7 +29,6 @@ CONFIGURED_BINARY_ENV = {
 MICROMAMBA_BASE_URL = "https://micro.mamba.pm/api/micromamba"
 INSTALL_TIMEOUT_SECONDS = 900
 RUNTIME_IGNORE_PATTERN = ".langbridge/runtime/"
-_PLAYWRIGHT_READY = False
 
 
 class RuntimeBootstrapError(RuntimeError):
@@ -78,10 +77,6 @@ def runtime_bin_dir() -> Path:
     return prefix / "bin"
 
 
-def playwright_browsers_dir() -> Path:
-    return runtime_root() / "playwright"
-
-
 def test_venv_dir() -> Path:
     return runtime_root() / "test-venv"
 
@@ -94,9 +89,8 @@ def _prepend_path(env: dict[str, str], directory: Path) -> None:
 
 
 def inject_runtime_env(env: dict[str, str]) -> dict[str, str]:
-    """Add the managed toolchain and browser store to an environment."""
+    """Add the managed toolchain to an environment."""
     _prepend_path(env, runtime_bin_dir())
-    env["PLAYWRIGHT_BROWSERS_PATH"] = str(playwright_browsers_dir())
     return env
 
 
@@ -268,35 +262,6 @@ def managed_binary(name: str) -> str:
     return found
 
 
-def ensure_playwright_browser() -> None:
-    """Install Playwright Chromium into the repo-local browser store."""
-    global _PLAYWRIGHT_READY
-    if _PLAYWRIGHT_READY:
-        return
-    browsers = playwright_browsers_dir()
-    env = inject_runtime_env(dict(os.environ))
-    if not (browsers.exists() and any(browsers.glob("chromium-*"))):
-        browsers.mkdir(parents=True, exist_ok=True)
-        _run_checked(
-            [sys.executable, "-m", "playwright", "install", "chromium"],
-            env=env,
-        )
-    _run_checked(
-        [
-            sys.executable,
-            "-c",
-            (
-                "from playwright.sync_api import sync_playwright; "
-                "p=sync_playwright().start(); "
-                "b=p.chromium.launch(headless=True); "
-                "b.close(); p.stop()"
-            ),
-        ],
-        env=env,
-    )
-    _PLAYWRIGHT_READY = True
-
-
 def _venv_python(directory: Path) -> Path:
     return directory / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
 
@@ -365,11 +330,9 @@ def ensure_test_python(preferred: str) -> str:
     return preferred
 
 
-def bootstrap_runtime(*, include_browser: bool = True) -> None:
+def bootstrap_runtime() -> None:
     """Prepare all dependencies needed by advertised agent tools."""
     _ensure_runtime_ignored()
     ensure_native_tools()
     ensure_managed_test_python()
-    if include_browser:
-        ensure_playwright_browser()
 

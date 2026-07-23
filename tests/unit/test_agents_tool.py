@@ -36,51 +36,31 @@ def test_main_tools_exclude_legacy_specialists():
     assert "ask_l4_engineer" not in TOOLS
     assert "ask_l5_engineer" not in TOOLS
     assert set(MAIN_TOOLS) >= {
-        "list_dir",
         "glob",
         "read_file",
-        "read_many",
         "grep",
-        "edit_file",
+        "Edit",
         "write",
-        "multi_edit",
-        "apply_patch",
-        "delete_file",
-        "run_tests",
         "bash",
         "powershell",
-        "git_status",
-        "git_diff",
-        "git_commit",
-        "lsp",
         "read_webpage",
-        "browse_webpage",
         "read_skill",
     }
+    assert "run_tests" not in MAIN_TOOLS
     main_names = {schema["name"] for schema in MAIN_TOOL_SCHEMAS}
     assert main_names >= {
-        "list_dir",
         "glob",
         "read_file",
-        "read_many",
         "grep",
-        "edit_file",
+        "Edit",
         "write",
-        "multi_edit",
-        "apply_patch",
-        "delete_file",
-        "run_tests",
         "bash",
         "powershell",
-        "git_status",
-        "git_diff",
-        "git_commit",
-        "lsp",
         "read_webpage",
-        "browse_webpage",
         "read_skill",
     }
-    assert any(schema["name"] == "delete_file" for schema in CODE_WORKER_TOOL_SCHEMAS)
+    assert "run_tests" not in main_names
+    assert any(schema["name"] == "write" for schema in CODE_WORKER_TOOL_SCHEMAS)
     # Workers never read the plan file; the main agent owns todo_list.md.
     assert not any(schema["name"] == "read_plan" for schema in CODE_WORKER_TOOL_SCHEMAS)
     assert not any(schema["name"] == "check_subtask" for schema in MAIN_TOOL_SCHEMAS)
@@ -88,9 +68,14 @@ def test_main_tools_exclude_legacy_specialists():
     coder_tools, coder_schemas = build_code_worker_toolkit(api_key="k", model="m")
     assert "agent_explorer" not in coder_tools
     assert not any(schema["name"] == "agent_explorer" for schema in coder_schemas)
+    assert any(schema["name"] == "memory_writer" for schema in coder_schemas)
     reviewer_tools, reviewer_schemas = build_reviewer_toolkit(api_key="k", model="m")
     assert "agent_explorer" not in reviewer_tools
     assert not any(schema["name"] == "agent_explorer" for schema in reviewer_schemas)
+    assert any(schema["name"] == "memory_writer" for schema in reviewer_schemas)
+    assert "bash" in reviewer_tools
+    assert "run_tests" not in reviewer_tools
+    assert "run_tests" not in coder_tools
     # Plan tools are gone; the plan is a plain file edited with file tools.
     assert "update_plan" not in MAIN_TOOLS
     assert "read_plan" not in MAIN_TOOLS
@@ -247,13 +232,13 @@ def test_coder_max_steps_report_includes_recent_tool_activity():
         [
             {
                 "call": {
-                    "name": "delete_file",
-                    "arguments": '{"path":"synthetic-env/calculator.py"}',
+                    "name": "Edit",
+                    "arguments": '{"path":"synthetic-env/calculator.py","old_string":"a","new_string":"b"}',
                 },
                 "output": {
                     "type": "function_call_output",
                     "call_id": "call_1",
-                    "output": "Deleted synthetic-env/calculator.py.",
+                    "output": "Edited synthetic-env/calculator.py: replaced 1 occurrence.",
                 },
             }
         ],
@@ -261,7 +246,7 @@ def test_coder_max_steps_report_includes_recent_tool_activity():
 
     assert report.startswith("WORKER_STATUS: IN_PROGRESS")
     assert "maximum specialist tool-call steps" in report
-    assert 'delete_file({"path":"synthetic-env/calculator.py"})' in report
+    assert 'Edit({"path":"synthetic-env/calculator.py"' in report
 
 
 def test_specialist_max_steps_fallback_reports_tool_history(monkeypatch):
@@ -270,9 +255,9 @@ def test_specialist_max_steps_fallback_reports_tool_history(monkeypatch):
             "output": [
                 {
                     "type": "function_call",
-                    "name": "delete_file",
+                    "name": "Edit",
                     "call_id": "call_1",
-                    "arguments": '{"path":"synthetic-env/calculator.py"}',
+                    "arguments": '{"path":"synthetic-env/calculator.py","old_string":"a","new_string":"b"}',
                 }
             ]
         }
@@ -282,8 +267,13 @@ def test_specialist_max_steps_fallback_reports_tool_history(monkeypatch):
 
     from langbridge_code.tools.agent_worker_reviewer import WorkerSession
 
-    session = WorkerSession("key", "model", [{"name": "delete_file"}], {"delete_file": lambda path: f"Deleted {path}."})
+    session = WorkerSession(
+        "key",
+        "model",
+        [{"name": "Edit"}],
+        {"Edit": lambda path, old_string, new_string: f"Edited {path}."},
+    )
     report = session.send("user")
 
     assert report.startswith("WORKER_STATUS: IN_PROGRESS")
-    assert "delete_file" in report
+    assert "Edit" in report

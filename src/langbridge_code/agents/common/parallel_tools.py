@@ -5,18 +5,32 @@ from dataclasses import dataclass
 
 from langbridge_code.agents.common import control
 from langbridge_code.settings import MAX_PARALLEL_TOOL_CALLS, PARALLEL_AGENTS_ENABLED
+from langbridge_code.util.trace_log import get_trace_context, set_trace_context
+
+
+def _bind_trace_context(run_fn, ctx):
+    """Run ``run_fn`` in a worker thread under the parent's session trace context.
+
+    The trace context is thread-local, so subagents dispatched onto pool threads
+    would otherwise lose it and silently skip session.md. Re-binding it here makes
+    every parallel subagent write into the same session trace as the main agent.
+    """
+
+    def runner(call):
+        set_trace_context(ctx)
+        return run_fn(call)
+
+    return runner
 
 # Subagent tools safe to run concurrently (read-only explorers, or isolated worktree workers).
 PARALLEL_TOOL_NAMES = frozenset(
     {
         "agent_explorer",
         "agent_worker",
-        "list_dir",
         "glob",
         "read_file",
         "grep",
         "read_webpage",
-        "browse_webpage",
         "read_skill",
     }
 )
@@ -41,8 +55,10 @@ class CompletionDrivenToolRunner:
         self._pending: dict[Future, dict] = {}
 
     def submit(self, calls) -> None:
+        ctx = get_trace_context()
+        run_fn = _bind_trace_context(self._run_fn, ctx)
         for call in calls:
-            future = self._executor.submit(self._run_fn, call)
+            future = self._executor.submit(run_fn, call)
             self._pending[future] = call
 
     def has_pending(self) -> bool:
@@ -101,8 +117,9 @@ def run_tool_calls(run_fn, tool_calls, *, max_workers: int | None = None):
     limit = max_workers if max_workers is not None else MAX_PARALLEL_TOOL_CALLS
     workers = max(1, min(len(tool_calls), limit))
     outputs = [None] * len(tool_calls)
+    bound_run_fn = _bind_trace_context(run_fn, get_trace_context())
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        futures = [pool.submit(run_fn, call) for call in tool_calls]
+        futures = [pool.submit(bound_run_fn, call) for call in tool_calls]
         for index, future in enumerate(futures):
             outputs[index] = future.result()
     return outputs

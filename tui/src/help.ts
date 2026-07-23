@@ -18,6 +18,7 @@ export const HELP_TEXT = `Commands:
   /goal resume       resume a paused goal
   /banner [on|off]   show or hide the header box (Ctrl+B toggles)
   /copy              copy the last assistant reply to the clipboard
+  /<skill> [args]    invoke a skill (e.g. /grilling, /writing-simple-plans)
   /exit              quit
 
 Keys: Enter send · Shift+Enter / Ctrl+J newline

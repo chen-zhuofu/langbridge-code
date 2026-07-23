@@ -55,7 +55,7 @@ def test_llm_debug_output_truncates_long_items(capsys, monkeypatch):
             "output": [
                 {
                     "type": "function_call",
-                    "name": "edit_file",
+                    "name": "Edit",
                     "arguments": '{"purpose":"' + long_text + '","old":"' + long_text + '"}',
                     "call_id": "call_1",
                 }

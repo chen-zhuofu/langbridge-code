@@ -30,12 +30,9 @@ def test_worker_skill_catalog_includes_coder_expertise():
     assert "reviewer_code" not in catalog
 
 
-def test_worker_slide_catalog_has_no_expertise_skills():
-    assert worker_skill_catalog("slide") == ""
-
-
-def test_reviewer_slide_catalog_has_no_expertise_skills():
-    assert reviewer_skill_catalog("slide") == ""
+def test_legacy_slide_task_type_coerces_to_coding_catalog():
+    assert worker_skill_catalog("slide") == worker_skill_catalog("coding")
+    assert reviewer_skill_catalog("slide") == reviewer_skill_catalog("coding")
 
 
 def test_reviewer_coding_catalog_has_guard_skills():
@@ -160,10 +157,10 @@ def test_worker_coding_prompt_includes_general_loop_guidance():
 
 def test_worker_coding_prompt_tells_worker_to_commit_as_it_goes():
     prompt = worker_system_prompt("coding")
-    assert "git_commit" in prompt
+    assert "git commit" in prompt
     assert "never push" in prompt.lower()
-    # Slide workers have no git_commit tool; no commit guidance there.
-    assert "git_commit" not in worker_system_prompt("slide")
+    # Legacy slide task_type still gets the coding prompt.
+    assert "git commit" in worker_system_prompt("slide")
 
 
 def test_reviewer_coding_prompt_includes_general_loop_guidance():
@@ -176,6 +173,8 @@ def test_reviewer_coding_prompt_includes_general_loop_guidance():
 
 def test_planner_has_read_skill_tool():
     assert "read_skill" in PLANNER_TOOL_NAMES
+    assert "bash" in PLANNER_TOOL_NAMES
+    assert "read_webpage" in PLANNER_TOOL_NAMES
 
 
 def test_explorer_has_read_skill_tool():

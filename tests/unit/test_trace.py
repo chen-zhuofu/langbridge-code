@@ -31,8 +31,8 @@ def test_extract_trace_events_prefers_tool_purpose_and_hides_it_from_action():
 
 def test_format_approval_request_includes_role_tool_and_path():
     assert (
-        format_approval_request("Coder", "edit_file", {"path": "x.py"})
-        == "Coder: approve edit_file on x.py?"
+        format_approval_request("Coder", "Edit", {"path": "x.py"})
+        == "Coder: approve Edit on x.py?"
     )
 
 

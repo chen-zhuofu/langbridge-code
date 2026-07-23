@@ -369,11 +369,15 @@ export function App() {
           else if (arg === "off") setBannerVisible(false);
           else setBannerVisible((visible) => !visible);
           break;
-        default:
-          writeSystem(`Unknown command: ${cmd}. Try /help.`, "warn");
-      }
+        default: {
+          // Unknown slash: forward to the engine so `/skill args` can expand.
+          // Built-in commands above stay local; Python rejects unknown skills.
+          if (!engineRef.current.turnActive) append(makeLine("user", text));
+          bridge.send({ type: "user_message", text });
+          break;
+        }
     },
-    [bridge, copyLastAssistant, exit, openPicker, sessionAt, writeSystem],
+    [append, bridge, copyLastAssistant, exit, openPicker, sessionAt, writeSystem],
   );
 
   const bumpInput = useCallback(() => setInputVersion((version) => version + 1), []);

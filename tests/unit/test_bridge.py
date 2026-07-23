@@ -48,6 +48,28 @@ def test_user_message_queues_while_turn_active(server):
     assert len(server.message_queue) == 1
 
 
+def test_unknown_skill_slash_does_not_start_turn(server):
+    server.handle({"type": "user_message", "text": "/not-a-real-skill"})
+    assert server.turn_active is False
+    warns = [
+        event
+        for event in events_of_type(server, "system")
+        if "Unknown command or skill" in event.get("text", "")
+    ]
+    assert warns
+
+
+def test_known_skill_slash_starts_turn(server, monkeypatch):
+    started = []
+
+    def fake_begin(text, *, announce=False):
+        started.append(text)
+
+    monkeypatch.setattr(server, "begin_turn", fake_begin)
+    server.handle({"type": "user_message", "text": "/grilling focus on auth"})
+    assert started == ["/grilling focus on auth"]
+
+
 def test_queue_list_and_clear(server):
     server.turn_active = True
     server.handle({"type": "user_message", "text": "a"})

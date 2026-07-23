@@ -9,8 +9,8 @@ A self-evolving coding agent with a **main agent + specialist subagents** workfl
 
 LangBridge Code runs a **flat orchestration pipeline**: the **LangBridge** main agent
 decides when to chat vs delegate, calls **Planner** to build a markdown `todo_list`,
-then dispatches each unblocked subtask to an isolated **Worker↔Reviewer** loop (or
-slide worker for decks). Independent subtasks may run in parallel. It compacts
+then dispatches each unblocked subtask to an isolated **Worker↔Reviewer** loop.
+Independent subtasks may run in parallel. It compacts
 long context automatically and can resume prior sessions and interrupted subtasks.
 
 Start it:
@@ -21,8 +21,8 @@ uv run langbridge-code
 
 On first start, LangBridge prepares a managed tool runtime under
 `<workspace>/.langbridge/runtime/`. Missing `rg`, Git, and Bash are installed
-into a repo-local micromamba prefix; pytest is provided by a local test venv;
-and Playwright Chromium is stored locally. The directory is added to the
+into a repo-local micromamba prefix; pytest is provided by a local test venv.
+The directory is added to the
 repository's local git exclude file and must not be committed. There is no
 reduced-functionality fallback: if the runtime cannot be downloaded or
 validated (for example, the machine is offline or the workspace is read-only),
@@ -96,8 +96,7 @@ User prompt
   → LangBridge (chat reply OR delegate)
   → agent_planner (draft plan) when needed → LangBridge writes todo_list.md
   → agent_worker (one unchecked subtask contract per call)
-       [coding]  → Worker ↔ Reviewer (separate sessions, git diff handoff)
-       [slide]   → Worker ↔ Reviewer (.pptx / deck deliverables)
+       → Worker ↔ Reviewer (separate sessions, git diff handoff)
        on pass   → LangBridge merges the branch and marks the todo [x]
        on stop   → turn ends; a later turn can re-dispatch the same task_name
        on block  → LangBridge resolves the contract or splits the todo
@@ -114,8 +113,8 @@ and optional `/goal` autonomous rounds with a Goal Evaluator.
 - **Planner** — researches the repo and returns a plan DRAFT (it writes no files).
 - **Worker** — implements one assigned subtask from its pinned contract (never
   reads the plan file); reports ready, in progress, or blocked.
-- **Reviewer** — inspects the worker summary plus Git diff (coding) or
-  deliverable files (slides); `REVIEW_VERDICT: PASS|NEEDS_WORK|FAIL`.
+- **Reviewer** — inspects the worker summary plus Git diff;
+  `REVIEW_VERDICT: PASS|NEEDS_WORK|FAIL`.
 - **Explorer** — read-only codebase investigation (`agent_explorer`).
 
 ## How it works
@@ -142,16 +141,17 @@ starting over. Only Reviewer-PASS (`ready`) branches can be merged, one at a
 time; each successful merge cleans only that task's worktree. A changed contract
 uses a fresh `task_name`.
 
-**Main agent tools include:** filesystem, shell, Git, LSP, tests,
-`merge_branch`, `read_webpage`, `browse_webpage`, `read_skill`, `ask_user`,
+**Main agent tools include:** filesystem, shell, tests,
+`merge_branch`, `read_webpage`, `read_skill`, `ask_user`,
 `note_progress`, `memory_writer`, and the subagent tools (`agent_planner`,
-`agent_worker`, `agent_explorer`).
+`agent_worker`, `agent_explorer`). Git operations other than `merge_branch`
+go through the shell (`bash`).
 
-**Planner tools:** read-only filesystem, Git inspection, LSP, and `read_skill`;
+**Planner tools:** read-only filesystem and `read_skill`;
 the main agent writes the plan file.
 
-**Worker tools:** filesystem reads/writes, shell, Git, LSP, tests, and
-`read_skill`. **Reviewer tools:** read-only filesystem and Git inspection, LSP,
+**Worker tools:** filesystem reads/writes, shell, tests, and
+`read_skill`. **Reviewer tools:** read-only filesystem,
 tests, and `read_skill`.
 
 File tools are limited to the directory where you start LangBridge Code. Routine

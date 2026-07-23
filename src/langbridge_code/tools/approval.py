@@ -18,7 +18,7 @@ import re
 
 SHELL_TOOL_NAMES = {"bash", "powershell"}
 
-FILE_WRITE_TOOL_NAMES = {"write", "edit_file", "multi_edit", "apply_patch", "delete_file"}
+FILE_WRITE_TOOL_NAMES = {"write", "Edit"}
 
 # Directory names whose contents the agent must not touch without approval:
 # repo internals, editor/tool state, and the agent's own config and memory.

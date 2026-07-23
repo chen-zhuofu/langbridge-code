@@ -60,6 +60,73 @@ def test_run_tool_calls_preserves_order():
     assert set(started) == {"slow", "fast"}
 
 
+def test_parallel_calls_inherit_trace_context():
+    from langbridge_code.util.trace_log import (
+        TraceContext,
+        get_trace_context,
+        set_trace_context,
+    )
+
+    seen = {}
+    lock = threading.Lock()
+
+    def run_fn(call):
+        ctx = get_trace_context()
+        with lock:
+            seen[call["call_id"]] = None if ctx is None else ctx.trace_id
+        return {"call_id": call["call_id"], "output": "ok"}
+
+    calls = [
+        {"name": "agent_worker", "call_id": "a"},
+        {"name": "agent_worker", "call_id": "b"},
+    ]
+    set_trace_context(TraceContext(run_log_path="run.log", trace_id="turn-42"))
+    try:
+        run_tool_calls(run_fn, calls, max_workers=2)
+    finally:
+        set_trace_context(None)
+
+    assert seen == {"a": "turn-42", "b": "turn-42"}
+
+
+def test_completion_runner_calls_inherit_trace_context():
+    from langbridge_code.util.trace_log import (
+        TraceContext,
+        get_trace_context,
+        set_trace_context,
+    )
+
+    seen = {}
+    lock = threading.Lock()
+
+    def run_fn(call):
+        ctx = get_trace_context()
+        with lock:
+            seen[call["call_id"]] = None if ctx is None else ctx.trace_id
+        return {
+            "type": "function_call_output",
+            "call_id": call["call_id"],
+            "output": "ok",
+        }
+
+    set_trace_context(TraceContext(run_log_path="run.log", trace_id="turn-7"))
+    runner = CompletionDrivenToolRunner(run_fn, max_workers=2)
+    try:
+        runner.submit(
+            [
+                {"name": "agent_worker", "call_id": "a"},
+                {"name": "agent_worker", "call_id": "b"},
+            ]
+        )
+        while runner.has_pending():
+            runner.drain_completed(wait_for_one=True)
+    finally:
+        runner.close()
+        set_trace_context(None)
+
+    assert seen == {"a": "turn-7", "b": "turn-7"}
+
+
 def test_run_tool_calls_parallel_workers():
     order = []
 

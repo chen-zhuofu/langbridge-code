@@ -89,7 +89,7 @@ BACKGROUND_PENDING = (
 )
 
 PLAN_FILE_TOOL_NAMES = frozenset(
-    {"read_file", "read_many", "write", "edit_file", "delete_file"}
+    {"read_file", "write", "Edit"}
 )
 
 
@@ -420,16 +420,28 @@ class MainAgentSession:
         return outputs, deferred
 
     def send(self, user_prompt):
+        from langbridge_code.skills import expand_skill_slash, list_skills
+
         # Remembered so the post-compaction <memory> re-prefetch targets the
-        # current task instead of an empty string.
-        self._last_user_prompt = (user_prompt or "").strip()
+        # current task instead of an empty string. Keep the raw slash text so
+        # skill prefetch still sees "/grilling …" rather than the expanded body.
+        raw_prompt = (user_prompt or "").strip()
+        try:
+            user_prompt = expand_skill_slash(raw_prompt)
+        except FileNotFoundError as error:
+            available = ", ".join(name for name, _ in list_skills())
+            return (
+                f"Unknown skill '/{error}'. "
+                f"Available skills: {available or '(none)'}. Try /help for built-in commands."
+            )
+        self._last_user_prompt = raw_prompt
         self._memory_writer_ran_this_send = False
         if not self._context_blocks_ready:
-            self._init_context_blocks(user_prompt)
+            self._init_context_blocks(raw_prompt)
         turn_content = build_turn_user_content(self.run_log_path, user_prompt)
         with self._context_lock:
             self.context.begin_turn(turn_content)
-        write_worklog_received(self.run_log_path, self.label, self.worklog_id, self.turn_id, user_prompt)
+        write_worklog_received(self.run_log_path, self.label, self.worklog_id, self.turn_id, raw_prompt)
         foreground = ForegroundTracker(self.label, self.messages, self.model)
         foreground.activate()
         start_time = now()

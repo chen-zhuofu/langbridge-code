@@ -135,12 +135,12 @@ def test_to_chat_messages_preserves_reasoning_content_for_final_reply():
 
 def test_from_chat_message_maps_tool_calls():
     message = _Message(
-        tool_calls=[_ToolCall("call_9", "run_tests", json.dumps({"path": "."}))],
+        tool_calls=[_ToolCall("call_9", "bash", json.dumps({"command": "pytest -q"}))],
     )
     output = from_chat_message(message)
 
     assert output[0]["type"] == "function_call"
-    assert output[0]["name"] == "run_tests"
+    assert output[0]["name"] == "bash"
     assert output[0]["call_id"] == "call_9"
 
 

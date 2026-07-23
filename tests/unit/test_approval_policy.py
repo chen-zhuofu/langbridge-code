@@ -6,11 +6,7 @@ from langbridge_code.tools.approval import approval_reason, circuit_breaker_reas
 
 @pytest.mark.parametrize("name,arguments", [
     ("write", {"path": "x.py", "content": "print(1)"}),
-    ("edit_file", {"path": "x.py", "old": "a", "new": "b"}),
-    ("multi_edit", {"path": "x.py", "edits": []}),
-    ("apply_patch", {"patch": "diff"}),
-    ("delete_file", {"path": "x.py"}),
-    ("git_commit", {"message": "fix"}),
+    ("Edit", {"path": "x.py", "old_string": "a", "new_string": "b"}),
     ("merge_branch", {"branch": "feature"}),
     ("bash", {"command": "pytest -q"}),
     ("bash", {"command": "git commit -m 'x'"}),
@@ -55,11 +51,11 @@ def test_reason_explains_the_risk():
 
 @pytest.mark.parametrize("name,path", [
     ("write", ".git/hooks/pre-commit"),
-    ("edit_file", ".git/config"),
-    ("delete_file", "sub/dir/.git/HEAD"),
+    ("Edit", ".git/config"),
+    ("write", "sub/dir/.git/HEAD"),
     ("write", ".langbridge/memory.md"),
     ("write", ".langbridge-code/config.json"),
-    ("edit_file", ".vscode/settings.json"),
+    ("Edit", ".vscode/settings.json"),
     ("write", "home/.config/git/config"),
 ])
 def test_protected_path_writes_require_approval(name, path):
@@ -70,9 +66,9 @@ def test_protected_path_writes_require_approval(name, path):
 
 @pytest.mark.parametrize("name,path", [
     ("write", "src/app.py"),
-    ("edit_file", "gitignore-parser/lib.py"),  # ".git" as substring, not a segment
+    ("Edit", "gitignore-parser/lib.py"),  # ".git" as substring, not a segment
     ("write", "docs/.github/workflows/ci.yml"),
-    ("delete_file", "build/output.txt"),
+    ("Edit", "build/output.txt"),
 ])
 def test_normal_paths_do_not_require_approval(name, path):
     assert approval_reason(name, {"path": path}) is None

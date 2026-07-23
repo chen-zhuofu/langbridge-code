@@ -16,7 +16,7 @@ def test_explore_bash_guard_blocks_writes():
 
 def test_read_only_bash_rejects_write_commands(monkeypatch):
     monkeypatch.setattr(
-        "langbridge_code.tools.agent_explorer.execution.TOOLS",
+        "langbridge_code.tools.execution.TOOLS",
         {"bash": lambda **kwargs: "ran"},
     )
     with pytest.raises(PermissionError):
@@ -28,6 +28,9 @@ def test_explorer_prompt_requires_structured_report_sections():
     assert "## Current state" in EXPLORER_PROMPT
     assert "## Open questions" in EXPLORER_PROMPT
     assert "path:line" in EXPLORER_PROMPT
+    assert "READ-ONLY MODE" in EXPLORER_PROMPT
+    assert "read_webpage" in EXPLORER_PROMPT
+    assert "read-only" in EXPLORER_PROMPT.lower()
 
 
 def test_build_explore_prompt_includes_git_context(monkeypatch, tmp_path):

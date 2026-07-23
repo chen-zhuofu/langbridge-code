@@ -17,6 +17,13 @@ from langbridge_code.agents.common.workspace import get_workspace_root
 WORKSPACE_ROOT = Path.cwd().resolve()
 
 _PRIVILEGED_COMMAND_RE = re.compile(r"\b(sudo|su|doas|pkexec)\b", re.IGNORECASE)
+_WRITE_BASH_PATTERN = re.compile(
+    r"(^|[;&|]\s*)(rm\s|rmdir\s|mv\s|cp\s|touch\s|mkdir\s|"
+    r"chmod\s|chown\s|tee\s|truncate\s|>"
+    r"|>>\s|sed\s+-i|git\s+(add|commit|push|checkout\s+-b|merge|rebase|reset|clean)|"
+    r"pip\s+install|uv\s+add|npm\s+install|yarn\s+add|cargo\s+install)",
+    re.IGNORECASE,
+)
 
 TOOL_SCHEMAS = [
     {
@@ -27,7 +34,7 @@ TOOL_SCHEMAS = [
             "(via bash -c). Use for installs (e.g. uv add pytest), builds, "
             "git (status, log, branch), and one-off scripts. "
             "Main agent: inspect git state; delegate merges to agent_worker. "
-            "Pipes and && are allowed. Prefer write/edit/apply_patch for file content. "
+            "Pipes and && are allowed. Prefer write/Edit for file content. "
             "sudo/su/doas/pkexec are blocked."
         ),
         "parameters": {
@@ -111,6 +118,24 @@ def reject_privileged_command(command: str) -> None:
             "Privileged commands (sudo, su, doas, pkexec) are not allowed. "
             "Use non-interactive commands that do not require root."
         )
+
+
+def bash_write_guard(command: str, *, role: str = "agent") -> str | None:
+    """Return an error when a shell command would mutate the workspace."""
+    cleaned = (command or "").strip()
+    if not cleaned:
+        return None
+    if _WRITE_BASH_PATTERN.search(cleaned):
+        return f"{role} may only run read-only shell commands."
+    return None
+
+
+def read_only_bash(*, role: str = "agent", **kwargs):
+    """Run bash after rejecting write/mutate commands."""
+    guard_error = bash_write_guard(kwargs.get("command") or "", role=role)
+    if guard_error:
+        raise PermissionError(guard_error)
+    return TOOLS["bash"](**kwargs)
 
 
 @tool("bash")

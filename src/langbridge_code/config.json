@@ -87,12 +87,6 @@
       "max_timeout_seconds": 120,
       "max_webpage_chars": 20000
     },
-    "browser": {
-      "default_timeout_seconds": 30,
-      "max_timeout_seconds": 120,
-      "max_content_chars": 20000,
-      "wait_after_load_ms": 1000
-    },
     "debug": {
       "default_max_chars": 200
     }
