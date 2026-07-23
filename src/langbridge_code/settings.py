@@ -71,7 +71,6 @@ def _bind(cfg):
     execution = cfg["tools"]["execution"]
     testing = cfg["tools"]["testing"]
     web = cfg["tools"]["web"]
-    browser = cfg["tools"].get("browser", {})
     debug = cfg["tools"]["debug"]
     training = cfg["training"]
     paths = cfg.get("paths", {})
@@ -170,10 +169,6 @@ def _bind(cfg):
         "DEFAULT_WEB_TIMEOUT_SECONDS": web["default_timeout_seconds"],
         "MAX_WEB_TIMEOUT_SECONDS": web["max_timeout_seconds"],
         "MAX_WEBPAGE_CHARS": web["max_webpage_chars"],
-        "BROWSER_DEFAULT_TIMEOUT_SECONDS": browser.get("default_timeout_seconds", 30),
-        "BROWSER_MAX_TIMEOUT_SECONDS": browser.get("max_timeout_seconds", 120),
-        "BROWSER_MAX_CONTENT_CHARS": browser.get("max_content_chars", 20000),
-        "BROWSER_WAIT_AFTER_LOAD_MS": int(browser.get("wait_after_load_ms", 1000)),
         "DEFAULT_DEBUG_MAX_CHARS": debug["default_max_chars"],
         "TRAIN_DEFAULT_EPOCHS": training["default_epochs"],
         "TRAIN_DEFAULT_BATCH_SIZE": training["default_batch_size"],

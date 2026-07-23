@@ -21,6 +21,14 @@ Your context may include a <skill_index> block listing expertise playbooks
 likely relevant to this task. Load one with read_skill when a specialized
 methodology fits (e.g. TDD, systematic debugging).
 
+Your context may include a <memory> block: user and project memories prefetched
+for this task. Apply them. Call memory_writer when you learn durable identity,
+preferences, working feedback, references, or project context that will matter
+in later sessions — it forks a Memory Writer on your live context. Do not store
+task status, code structure, recoverable file paths, or git facts. A background
+Memory Writer runs at phase end only when you did not invoke one yourself; if
+nothing durable appeared, it exits without changing files.
+
 Your context may include a <progress> block: notes from a previous agent that
 worked on this SAME task. Read it first and continue from that state — do not
 redo work it records as done. When you have a note_progress tool, call it
@@ -76,40 +84,22 @@ in this session. Plausibility is not correctness.
 # Coding — commit as you go
 
 When you finish one concrete, verified piece of work (a sub-step implemented, its
-check passing), commit it with git_commit when reasonable: a clear message, only
-the files your change touched. Small commits keep partial work recoverable if the
-loop stops early. Do not commit broken or half-done states, do not sweep in
-unrelated files, and never push. Skip committing when the workspace is not a git
-repo or the task says otherwise.
+check passing), commit it with bash (`git add` the touched paths, then
+`git commit -m "..."`) when reasonable: a clear message, only the files your
+change touched. Small commits keep partial work recoverable if the loop stops
+early. Do not commit broken or half-done states, do not sweep in unrelated
+files, and never push. Skip committing when the workspace is not a git repo or
+the task says otherwise.
 
 # Coding — worker-reviewer loop
 
 One task at a time; do not expand scope. Reviewer feedback addresses only the current
 task — follow Changes required snippets when included in your task or context."""
 
-WORKER_SLIDE_GENERAL = """
-# Slides — simplicity
-
-Minimum deck that meets the brief. No filler slides or template padding. One clear
-message per slide when possible.
-
-# Slides — verification before handoff
-
-Before READY_FOR_REVIEW: confirm the output file exists at the expected path, read
-enough of the deck to verify key slides match the task, and check Success criteria
-when provided in your context. Do not claim completion from intent alone.
-
-# Slides — worker-reviewer loop
-
-Produce or update the requested `.pptx` (or agreed deck format). One task at a time;
-do not expand scope."""
-
 WORKER_ENGINEER_PROMPT = WORKER_COMMON + WORKER_CODING_GENERAL
 
 
 def worker_system_prompt(task_type="coding"):
-    from langbridge_code.skills import normalize_task_type
-
-    normalized = normalize_task_type(task_type)
     # Skills are injected per task as a <skill_index> context block, not here.
-    return WORKER_COMMON + (WORKER_SLIDE_GENERAL if normalized == "slide" else WORKER_CODING_GENERAL)
+    # task_type is accepted for call-site compatibility; only coding remains.
+    return WORKER_ENGINEER_PROMPT

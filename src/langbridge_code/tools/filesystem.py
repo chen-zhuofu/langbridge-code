@@ -28,24 +28,6 @@ VCS_DIRECTORIES_TO_EXCLUDE = (".git", ".svn", ".hg", ".bzr", ".jj", ".sl")
 TOOL_SCHEMAS = [
     {
         "type": "function",
-        "name": "list_dir",
-        "description": "List files and directories under the current workspace.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "purpose": PURPOSE_PARAMETER,
-                "path": {
-                    "type": "string",
-                    "description": "Directory path relative to the current workspace.",
-                    "default": ".",
-                },
-            },
-            "required": ["purpose"],
-            "additionalProperties": False,
-        },
-    },
-    {
-        "type": "function",
         "name": "glob",
         "description": (
             "Find files by glob pattern under the workspace (powered by ripgrep). "
@@ -106,29 +88,6 @@ TOOL_SCHEMAS = [
                 },
             },
             "required": ["purpose", "path"],
-            "additionalProperties": False,
-        },
-    },
-    {
-        "type": "function",
-        "name": "read_many",
-        "description": "Read multiple text files under the current workspace in one call.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "purpose": PURPOSE_PARAMETER,
-                "paths": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "File paths relative to the current workspace.",
-                },
-                "max_files": {
-                    "type": "integer",
-                    "description": "Maximum number of files to read.",
-                    "default": 20,
-                },
-            },
-            "required": ["purpose", "paths"],
             "additionalProperties": False,
         },
     },
@@ -235,8 +194,12 @@ TOOL_SCHEMAS = [
     },
     {
         "type": "function",
-        "name": "edit_file",
-        "description": "Edit a text file by replacing one exact, unique string with another string.",
+        "name": "Edit",
+        "description": (
+            "Edit a text file by replacing exact text. By default old_string must "
+            "appear exactly once; set replace_all=true to replace every occurrence. "
+            "For multiple independent edits, call Edit several times."
+        ),
         "parameters": {
             "type": "object",
             "properties": {
@@ -247,67 +210,19 @@ TOOL_SCHEMAS = [
                 },
                 "old_string": {
                     "type": "string",
-                    "description": "Exact text to replace. It must appear exactly once in the file.",
+                    "description": "Exact text to replace.",
                 },
                 "new_string": {
                     "type": "string",
-                    "description": "Replacement text.",
+                    "description": "Replacement text (must differ from old_string).",
+                },
+                "replace_all": {
+                    "type": "boolean",
+                    "description": "Replace all occurrences of old_string (default false).",
+                    "default": False,
                 },
             },
             "required": ["purpose", "path", "old_string", "new_string"],
-            "additionalProperties": False,
-        },
-    },
-    {
-        "type": "function",
-        "name": "multi_edit",
-        "description": (
-            "Apply several exact string replacements to one file in order. "
-            "Each old_string must match exactly once at the time that edit runs."
-        ),
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "purpose": PURPOSE_PARAMETER,
-                "path": {
-                    "type": "string",
-                    "description": "File path relative to the current workspace.",
-                },
-                "edits": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "old_string": {"type": "string"},
-                            "new_string": {"type": "string"},
-                        },
-                        "required": ["old_string", "new_string"],
-                        "additionalProperties": False,
-                    },
-                    "description": "Ordered list of exact replacements.",
-                },
-            },
-            "required": ["purpose", "path", "edits"],
-            "additionalProperties": False,
-        },
-    },
-    {
-        "type": "function",
-        "name": "apply_patch",
-        "description": (
-            "Apply a unified diff patch to one or more workspace files. "
-            "Use standard ---/+++/@@ hunk format."
-        ),
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "purpose": PURPOSE_PARAMETER,
-                "patch": {
-                    "type": "string",
-                    "description": "Unified diff text to apply.",
-                },
-            },
-            "required": ["purpose", "patch"],
             "additionalProperties": False,
         },
     },
@@ -332,23 +247,6 @@ TOOL_SCHEMAS = [
                 },
             },
             "required": ["purpose", "path", "content"],
-            "additionalProperties": False,
-        },
-    },
-    {
-        "type": "function",
-        "name": "delete_file",
-        "description": "Delete a file under the current workspace. This does not delete directories.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "purpose": PURPOSE_PARAMETER,
-                "path": {
-                    "type": "string",
-                    "description": "File path relative to the current workspace.",
-                },
-            },
-            "required": ["purpose", "path"],
             "additionalProperties": False,
         },
     },
@@ -402,22 +300,6 @@ def _run_rg(args):
 def _relative_workspace_path(path):
     resolved = Path(path).resolve()
     return str(resolved.relative_to(get_workspace_root()))
-
-
-@tool("list_dir")
-def list_dir(path="."):
-    target = resolve_workspace_path(path)
-    if not target.exists():
-        raise FileNotFoundError(f"No such directory: {path}")
-    if not target.is_dir():
-        raise NotADirectoryError(f"Not a directory: {path}")
-
-    entries = []
-    for child in sorted(target.iterdir(), key=lambda item: (not item.is_dir(), item.name.lower())):
-        kind = "directory" if child.is_dir() else "file"
-        entries.append({"name": child.name, "type": kind})
-
-    return json.dumps({"path": str(target.relative_to(get_workspace_root())), "entries": entries}, indent=2)
 
 
 @tool("glob")
@@ -539,27 +421,6 @@ def _format_function_excerpt(path, text, function_name):
 
     excerpt = "\n".join(lines[start_index:end_index])
     return f"# {path} function `{function_name}`\n{excerpt}"
-
-
-DEFAULT_READ_MANY_LIMIT = 20
-
-
-@tool("read_many")
-def read_many(paths, max_files=DEFAULT_READ_MANY_LIMIT):
-    if not paths:
-        raise ValueError("paths must not be empty")
-    max_files = max(1, min(int(max_files), 50))
-    files = []
-    for raw_path in list(paths)[:max_files]:
-        rel = str(raw_path or "").strip()
-        if not rel:
-            continue
-        try:
-            content = read_file(rel)
-        except Exception as error:
-            content = f"Tool error: {error}"
-        files.append({"path": rel, "content": content})
-    return json.dumps({"files": files, "truncated": len(paths) > max_files}, ensure_ascii=False, indent=2)
 
 
 def _coerce_grep_kwargs(kwargs):
@@ -748,10 +609,12 @@ def grep(pattern, path=".", **raw_kwargs):
     return f"Found {len(relative_matches)} {file_word}{suffix}\n" + "\n".join(relative_matches)
 
 
-@tool("edit_file")
-def edit_file(path, old_string, new_string):
+@tool("Edit")
+def Edit(path, old_string, new_string, replace_all=False):
     if not old_string:
         raise ValueError("old_string must not be empty")
+    if old_string == new_string:
+        raise ValueError("No changes to make: old_string and new_string are exactly the same.")
 
     target = resolve_workspace_path(path)
     if not target.exists():
@@ -767,141 +630,22 @@ def edit_file(path, old_string, new_string):
     matches = text.count(old_string)
     if matches == 0:
         raise ValueError("old_string was not found")
-    if matches > 1:
-        raise ValueError(f"old_string matched {matches} times; provide a unique replacement target")
+    if matches > 1 and not replace_all:
+        raise ValueError(
+            f"Found {matches} matches of the string to replace, but replace_all is false. "
+            "To replace all occurrences, set replace_all to true. "
+            "To replace only one occurrence, provide more context to uniquely identify it."
+        )
 
-    target.write_text(text.replace(old_string, new_string, 1), encoding="utf-8")
-    return f"Edited {path}: replaced 1 occurrence."
-
-
-def _read_utf8_text_file(path):
-    target = resolve_workspace_path(path)
-    if not target.exists():
-        raise FileNotFoundError(f"No such file: {path}")
-    if not target.is_file():
-        raise IsADirectoryError(f"Not a file: {path}")
-    try:
-        return target.read_text(encoding="utf-8"), target
-    except UnicodeDecodeError:
-        raise ValueError(f"File is not valid UTF-8 text: {path}")
-
-
-@tool("multi_edit")
-def multi_edit(path, edits):
-    if not edits:
-        raise ValueError("edits must not be empty")
-    text, target = _read_utf8_text_file(path)
-    applied = 0
-    for index, edit in enumerate(edits, start=1):
-        if not isinstance(edit, dict):
-            raise ValueError(f"edit {index} must be an object")
-        old_string = edit.get("old_string", "")
-        new_string = edit.get("new_string", "")
-        if not old_string:
-            raise ValueError(f"edit {index}: old_string must not be empty")
-        matches = text.count(old_string)
-        if matches == 0:
-            raise ValueError(f"edit {index}: old_string was not found")
-        if matches > 1:
-            raise ValueError(f"edit {index}: old_string matched {matches} times")
-        text = text.replace(old_string, new_string, 1)
-        applied += 1
-    target.write_text(text, encoding="utf-8")
-    return f"Edited {path}: applied {applied} replacement(s)."
-
-
-def _normalize_patch_path(raw_path: str) -> str:
-    cleaned = (raw_path or "").strip()
-    for prefix in ("a/", "b/"):
-        if cleaned.startswith(prefix):
-            cleaned = cleaned[len(prefix) :]
-    return cleaned
-
-
-def _parse_hunk_header(line: str) -> tuple[int, int]:
-    match = re.match(r"^@@\s+-(\d+)(?:,(\d+))?\s+\+(\d+)(?:,(\d+))?\s+@@", line.strip())
-    if not match:
-        raise ValueError(f"invalid hunk header: {line!r}")
-    old_start = int(match.group(1))
-    return old_start, old_start
-
-
-def _parse_unified_patch(patch: str) -> dict[str, list[tuple[int, list[tuple[str, str]]]]]:
-    file_hunks: dict[str, list[tuple[int, list[tuple[str, str]]]]] = {}
-    current_path = None
-    current_hunk = None
-
-    for raw_line in (patch or "").splitlines():
-        if raw_line.startswith("+++ "):
-            current_path = _normalize_patch_path(raw_line[4:].split("\t", 1)[0])
-            file_hunks.setdefault(current_path, [])
-            current_hunk = None
-            continue
-        if raw_line.startswith("@@"):
-            if current_path is None:
-                raise ValueError("patch hunk before +++ file header")
-            old_start, _ = _parse_hunk_header(raw_line)
-            current_hunk = (old_start, [])
-            file_hunks[current_path].append(current_hunk)
-            continue
-        if current_hunk is None:
-            continue
-        if not raw_line:
-            current_hunk[1].append((" ", ""))
-            continue
-        tag = raw_line[0]
-        if tag not in {" ", "+", "-"}:
-            continue
-        current_hunk[1].append((tag, raw_line[1:]))
-
-    if not file_hunks:
-        raise ValueError("patch did not contain any file hunks")
-    return file_hunks
-
-
-def _apply_hunks(original_lines: list[str], hunks: list[tuple[int, list[tuple[str, str]]]]) -> list[str]:
-    lines = list(original_lines)
-    for old_start, hunk_lines in hunks:
-        pos = max(0, old_start - 1)
-        new_chunk: list[str] = []
-        idx = pos
-        for tag, text in hunk_lines:
-            if tag == " ":
-                if idx >= len(lines) or lines[idx] != text:
-                    raise ValueError("patch context does not match file")
-                new_chunk.append(text)
-                idx += 1
-            elif tag == "-":
-                if idx >= len(lines) or lines[idx] != text:
-                    raise ValueError("patch removal does not match file")
-                idx += 1
-            elif tag == "+":
-                new_chunk.append(text)
-        lines = lines[:pos] + new_chunk + lines[idx:]
-    return lines
-
-
-@tool("apply_patch")
-def apply_patch(patch):
-    if not (patch or "").strip():
-        raise ValueError("patch must not be empty")
-    parsed = _parse_unified_patch(patch)
-    changed = []
-    for rel_path, hunks in parsed.items():
-        target = resolve_workspace_path(rel_path)
-        original_lines: list[str] = []
-        if target.exists():
-            original, _ = _read_utf8_text_file(rel_path)
-            original_lines = original.splitlines()
-        updated_lines = _apply_hunks(original_lines, hunks)
-        if not target.parent.exists():
-            target.parent.mkdir(parents=True, exist_ok=True)
-        body = "\n".join(updated_lines)
-        if body:
-            body += "\n"
-        target.write_text(body, encoding="utf-8")
-        changed.append(rel_path)
-    return f"Applied patch to {len(changed)} file(s): {', '.join(changed)}."
+    if replace_all:
+        updated = text.replace(old_string, new_string)
+        count = matches
+    else:
+        updated = text.replace(old_string, new_string, 1)
+        count = 1
+    target.write_text(updated, encoding="utf-8")
+    occurrence = "occurrence" if count == 1 else "occurrences"
+    return f"Edited {path}: replaced {count} {occurrence}."
 
 
 @tool("write")
@@ -914,15 +658,3 @@ def write(path, content):
     if existed:
         return f"Wrote {path} (overwrote existing file)."
     return f"Wrote {path}."
-
-
-@tool("delete_file")
-def delete_file(path):
-    target = resolve_workspace_path(path)
-    if not target.exists():
-        raise FileNotFoundError(f"No such file: {path}")
-    if not target.is_file():
-        raise IsADirectoryError(f"Not a file: {path}")
-
-    target.unlink()
-    return f"Deleted {path}."

@@ -21,10 +21,9 @@ whether that condition is satisfied. You did not do the work yourself and you
 should not trust the agent's own assessment without evidence.
 
 You have the same verification tools as the main agent: read files, grep, list
-directories, run bash (tests, builds, curl), read_webpage (simple HTTP pages),
-browse_webpage (Playwright for JS-rendered pages), and read_skill when a playbook
-helps your check. Use them to verify independently — transcript claims are hints,
-not proof.
+directories, run bash (tests, builds, curl), read_webpage, and read_skill when a
+playbook helps your check. Use them to verify independently — transcript claims
+are hints, not proof.
 
 Do the following every time:
 1. Read the completion condition.

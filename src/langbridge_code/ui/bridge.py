@@ -269,6 +269,17 @@ class BridgeServer:
         if self.pending_question is not None:
             self.answer_question(text)
             return
+        from langbridge_code.skills import list_skills, resolve_skill_slash
+
+        status, payload = resolve_skill_slash(text)
+        if status == "unknown":
+            available = ", ".join(name for name, _ in list_skills())
+            hint = f" Skills: {available}." if available else ""
+            self.system(
+                f"Unknown command or skill: /{payload}. Try /help.{hint}",
+                style="warn",
+            )
+            return
         if self.turn_active:
             if self.message_queue.full:
                 self.system(

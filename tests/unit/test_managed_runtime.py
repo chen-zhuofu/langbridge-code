@@ -4,7 +4,7 @@ from pathlib import Path
 from langbridge_code.tools.common import runtime
 
 
-def test_inject_runtime_env_prepends_bin_and_sets_browser_store(tmp_path, monkeypatch):
+def test_inject_runtime_env_prepends_bin(tmp_path, monkeypatch):
     monkeypatch.setenv("LANGBRIDGE_RUNTIME_DIR", str(tmp_path / "runtime"))
     env = {"PATH": os.pathsep.join(["/usr/bin", "/bin"])}
 
@@ -13,9 +13,7 @@ def test_inject_runtime_env_prepends_bin_and_sets_browser_store(tmp_path, monkey
     assert result["PATH"].split(os.pathsep)[0] == str(
         tmp_path / "runtime" / "prefix" / "bin"
     )
-    assert result["PLAYWRIGHT_BROWSERS_PATH"] == str(
-        tmp_path / "runtime" / "playwright"
-    )
+    assert "PLAYWRIGHT_BROWSERS_PATH" not in result
 
 
 def test_ensure_native_tools_installs_missing_tools(tmp_path, monkeypatch):
@@ -78,13 +76,10 @@ def test_bootstrap_prepares_every_advertised_runtime_dependency(monkeypatch):
     monkeypatch.setattr(
         runtime, "ensure_managed_test_python", lambda: calls.append("pytest")
     )
-    monkeypatch.setattr(
-        runtime, "ensure_playwright_browser", lambda: calls.append("browser")
-    )
 
     runtime.bootstrap_runtime()
 
-    assert calls == ["ignore", "native", "pytest", "browser"]
+    assert calls == ["ignore", "native", "pytest"]
 
 
 def test_runtime_root_defaults_inside_workspace(tmp_path, monkeypatch):

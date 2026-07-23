@@ -16,8 +16,8 @@ MERGE_BRANCH_TOOL_SCHEMA = {
         "Call once per ready branch reported by the agent_worker results. On success "
         "the branch is marked merged and that worktree is cleaned up. Failed branches "
         "must be resumed in place and cannot be merged. On conflicts the merge is left in "
-        "progress: resolve the listed files yourself with edit_file, stage with bash "
-        "`git add`, commit with git_commit (or bash `git commit --no-edit`), then call "
+        "progress: resolve the listed files yourself with Edit, stage with bash "
+        "`git add`, commit with bash (`git commit --no-edit` or a new message), then call "
         "merge_branch again with the same branch to confirm and clean up."
     ),
     "parameters": {
@@ -171,7 +171,7 @@ def merge_branch(branch, run_log_path=None):
         return (
             f"Merge of {branch!r} hit conflicts. The merge is left in progress.\n"
             f"Conflicted files:\n{listing}\n\n"
-            "Resolve each file with edit_file (remove conflict markers), stage with "
+            "Resolve each file with Edit (remove conflict markers), stage with "
             "bash `git add <files>`, commit with `git commit --no-edit`, then call "
             "merge_branch again with the same branch to confirm and clean up."
         )

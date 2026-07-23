@@ -4,10 +4,10 @@ from langbridge_code.tools.agent_planner import initial_plan_prompt, parse_plan_
 def test_initial_plan_prompt_uses_plain_checkboxes():
     prompt = initial_plan_prompt("Build auth system")
     assert "coding" in prompt.lower()
-    assert "slide" in prompt.lower()
+    assert "slide" not in prompt.lower()
     assert "- [ ] Task N: <reviewable deliverable>" in prompt
     assert "[coding]" not in prompt
-    assert "plan_task_type" in prompt.lower()
+    assert "plan_task_type" not in prompt.lower()
 
 
 def test_initial_plan_prompt_requires_evidence_based_plan():
@@ -47,6 +47,6 @@ def test_initial_plan_prompt_requires_complete_task_contracts():
 
 def test_parse_plan_task_type_reads_planner_report():
     assert parse_plan_task_type("PLAN_TASK_TYPE: coding\n\nSix steps.") == "coding"
-    assert parse_plan_task_type("PLAN_TASK_TYPE: slide\nDone.") == "slide"
-    assert parse_plan_task_type("PLAN_TASK_TYPE: presentation\nDone.") == "slide"
+    assert parse_plan_task_type("PLAN_TASK_TYPE: slide\nDone.") == "coding"
+    assert parse_plan_task_type("PLAN_TASK_TYPE: presentation\nDone.") == "coding"
     assert parse_plan_task_type("No type here") is None

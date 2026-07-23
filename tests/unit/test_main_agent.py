@@ -18,25 +18,14 @@ def test_ensure_langbridge_system_prompt_inserts_system_message():
 def test_main_agent_tool_schemas_include_full_toolkit_and_subagents():
     names = {schema["name"] for schema in MAIN_AGENT_TOOL_SCHEMAS}
     assert {
-        "list_dir",
         "glob",
         "read_file",
-        "read_many",
         "grep",
-        "edit_file",
+        "Edit",
         "write",
-        "multi_edit",
-        "apply_patch",
-        "delete_file",
-        "run_tests",
         "bash",
         "powershell",
-        "git_status",
-        "git_diff",
-        "git_commit",
-        "lsp",
         "read_webpage",
-        "browse_webpage",
         "read_skill",
         "ask_user",
         "agent_planner",
@@ -44,6 +33,7 @@ def test_main_agent_tool_schemas_include_full_toolkit_and_subagents():
         "agent_explorer",
         "memory_writer",
     } <= names
+    assert "run_tests" not in names
 
 
 def test_subagent_planner_returns_draft_without_committing(tmp_path, monkeypatch):
@@ -78,7 +68,7 @@ def test_subagent_planner_returns_draft_without_committing(tmp_path, monkeypatch
     assert "DRAFT" in result
     assert "todo_list.md" in result
     assert "ask the user" in result.lower() or "ask_user" in result
-    assert "Suggested PLAN_TASK_TYPE: coding" in result
+    assert "Suggested PLAN_TASK_TYPE" not in result
     # The planner never writes the plan file itself.
     assert not (tmp_path / "todo_list.md").exists()
 
@@ -207,7 +197,7 @@ def test_plan_file_lives_only_in_session_artifacts(tmp_path, monkeypatch):
 
         session._run_tool(
             {
-                "name": "edit_file",
+                "name": "Edit",
                 "call_id": "tick-plan",
                 "arguments": (
                     '{"purpose":"mark done","path":"todo_list.md",'

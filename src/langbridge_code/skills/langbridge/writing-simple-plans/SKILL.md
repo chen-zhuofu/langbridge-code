@@ -70,7 +70,7 @@ Rules:
   evidence that proves it; a command alone is not an acceptance criterion.
 - Check every task for contradictory clauses. Ask the user instead of making a
   worker guess when code and requirements cannot resolve a product decision.
-- You own every todo's status: mark its checkbox `[x]` yourself (edit_file) when
+- You own every todo's status: mark its checkbox `[x]` yourself (Edit) when
   its worker passes review.
 - Every todo ends with an explicit deps note: `(deps: none)` or
   `(deps: tasks N, M)`. Only `deps: none` todos may be dispatched in parallel —

@@ -270,11 +270,11 @@ def test_memory_writer_fork_uses_common_file_tools_for_add_update_delete(monkeyp
                 "output": [
                     {
                         "type": "function_call",
-                        "name": "delete_file",
+                        "name": "bash",
                         "call_id": "delete-stale",
                         "arguments": (
                             '{"purpose":"remove inaccurate memory",'
-                            '"path":"user/memory/stale-app-form.md"}'
+                            '"command":"rm user/memory/stale-app-form.md"}'
                         ),
                     },
                     {
@@ -316,7 +316,7 @@ def test_memory_writer_fork_uses_common_file_tools_for_add_update_delete(monkeyp
     assert "native-app-form.md" in read_memory_index("project")
     assert rounds[0][0][:1] == live
     tool_names = {schema["name"] for schema in rounds[0][1]["tool_schemas"]}
-    assert {"read_file", "write", "edit_file", "delete_file", "list_dir"} <= tool_names
+    assert {"read_file", "write", "Edit", "bash"} <= tool_names
 
 
 def test_schedule_memory_writer_runs_tool_agent_in_background(monkeypatch):

@@ -1,9 +1,21 @@
 REVIEWER_COMMON = """You are the reviewer in LangBridge Code — a generic verifier.
 
-You receive the worker's summary and evidence of what changed (git diff for code
-tasks; file reads for slide tasks). Inspect the work and approve or reject.
+You receive the worker's summary and evidence of what changed (git diff).
+Inspect the work and approve or reject.
 
 You cannot call subagents. Investigate with your own read/search/test tools only.
+
+Your context may include a <skill_index> block listing expertise playbooks;
+load one with read_skill when a specialized review methodology fits.
+
+Your context may include a <memory> block: user and project memories prefetched
+for this task. Apply them. Call memory_writer when review evidence reveals
+durable identity, preferences, working feedback, references, or project context
+that will matter in later sessions — it forks a Memory Writer on your live
+context. Do not store task status, code structure, recoverable file paths, or
+git facts. A background Memory Writer runs at phase end only when you did not
+invoke one yourself; if nothing durable appeared, it exits without changing
+files.
 
 The pinned assigned task is the same verbatim contract given to the worker.
 Treat every Detailed requirement and Acceptance spec item as mandatory. Respect
@@ -46,24 +58,10 @@ files outside the task. Flag those as NEEDS_WORK even when tests pass.
 Feedback goes back to the worker for the same task — do not expand scope. One task at
 a time; respect Changes required snippets when included in Review context."""
 
-REVIEWER_SLIDE_GENERAL = """
-# Slides — verification
-
-Read the deck path and supporting files; check against Success criteria when provided
-in Review context. Confirm structure, coverage, and content requirements. Vote PASS
-only on evidence from the files — not the worker's summary alone.
-
-# Slides — worker-reviewer loop
-
-Feedback should be specific (missing slides, wrong content, formatting issues).
-Stay within Out of scope when provided; do not ask for unrelated code changes."""
-
 REVIEWER_ENGINEER_PROMPT = REVIEWER_COMMON + REVIEWER_CODING_GENERAL
 
 
 def reviewer_system_prompt(task_type="coding"):
-    from langbridge_code.skills import normalize_task_type
-
-    normalized = normalize_task_type(task_type)
     # Skills are injected per task as a <skill_index> context block, not here.
-    return REVIEWER_COMMON + (REVIEWER_SLIDE_GENERAL if normalized == "slide" else REVIEWER_CODING_GENERAL)
+    # task_type is accepted for call-site compatibility; only coding remains.
+    return REVIEWER_ENGINEER_PROMPT

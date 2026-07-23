@@ -21,11 +21,10 @@ from langbridge_code.settings import (
 )
 from langbridge_code.tools import (
     FILE_READ_TOOL_NAMES,
-    GIT_READ_TOOL_NAMES,
+    execution,
     filesystem,
-    git_tools as git_tools_mod,
-    lsp,
     skills,
+    web,
 )
 from langbridge_code.agents.common.phases import emit_phase
 from langbridge_code.agents.system_prompt.planner import PLANNER_WORKFLOW_SUMMARY, planner_system_prompt
@@ -34,25 +33,34 @@ from langbridge_code.tools.common.purpose import PURPOSE_PARAMETER
 
 PLANNER_TOOL_NAMES = (
     FILE_READ_TOOL_NAMES
-    | {"read_skill", "lsp"}
-    | GIT_READ_TOOL_NAMES
+    | {"bash", "read_webpage", "read_skill"}
 )
 PLANNER_TOOL_SCHEMAS = [
     schema
     for schema in (
         filesystem.TOOL_SCHEMAS
-        + git_tools_mod.TOOL_SCHEMAS
-        + lsp.TOOL_SCHEMAS
+        + execution.TOOL_SCHEMAS
+        + web.TOOL_SCHEMAS
         + skills.TOOL_SCHEMAS
     )
     if schema["name"] in PLANNER_TOOL_NAMES
 ]
+
+
+def planner_read_only_bash(**kwargs):
+    return execution.read_only_bash(role="Planner", **kwargs)
+
+
 PLANNER_TOOLS = {
-    **{name: filesystem.TOOLS[name] for name in FILE_READ_TOOL_NAMES},
-    **{name: git_tools_mod.TOOLS[name] for name in GIT_READ_TOOL_NAMES},
-    "lsp": lsp.TOOLS["lsp"],
-    **skills.TOOLS,
+    name: tool
+    for name, tool in (
+        filesystem.TOOLS
+        | web.TOOLS
+        | skills.TOOLS
+    ).items()
+    if name in PLANNER_TOOL_NAMES and name != "bash"
 }
+PLANNER_TOOLS["bash"] = planner_read_only_bash
 
 
 AGENT_PLANNER_TOOL_SCHEMA = {
@@ -125,9 +133,10 @@ def initial_plan_prompt(user_task: str) -> str:
         "Create an evidence-based plan for this user task.\n\n"
         "Before your final reply:\n"
         "1. Read user-named files and primary context FULLY (no limit/offset).\n"
-        "2. grep/glob the repo; cite `path:line` for every discovery.\n"
+        "2. grep/glob the repo; use read-only bash / read_webpage when helpful; "
+        "cite `path:line` for every discovery.\n"
         "3. If assumptions are unclear, put them in Open questions — do NOT ask the user.\n\n"
-        "Your final reply must start with PLAN_TASK_TYPE, then a ```markdown fenced\n"
+        "Your final reply must put the FULL plan document in a ```markdown fenced\n"
         "block with the FULL plan: Desired end state, Success criteria,\n"
         "Key discoveries, Out of scope, Current state, Design options (if non-trivial),\n"
         "Open questions, Todo list, Changes required (file:line pointers with one-line\n"
@@ -149,9 +158,7 @@ def initial_plan_prompt(user_task: str) -> str:
         "Write `deps: none` only when the todo can start immediately with no other\n"
         "todo's output — e.g. a scaffold/setup todo blocks everything that edits\n"
         "the files it creates. Todos sharing one file are almost never independent.\n"
-        "Decide coding vs slide — entire todo_list is one type only.\n"
         "For coding: build and verify working software; no design docs unless asked.\n"
-        "For slide: build the deck deliverable (.pptx); verify content and structure.\n"
         "Split independent edits into separate todos; file/function-level steps are fine.\n"
         "No padding or duplicates.\n"
         "For 3+ coding implementation steps, end with a final integration verification todo.\n\n"
@@ -161,12 +168,11 @@ def initial_plan_prompt(user_task: str) -> str:
 
 
 def parse_plan_task_type(report: str) -> str | None:
+    """Legacy helper: plans are coding-only. Returns 'coding' if a type line is present."""
     for line in (report or "").strip().splitlines():
         stripped = line.strip().lower()
         if stripped.startswith("plan_task_type:"):
-            value = stripped.split(":", 1)[1].strip()
-            if value in {"coding", "slide", "presentation"}:
-                return "slide" if value in {"slide", "presentation"} else "coding"
+            return "coding"
     return None
 
 
@@ -308,11 +314,8 @@ def dispatch_planner(
         turn_id=turn_id,
         task_name=task_name,
     )
-    task_type = parse_plan_task_type(report)
-    type_label = task_type or "unknown"
     review_lines = [
         f"[{description or 'planner'}] Plan DRAFT ready (not written to disk).",
-        f"Suggested PLAN_TASK_TYPE: {type_label}.",
         "",
         "Main agent MUST:",
         "1. Review this draft as if you wrote it. Every task needs Objective, Detailed "
@@ -323,8 +326,7 @@ def dispatch_planner(
         "virtual path todo_list.md with the write tool.",
         "4. Only then dispatch agent_worker. Copy one complete task contract "
         "word-for-word into task_contract and put only new repository facts in "
-        "supplemental_context (pass task_type "
-        f"{type_label if type_label in {'coding', 'slide'} else 'coding'!r} on each call).",
+        "supplemental_context.",
     ]
     header = "\n".join(review_lines)
     # Pass the planner's report through untruncated: cutting the draft mid-plan

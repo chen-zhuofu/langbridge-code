@@ -4,7 +4,7 @@ import pytest
 
 from langbridge_code.agents.common.workspace import set_workspace_root
 from langbridge_code.tools import TOOL_SCHEMAS, TOOLS
-from langbridge_code.tools.filesystem import delete_file, glob, grep, read_file
+from langbridge_code.tools.filesystem import glob, grep, read_file
 
 
 @pytest.fixture
@@ -75,68 +75,35 @@ def test_write_creates_new_file(isolated_workspace):
     assert (isolated_workspace / "new.txt").read_text(encoding="utf-8") == "hello"
 
 
-def test_read_many_reads_multiple_files(isolated_workspace):
-    from langbridge_code.tools.filesystem import read_many
-
-    (isolated_workspace / "a.txt").write_text("A", encoding="utf-8")
-    (isolated_workspace / "b.txt").write_text("B", encoding="utf-8")
-    payload = json.loads(read_many(["a.txt", "b.txt"]))
-
-    assert len(payload["files"]) == 2
-    assert "1\tA" in payload["files"][0]["content"]
-
-
-def test_multi_edit_applies_ordered_replacements(isolated_workspace):
-    from langbridge_code.tools.filesystem import multi_edit
+def test_Edit_applies_unique_replacement(isolated_workspace):
+    from langbridge_code.tools.filesystem import Edit
 
     (isolated_workspace / "sample.py").write_text("a = 1\nb = 2\n", encoding="utf-8")
-    result = multi_edit(
-        "sample.py",
-        [{"old_string": "a = 1", "new_string": "a = 10"}, {"old_string": "b = 2", "new_string": "b = 20"}],
-    )
+    result = Edit("sample.py", "a = 1", "a = 10")
 
-    assert "2 replacement" in result
-    assert (isolated_workspace / "sample.py").read_text(encoding="utf-8") == "a = 10\nb = 20\n"
+    assert "replaced 1 occurrence" in result
+    assert (isolated_workspace / "sample.py").read_text(encoding="utf-8") == "a = 10\nb = 2\n"
 
 
-def test_apply_patch_updates_file(isolated_workspace):
-    from langbridge_code.tools.filesystem import apply_patch
+def test_Edit_replace_all(isolated_workspace):
+    from langbridge_code.tools.filesystem import Edit
 
-    (isolated_workspace / "sample.py").write_text("line1\nline2\n", encoding="utf-8")
-    patch = """--- a/sample.py
-+++ b/sample.py
-@@ -1,2 +1,2 @@
- line1
--line2
-+line2-updated
-"""
-    result = apply_patch(patch)
+    (isolated_workspace / "sample.py").write_text("x = 1\nx = 2\n", encoding="utf-8")
+    result = Edit("sample.py", "x = ", "y = ", replace_all=True)
 
-    assert "Applied patch" in result
-    assert (isolated_workspace / "sample.py").read_text(encoding="utf-8") == "line1\nline2-updated\n"
+    assert "replaced 2 occurrences" in result
+    assert (isolated_workspace / "sample.py").read_text(encoding="utf-8") == "y = 1\ny = 2\n"
 
 
 def test_write_is_registered():
     assert "write" in TOOLS
     names = {schema["name"] for schema in TOOL_SCHEMAS}
-    assert {"write", "read_many", "multi_edit", "apply_patch"}.issubset(names)
-
-
-def test_delete_file_removes_file(isolated_workspace):
-    target = isolated_workspace / "stale.txt"
-    target.write_text("remove me", encoding="utf-8")
-
-    result = delete_file("stale.txt")
-
-    assert result == "Deleted stale.txt."
-    assert not target.exists()
-
-
-def test_delete_file_rejects_directories(isolated_workspace):
-    (isolated_workspace / "folder").mkdir()
-
-    with pytest.raises(IsADirectoryError, match="Not a file"):
-        delete_file("folder")
+    assert "Edit" in names
+    assert "write" in names
+    assert "multi_edit" not in names
+    assert "apply_patch" not in names
+    assert "edit_file" not in names
+    assert "delete_file" not in names
 
 
 def test_read_file_line_range(isolated_workspace):

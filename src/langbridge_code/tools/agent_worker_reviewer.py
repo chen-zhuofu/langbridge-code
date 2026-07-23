@@ -41,15 +41,10 @@ from langbridge_code.agents.common.todo_list import (
 from langbridge_code.tools import (
     FILE_READ_TOOL_NAMES,
     FILE_WRITE_TOOL_NAMES,
-    GIT_READ_TOOL_NAMES,
-    GIT_WRITE_TOOL_NAMES,
     SHELL_TOOL_NAMES,
     execution,
     filesystem,
-    git_tools,
-    lsp,
     skills,
-    testing,
 )
 from langbridge_code.tools.common.purpose import PURPOSE_PARAMETER, without_purpose
 from langbridge_code.tools.common.runtime import managed_binary
@@ -63,6 +58,7 @@ from langbridge_code.agents.common import worktree as worktree_mod
 from langbridge_code.agents.common.task_progress import TaskProgress
 from langbridge_code.agents.common.workspace import workspace_scope
 from langbridge_code.tools.note_progress import TASK_NOTE_PROGRESS_TOOL_SCHEMA
+from langbridge_code.tools.memory_writer import MEMORY_WRITER_TOOL_SCHEMA
 from langbridge_code.training.optimizer_trace import append_event
 
 # --- Worker toolkits by task type ---
@@ -71,18 +67,13 @@ CODE_WORKER_TOOL_NAMES = (
     FILE_READ_TOOL_NAMES
     | FILE_WRITE_TOOL_NAMES
     | SHELL_TOOL_NAMES
-    | GIT_READ_TOOL_NAMES
-    | GIT_WRITE_TOOL_NAMES
-    | {"run_tests", "read_skill", "lsp"}
+    | {"read_skill"}
 )
 CODE_WORKER_TOOL_SCHEMAS = [
     schema
     for schema in (
         filesystem.TOOL_SCHEMAS
         + execution.TOOL_SCHEMAS
-        + git_tools.TOOL_SCHEMAS
-        + lsp.TOOL_SCHEMAS
-        + testing.TOOL_SCHEMAS
         + skills.TOOL_SCHEMAS
     )
     if schema["name"] in CODE_WORKER_TOOL_NAMES
@@ -92,61 +83,20 @@ CODE_WORKER_TOOLS = {
     for name, tool in (
         filesystem.TOOLS
         | execution.TOOLS
-        | git_tools.TOOLS
-        | lsp.TOOLS
-        | testing.TOOLS
         | skills.TOOLS
     ).items()
     if name in CODE_WORKER_TOOL_NAMES
 }
-WORKER_WRITE_TOOLS = FILE_WRITE_TOOL_NAMES | GIT_WRITE_TOOL_NAMES
-
-SLIDE_WORKER_TOOL_NAMES = (
-    FILE_READ_TOOL_NAMES
-    | {"write", "edit_file", "multi_edit", "apply_patch"}
-    | {"read_skill", "lsp"}
-    | GIT_READ_TOOL_NAMES
-)
-SLIDE_WORKER_TOOL_SCHEMAS = [
-    schema
-    for schema in (
-        filesystem.TOOL_SCHEMAS
-        + git_tools.TOOL_SCHEMAS
-        + lsp.TOOL_SCHEMAS
-        + skills.TOOL_SCHEMAS
-    )
-    if schema["name"] in SLIDE_WORKER_TOOL_NAMES
-]
-SLIDE_WORKER_TOOLS = {
-    name: tool
-    for name, tool in (
-        filesystem.TOOLS | git_tools.TOOLS | lsp.TOOLS | skills.TOOLS
-    ).items()
-    if name in SLIDE_WORKER_TOOL_NAMES
-}
-
-SLIDE_REVIEWER_TOOL_NAMES = FILE_READ_TOOL_NAMES | {"read_skill", "lsp"} | GIT_READ_TOOL_NAMES
-SLIDE_REVIEWER_TOOL_SCHEMAS = [
-    schema
-    for schema in filesystem.TOOL_SCHEMAS + git_tools.TOOL_SCHEMAS + lsp.TOOL_SCHEMAS + skills.TOOL_SCHEMAS
-    if schema["name"] in SLIDE_REVIEWER_TOOL_NAMES
-]
-SLIDE_REVIEWER_TOOLS = {
-    name: tool
-    for name, tool in (filesystem.TOOLS | git_tools.TOOLS | lsp.TOOLS | skills.TOOLS).items()
-    if name in SLIDE_REVIEWER_TOOL_NAMES
-}
+WORKER_WRITE_TOOLS = FILE_WRITE_TOOL_NAMES
 
 # --- Reviewer specialist tools ---
 
-REVIEWER_TOOL_NAMES = FILE_READ_TOOL_NAMES | {"run_tests", "read_skill", "lsp"} | GIT_READ_TOOL_NAMES
+REVIEWER_TOOL_NAMES = FILE_READ_TOOL_NAMES | SHELL_TOOL_NAMES | {"read_skill"}
 REVIEWER_TOOL_SCHEMAS = [
     schema
     for schema in (
         filesystem.TOOL_SCHEMAS
-        + git_tools.TOOL_SCHEMAS
-        + lsp.TOOL_SCHEMAS
-        + testing.TOOL_SCHEMAS
+        + execution.TOOL_SCHEMAS
         + skills.TOOL_SCHEMAS
     )
     if schema["name"] in REVIEWER_TOOL_NAMES
@@ -154,7 +104,7 @@ REVIEWER_TOOL_SCHEMAS = [
 REVIEWER_TOOLS = {
     name: tool
     for name, tool in (
-        filesystem.TOOLS | git_tools.TOOLS | lsp.TOOLS | testing.TOOLS | skills.TOOLS
+        filesystem.TOOLS | execution.TOOLS | skills.TOOLS
     ).items()
     if name in REVIEWER_TOOL_NAMES
 }
@@ -199,7 +149,7 @@ AGENT_WORKER_TOOL_SCHEMA = {
         "Do not dispatch a todo whose prerequisites are still unchecked. "
         "The worker never touches todo_list.md — you own every task's status "
         "(unassigned, dispatched/in progress, finished): on reviewer PASS, mark "
-        "the matching line `[x]` yourself with edit_file. "
+        "the matching line `[x]` yourself with Edit. "
         "On stop before approval, partial work is preserved on the task's worktree "
         "branch (normal non-PASS returns are committed; hard Stop leaves completed "
         "edits in place). Leave it unmerged and re-dispatch the same "
@@ -245,11 +195,6 @@ AGENT_WORKER_TOOL_SCHEMA = {
                     "the SAME task_name — reuse the exact name when re-dispatching "
                     "or continuing a task so it resumes from those notes."
                 ),
-            },
-            "task_type": {
-                "type": "string",
-                "enum": ["coding", "slide"],
-                "description": "Task type of this subtask (default coding).",
             },
         },
         "required": ["purpose", "task_contract", "description", "task_name"],
@@ -344,26 +289,11 @@ def build_code_worker_toolkit(
     trace_sink=None,
     phase_sink=None,
 ):
-    return dict(CODE_WORKER_TOOLS), list(CODE_WORKER_TOOL_SCHEMAS)
+    return dict(CODE_WORKER_TOOLS), list(CODE_WORKER_TOOL_SCHEMAS) + [MEMORY_WRITER_TOOL_SCHEMA]
 
 
 def build_worker_toolkit(task_type="coding", **kwargs):
-    normalized = normalize_task_type(task_type)
-    if normalized == "slide":
-        return build_slide_worker_toolkit(**kwargs)
     return build_code_worker_toolkit(**kwargs)
-
-
-def build_slide_worker_toolkit(
-    *,
-    api_key,
-    model,
-    run_log_path=None,
-    turn_id=None,
-    trace_sink=None,
-    phase_sink=None,
-):
-    return dict(SLIDE_WORKER_TOOLS), list(SLIDE_WORKER_TOOL_SCHEMAS)
 
 
 def build_reviewer_toolkit(
@@ -376,10 +306,7 @@ def build_reviewer_toolkit(
     trace_sink=None,
     phase_sink=None,
 ):
-    normalized = normalize_task_type(task_type)
-    if normalized == "slide":
-        return dict(SLIDE_REVIEWER_TOOLS), list(SLIDE_REVIEWER_TOOL_SCHEMAS)
-    return dict(REVIEWER_TOOLS), list(REVIEWER_TOOL_SCHEMAS)
+    return dict(REVIEWER_TOOLS), list(REVIEWER_TOOL_SCHEMAS) + [MEMORY_WRITER_TOOL_SCHEMA]
 
 
 def new_worker_session(
@@ -503,7 +430,63 @@ def run_reviewer(
     return session.send(reviewer_user_prompt(task, context), assigned_task=task)
 
 
-class WorkerSession:
+class MemoryPhaseMixin:
+    """Same memory triangle as the main agent: prefetch, mid-phase fork, end catch-up."""
+
+    def _init_memory_phase_state(self) -> None:
+        self._memory_writer_ran_this_send = False
+        self._memory_hooks_ready = False
+        self.tools["memory_writer"] = self._invoke_memory_writer
+
+    def _refresh_memory_block(self, task: str = "") -> None:
+        from langbridge_code.memory import prefetch_memory
+
+        self.context.stack.set_memory_block(
+            prefetch_memory(
+                self.api_key,
+                self.model,
+                task or getattr(self, "assigned_task", None) or "",
+            )
+        )
+
+    def _ensure_memory_hooks(self) -> None:
+        if self._memory_hooks_ready:
+            return
+        previous = self.context.stack.on_compacted
+
+        def on_compacted(compacted_stack):
+            if previous is not None:
+                try:
+                    previous(compacted_stack)
+                except Exception:
+                    pass
+            self._refresh_memory_block()
+
+        self.context.stack.on_compacted = on_compacted
+        self._memory_hooks_ready = True
+
+    def _begin_memory_phase(self) -> None:
+        self._memory_writer_ran_this_send = False
+        self._refresh_memory_block(getattr(self, "assigned_task", None) or "")
+        self._ensure_memory_hooks()
+
+    def _invoke_memory_writer(self, **_kwargs):
+        from langbridge_code.memory import run_memory_writer_agent
+
+        report = run_memory_writer_agent(self.api_key, self.model, list(self.messages))
+        self._memory_writer_ran_this_send = True
+        return report
+
+    def _schedule_memory_if_needed(self) -> None:
+        from langbridge_code.memory import schedule_memory_writer
+
+        if self._memory_writer_ran_this_send:
+            return
+        schedule_memory_writer(self.api_key, self.model, self.messages)
+        self._memory_writer_ran_this_send = True
+
+
+class WorkerSession(MemoryPhaseMixin):
     def __init__(
         self,
         api_key,
@@ -545,6 +528,7 @@ class WorkerSession:
         )
         self.tools = dict(tools)
         self.tool_schemas = list(tool_schemas)
+        self._init_memory_phase_state()
         if self.task_progress.enabled:
             self.tools["note_progress"] = self.task_progress.write_note
             self.tool_schemas.append(TASK_NOTE_PROGRESS_TOOL_SCHEMA)
@@ -587,6 +571,7 @@ class WorkerSession:
     def begin_send(self, user_prompt, *, assigned_task=None) -> None:
         """Start a worker phase: pin task and optional turn line."""
         self._apply_assigned_task(assigned_task)
+        self._begin_memory_phase()
         prompt = (user_prompt or "").strip()
         if prompt:
             self.context.begin_turn(prompt)
@@ -686,10 +671,11 @@ class WorkerSession:
     def _finish(self, report):
         self._deactivate_foreground()
         write_worklog_finish(self.run_log_path, self.label, self.worklog_id, self.turn_id, report)
+        self._schedule_memory_if_needed()
         return report
 
 
-class ReviewerSession:
+class ReviewerSession(MemoryPhaseMixin):
     def __init__(
         self,
         api_key,
@@ -705,8 +691,8 @@ class ReviewerSession:
     ):
         self.api_key = api_key
         self.model = model
-        self.tool_schemas = tool_schemas
-        self.tools = tools
+        self.tool_schemas = list(tool_schemas)
+        self.tools = dict(tools)
         self.task_type = normalize_task_type(task_type)
         self.label = "Reviewer"
         self.trace_sink = trace_sink
@@ -727,6 +713,7 @@ class ReviewerSession:
             label=self.label,
             current_trace=self.context.agent_trace_path,
         )
+        self._init_memory_phase_state()
         if self.task_progress.enabled:
             self.task_progress.attach(self.context.stack, self.messages)
         self.step = 0
@@ -765,6 +752,7 @@ class ReviewerSession:
 
     def begin_send(self, user_prompt, *, assigned_task=None) -> None:
         self._apply_assigned_task(assigned_task)
+        self._begin_memory_phase()
         prompt = (user_prompt or "").strip()
         if prompt:
             self.context.begin_turn(prompt)
@@ -865,6 +853,7 @@ class ReviewerSession:
     def _finish(self, report):
         self._deactivate_foreground()
         write_worklog_finish(self.run_log_path, self.label, self.worklog_id, self.turn_id, report)
+        self._schedule_memory_if_needed()
         return report
 
 
@@ -1020,7 +1009,7 @@ def partial_work_note(snapshot, cwd=None) -> str:
         "\n\nPartial work left in the working tree (not reverted):\n"
         + body[:2000]
         + "\nMain agent decides: re-dispatch agent_worker to continue from this state, "
-        "or revise todo_list.md (edit_file) into smaller steps accounting for these changes."
+        "or revise todo_list.md (Edit) into smaller steps accounting for these changes."
     )
 
 
@@ -1053,16 +1042,10 @@ def reviewer_context(context, worker_report, diff: str, *, task_type="coding") -
     if context:
         parts.append(context)
     parts.append("Worker summary:\n" + worker_report)
-    if normalize_task_type(task_type) == "coding":
-        if diff.strip():
-            parts.append("Git diff:\n" + diff[:16000])
-        else:
-            parts.append("Git diff: (empty)")
+    if diff.strip():
+        parts.append("Git diff:\n" + diff[:16000])
     else:
-        parts.append(
-            "Slide task: inspect deliverable files (e.g. .pptx) with read_file/glob — "
-            "no git diff for this task type."
-        )
+        parts.append("Git diff: (empty)")
     return "\n\n".join(parts)
 
 
@@ -1091,9 +1074,8 @@ def run_worker_reviewer_loop(
 ) -> tuple[bool, str]:
     """One loop from LangBridge: worker until ready → reviewer → repeat; shared step budget."""
     normalized = normalize_task_type(task_type)
-    use_git = normalized == "coding"
     git_root = _git_cwd(cwd)
-    snapshot = (base_snapshot or snapshot_head(git_root)) if use_git else None
+    snapshot = base_snapshot or snapshot_head(git_root)
     locked_approval = _locked_approval(approval_callback)
     worker = new_worker_session(
         api_key,
@@ -1136,17 +1118,19 @@ def run_worker_reviewer_loop(
 
             outcome, text = worker.run_one_step(loop_budget)
             if outcome in {StepOutcome.EXHAUSTED, StepOutcome.TIMEOUT, StepOutcome.CONTEXT}:
+                worker._schedule_memory_if_needed()
                 append_event(
                     run_log_path,
                     {"event": "loop_stop", "phase": "worker", "outcome": outcome.value},
                 )
                 report = _loop_stop_report(outcome, worker_report=worker_report, reviewer_report=reviewer_report)
-                return False, report + (partial_work_note(snapshot, git_root) if use_git else "")
+                return False, report + (partial_work_note(snapshot, git_root))
 
             if outcome == StepOutcome.TOOL:
                 continue
 
             worker_report = text or ""
+            worker._schedule_memory_if_needed()
             worker_phase_open = False
             append_event(
                 run_log_path,
@@ -1158,9 +1142,9 @@ def run_worker_reviewer_loop(
                 },
             )
             if not worker_ready_for_review(worker_report):
-                return False, worker_report + (partial_work_note(snapshot, git_root) if use_git else "")
+                return False, worker_report + (partial_work_note(snapshot, git_root))
 
-            diff = git_diff_since(snapshot, git_root) if use_git else ""
+            diff = git_diff_since(snapshot, git_root)
             phase = "reviewer"
             append_event(
                 run_log_path,
@@ -1171,7 +1155,7 @@ def run_worker_reviewer_loop(
         if phase == "reviewer":
             if not reviewer_phase_open:
                 emit_phase(phase_sink, "reviewing")
-                diff = git_diff_since(snapshot, git_root) if use_git else ""
+                diff = git_diff_since(snapshot, git_root)
                 reviewer.begin_send(
                     reviewer_user_prompt(task, reviewer_context(context, worker_report, diff, task_type=normalized)),
                     assigned_task=task,
@@ -1180,17 +1164,19 @@ def run_worker_reviewer_loop(
 
             outcome, text = reviewer.run_one_step(loop_budget)
             if outcome in {StepOutcome.EXHAUSTED, StepOutcome.TIMEOUT, StepOutcome.CONTEXT}:
+                reviewer._schedule_memory_if_needed()
                 append_event(
                     run_log_path,
                     {"event": "loop_stop", "phase": "reviewer", "outcome": outcome.value},
                 )
                 report = _loop_stop_report(outcome, worker_report=worker_report, reviewer_report=reviewer_report)
-                return False, report + (partial_work_note(snapshot, git_root) if use_git else "")
+                return False, report + (partial_work_note(snapshot, git_root))
 
             if outcome == StepOutcome.TOOL:
                 continue
 
             reviewer_report = text or ""
+            reviewer._schedule_memory_if_needed()
             reviewer_phase_open = False
             append_event(
                 run_log_path,
@@ -1202,8 +1188,7 @@ def run_worker_reviewer_loop(
                 },
             )
             if reviewer_review_passed(reviewer_report):
-                if use_git:
-                    commit_task("worker", task, git_root)
+                commit_task("worker", task, git_root)
                 append_event(
                     run_log_path,
                     {"event": "approved", "steps_used": loop_budget.used_steps},
@@ -1218,8 +1203,12 @@ def run_worker_reviewer_loop(
             )
 
     append_event(run_log_path, {"event": "max_steps", "steps_used": loop_budget.used_steps})
+    if worker_phase_open:
+        worker._schedule_memory_if_needed()
+    if reviewer_phase_open:
+        reviewer._schedule_memory_if_needed()
     report = reviewer_report or worker_report
-    return False, report + (partial_work_note(snapshot, git_root) if use_git else "")
+    return False, report + (partial_work_note(snapshot, git_root))
 
 
 def _parallel_worktree_context(task: str, worktree_path: Path, *, resumed=False) -> str:
@@ -1309,8 +1298,7 @@ def dispatch_worker(
     # state (e.g. todo_list.md ticks) can neither pollute the worker's diff nor
     # be clobbered by the worker.
     use_worktree = (
-        normalized == "coding"
-        and not is_merge_task_prompt(task)
+        not is_merge_task_prompt(task)
         and worktree_mod.is_git_repo()
     )
     worktree_info = None
@@ -1405,7 +1393,7 @@ def _todo_completion_suffix(passed):
         return ""
     return (
         "\n\nNext: if this task is a todo in todo_list.md, mark that line `[x]` "
-        "yourself (edit_file), then dispatch the next unblocked todos — or report "
+        "yourself (Edit), then dispatch the next unblocked todos — or report "
         "to the user if everything is done."
     )
 
@@ -1440,7 +1428,7 @@ def build_agent_worker_tool(
             return (
                 "Tool error: merge tasks are not delegated to agent_worker. "
                 "Merge ready branches yourself with the merge_branch tool "
-                "(one branch per call); resolve conflicts with edit_file + git add + git commit."
+                "(one branch per call); resolve conflicts with Edit + git add + git commit."
             )
         return dispatch_worker(
             task,

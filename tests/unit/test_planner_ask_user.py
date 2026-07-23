@@ -37,12 +37,13 @@ def test_planner_has_no_ask_user_or_write_tools():
     names = {item["name"] for item in PLANNER_TOOL_SCHEMAS}
     assert "ask_user" not in names
     assert "write" not in names
-    assert "edit_file" not in names
+    assert "Edit" not in names
+    assert {"bash", "read_webpage", "read_skill", "read_file"} <= names
 
 
 def test_main_agent_edits_plan_with_file_tools():
     names = {item["name"] for item in MAIN_TOOL_SCHEMAS}
-    assert {"write", "edit_file", "read_file"} <= names
+    assert {"write", "Edit", "read_file"} <= names
     assert "update_plan" not in names
 
 

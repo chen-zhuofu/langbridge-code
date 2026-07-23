@@ -54,6 +54,9 @@ class _StubSession:
     def begin_send(self, *args, **kwargs):
         pass
 
+    def _schedule_memory_if_needed(self):
+        pass
+
     def run_one_step(self, loop_budget=None):
         (self.repo / "app.py").write_text("print('half done')\n", encoding="utf-8")
         return StepOutcome.FINAL, self.final_text
