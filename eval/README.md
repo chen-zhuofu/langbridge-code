@@ -8,6 +8,8 @@ uv run python data-pipeline/reset_task.py pytest-dev__pytest-14730
 ## Run against task
 uv run python eval/langbridge-bench/run_eval.py --task pytest-dev__pytest-14694
 
+uv run python eval/langbridge-bench/run_eval.py --workers 10
+
 ## Eval network guard (automatic, no setup)
 Agent containers run on an internal Docker network with no direct internet.
 Sole egress: the auto-started lb-eval-proxy container, which only tunnels

@@ -4,6 +4,17 @@
 
 # Python repos, ordered by GitHub stars
 
+# Additional agent repos
+
+# 5.0k stars
+MoonshotAI/kimi-code
+
+# 220.1k stars
+NousResearch/hermes-agent
+
+# 384.1k stars
+openclaw/openclaw
+
 # 72.0k stars
 pallets/flask
 
@@ -24,14 +35,3 @@ pydantic/pydantic
 
 # 23.0k stars
 matplotlib/matplotlib
-
-# Additional agent repos
-
-# 220.1k stars
-NousResearch/hermes-agent
-
-# 384.1k stars
-openclaw/openclaw
-
-# 5.0k stars
-MoonshotAI/kimi-code

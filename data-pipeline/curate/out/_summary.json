@@ -1,16 +1,21 @@
 {
-  "curate_out": 4,
-  "eval_specs": 4,
+  "curate_out": 6,
+  "eval_specs": 6,
   "pipeline_dropped": 0,
   "llm_kept": [],
-  "llm_rewritten": [],
+  "llm_rewritten": [
+    "NousResearch__hermes-agent-72029"
+  ],
   "llm_dropped": [],
-  "skipped_kept": 4,
+  "skipped_kept": 5,
   "skipped_drop": 0,
-  "attempted": 0,
+  "attempted": 1,
   "sync": {
-    "copied": [],
+    "copied": [
+      "NousResearch__hermes-agent-72029"
+    ],
     "skipped_exists": [
+      "NousResearch__hermes-agent-72183",
       "pytest-dev__pytest-13745",
       "pytest-dev__pytest-14645",
       "pytest-dev__pytest-14694",
