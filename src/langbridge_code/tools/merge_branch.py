@@ -4,7 +4,7 @@ from pathlib import Path
 
 from langbridge_code.agents.common import worktree as worktree_mod
 from langbridge_code.agents.common.workspace import get_workspace_root
-from langbridge_code.tools.common.purpose import PURPOSE_PARAMETER
+from langbridge_code.tools.common.description import DESCRIPTION_PARAMETER
 from langbridge_code.tools.common.runtime import managed_binary
 
 MERGE_BRANCH_TOOL_SCHEMA = {
@@ -23,13 +23,13 @@ MERGE_BRANCH_TOOL_SCHEMA = {
     "parameters": {
         "type": "object",
         "properties": {
-            "purpose": PURPOSE_PARAMETER,
+            "description": DESCRIPTION_PARAMETER,
             "branch": {
                 "type": "string",
                 "description": "Feature branch to merge (e.g. lb/session/t1-auth).",
             },
         },
-        "required": ["purpose", "branch"],
+        "required": ["description", "branch"],
         "additionalProperties": False,
     },
 }

@@ -6,7 +6,6 @@ from langbridge_code.llm.parse import extract_output_text
 from langbridge_code.util.agent_worklog import new_worklog_id
 from langbridge_code.util.agent_traces import (
     append_agent_raw_round,
-    append_compaction_event,
     reserve_agent_trace,
 )
 
@@ -52,7 +51,6 @@ class AgentContextManager:
             system_content=system_content,
             label=label,
         )
-        self._stack.on_compaction = self._log_compaction
         self._messages: list[dict] | None = None
 
     @property
@@ -63,25 +61,11 @@ class AgentContextManager:
         self.run_log_path = run_log_path
         self.worklog_id = worklog_id
 
-    def _log_compaction(self, event: dict) -> None:
-        payload = dict(event)
-        payload["role"] = self.label
-        payload["task_name"] = self.task_name or None
-        payload["instance_id"] = (
-            self.agent_trace_instance_id
-            if self.agent_trace_instance_id is not None
-            else self.worklog_id
-        )
-        append_compaction_event(self.run_log_path, payload)
-
     def append_subagent_round(self) -> None:
         if self.label == "LangBridge" or not self.last_completed_round:
             return
         append_agent_raw_round(
             self.agent_trace_path,
-            role=self.label,
-            task_name=self.task_name,
-            instance_id=self.agent_trace_instance_id,
             round_index=self._trace_round_index,
             messages=self.last_completed_round,
         )
@@ -110,27 +94,24 @@ class AgentContextManager:
         self,
         step_items: list[dict],
         *,
-        api_key,
         model,
         budget_tokens,
     ) -> dict:
         self.last_completed_round = self._stack.complete_step(normalize_step_items(step_items))
         stats = self._stack.maybe_advance(
-            api_key=api_key,
             model=model,
             budget_tokens=budget_tokens,
         )
         self.sync()
         return stats
 
-    def compact_to_budget(self, *, api_key, model, budget_tokens=None) -> dict:
+    def compact_to_budget(self, *, model, budget_tokens=None) -> dict:
         """Force token-driven compaction before a model call; rebuilds messages."""
         stats = self._stack.maybe_advance(
-            api_key=api_key,
             model=model,
             budget_tokens=budget_tokens,
         )
-        if stats.get("prose_compacted"):
+        if stats.get("compacted"):
             self.sync()
         return stats
 
@@ -143,6 +124,13 @@ def init_agent_context(
     seed_messages=None,
     task_name: str = "",
 ) -> tuple[list[dict], AgentContextManager, int | None]:
+    if run_log_path is not None:
+        from langbridge_code.agents.common.workspace import add_readable_root
+        from langbridge_code.util.artifacts import artifact_dir
+
+        # Read tools may follow absolute paths into the session artifact dir
+        # (persisted explorer reports and the like) — reads only.
+        add_readable_root(artifact_dir(run_log_path))
     messages = seed_messages if seed_messages is not None else [{"role": "system", "content": system_prompt}]
     context = AgentContextManager(
         system_content=system_prompt,
@@ -161,7 +149,6 @@ def init_agent_context(
 def finish_step(context: AgentContextManager, step_items: list[dict], session, budget: int) -> None:
     context.after_tool_step(
         step_items,
-        api_key=session.api_key,
         model=session.model,
         budget_tokens=budget,
     )

@@ -1,0 +1,39 @@
+{
+  "task_id": "psf__requests-7315",
+  "status": "ok",
+  "repo": "psf/requests",
+  "base_commit": "e8d2c015eecda8273612dd4562425e00cd164ba5",
+  "problem_statement": "breaking aws s3 usage with requests 2.32.0\n\nrequests 2.32.0 introduced a change  that strips double /. \r\n\r\nThis has introduced an issue where generated presigned urls for s3 keys that start with a / can no longer be used. requests now strips that second / meaning that the key is modified and the signature does not match resulting in 403 errors. We can adjust to remove the leading / in our keys but this may be affecting other users or use cases\r\n\r\n## Expected Result\r\n\r\nTo be able to use presigned_urls for s3 keys with leading \"/\"\r\n\r\n## Actual Result\r\n\r\nURL that was passed was modified resulting in a 403 error response from aws\r\n\r\n## Reproduction Steps\r\n\r\n```python\r\nimport requests\r\nimport boto3\r\ns3 = boto3.client('s3')\r\nbucket = \"bucket\"\r\nkey = \"/key_with_leading_slash.txt\"\r\npresigned_url = s3.generate_presigned_url(\"get_object\", Params={'Bucket': bucket, 'Key': key})\r\nrequests.get(presigned_url)\r\n```\r\n\r\n## System Information\r\n\r\n    $ python -m requests.help\r\n\r\n```json\r\n{\r\n  \"chardet\": {\r\n    \"version\": \"5.1.0\"\r\n  },\r\n  \"charset_normalizer\": {\r\n    \"version\": \"3.1.0\"\r\n  },\r\n  \"cryptography\": {\r\n    \"version\": \"\"\r\n  },\r\n  \"idna\": {\r\n    \"version\": \"3.4\"\r\n  },\r\n  \"implementation\": {\r\n    \"name\": \"CPython\",\r\n    \"version\": \"3.9.6\"\r\n  },\r\n  \"platform\": {\r\n    \"release\": \"10\",\r\n    \"system\": \"Windows\"\r\n  },\r\n  \"pyOpenSSL\": {\r\n    \"openssl_version\": \"\",\r\n    \"version\": null\r\n  },\r\n  \"requests\": {\r\n    \"version\": \"2.32.1\"\r\n  },\r\n  \"system_ssl\": {\r\n    \"version\": \"101010bf\"\r\n  },\r\n  \"urllib3\": {\r\n    \"version\": \"1.26.15\"\r\n  },\r\n  \"using_charset_normalizer\": false,\r\n  \"using_pyopenssl\": false\r\n}\r\n```",
+  "test_files": [
+    "tests/test_adapters.py"
+  ],
+  "test_patch": "diff --git a/tests/test_adapters.py b/tests/test_adapters.py\n--- a/tests/test_adapters.py\n+++ b/tests/test_adapters.py\n@@ -1,8 +1,8 @@\n import requests.adapters\n \n \n-def test_request_url_trims_leading_path_separators():\n+def test_request_url_handles_leading_path_separators():\n     \"\"\"See also https://github.com/psf/requests/issues/6643.\"\"\"\n     a = requests.adapters.HTTPAdapter()\n     p = requests.Request(method=\"GET\", url=\"http://127.0.0.1:10000//v:h\").prepare()\n-    assert \"/v:h\" == a.request_url(p, {})\n+    assert \"//v:h\" == a.request_url(p, {})\n",
+  "gold_code_patch": "diff --git a/src/requests/adapters.py b/src/requests/adapters.py\n--- a/src/requests/adapters.py\n+++ b/src/requests/adapters.py\n@@ -590,8 +590,6 @@ def request_url(\n             using_socks_proxy = proxy_scheme.startswith(\"socks\")\n \n         url = request.path_url\n-        if url.startswith(\"//\"):  # Don't confuse urllib3\n-            url = f\"/{url.lstrip('/')}\"\n \n         if is_proxied_http_request and not using_socks_proxy:\n             url = urldefragauth(request.url)\n",
+  "fail_to_pass": [
+    "tests/test_adapters.py::test_request_url_handles_leading_path_separators"
+  ],
+  "pass_to_pass": [],
+  "hard": false,
+  "required_tool_calls": [
+    {
+      "tool": "read_file",
+      "path_glob": "src/requests/adapters.py"
+    },
+    {
+      "tool": "Edit"
+    },
+    {
+      "tool": "bash",
+      "command_regex": "pytest.*test_adapters"
+    }
+  ],
+  "metadata": {
+    "pr_url": "https://github.com/psf/requests/pull/7315",
+    "linked_issues": [
+      6711
+    ],
+    "num_files": 2,
+    "created_at": "2026-03-31T22:38:22Z"
+  },
+  "docker_image": "lb-task:psf__requests-7315"
+}

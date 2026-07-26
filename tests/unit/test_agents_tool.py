@@ -1,13 +1,13 @@
-from langbridge_code.tools.agent_worker_reviewer import run_worker_component
-from langbridge_code.tools.agent_worker_reviewer import (
+from langbridge_code.agents.worker_reviewer import run_worker_component
+from langbridge_code.agents.worker_reviewer import (
     AGENT_WORKER_TOOL_SCHEMA,
     CODE_WORKER_TOOL_SCHEMAS,
     build_code_worker_toolkit,
     max_steps_report,
     run_worker_tool_call,
 )
-from langbridge_code.tools.agent_worker_reviewer import build_reviewer_toolkit, reviewer_review_passed
-from langbridge_code.agents.system_prompt import (
+from langbridge_code.agents.worker_reviewer import build_reviewer_toolkit, reviewer_review_passed
+from langbridge_code.prompt.system import (
     WORKER_ENGINEER_PROMPT,
     REVIEWER_ENGINEER_PROMPT,
 )
@@ -81,8 +81,8 @@ def test_main_tools_exclude_legacy_specialists():
     assert "read_plan" not in MAIN_TOOLS
     assert "clear_plan" not in MAIN_TOOLS
     for schema in MAIN_TOOL_SCHEMAS + coder_schemas:
-        assert "purpose" in schema["parameters"]["properties"]
-        assert "purpose" in schema["parameters"]["required"]
+        assert "description" in schema["parameters"]["properties"]
+        assert "description" in schema["parameters"]["required"]
 
 
 def test_reviewer_passed_requires_pass_verdict():
@@ -114,7 +114,7 @@ def test_reviewer_passed_tolerates_prose_preamble():
 
 
 def test_worker_ready_tolerates_prose_preamble():
-    from langbridge_code.tools.agent_worker_reviewer import worker_blocked, worker_ready_for_review
+    from langbridge_code.agents.worker_reviewer import worker_blocked, worker_ready_for_review
 
     assert worker_ready_for_review("WORKER_STATUS: READY_FOR_REVIEW\nSummary: done")
     assert worker_ready_for_review(
@@ -197,13 +197,13 @@ def test_worker_ordinary_bash_runs_without_approval():
     assert result["output"] == "ok"
 
 
-def test_specialist_tool_strips_purpose_before_execution():
+def test_specialist_tool_strips_description_before_execution():
     result = run_worker_tool_call(
         {
             "type": "function_call",
             "name": "write",
             "call_id": "call_1",
-            "arguments": '{"purpose":"Create the target file.","path":"x.py","content":"print(1)"}',
+            "arguments": '{"description":"Create the target file.","path":"x.py","content":"print(1)"}',
         },
         {"write": lambda **arguments: sorted(arguments)},
     )
@@ -217,7 +217,7 @@ def test_specialist_tool_strips_purpose_before_execution():
 
 def test_run_worker_component_delegates_to_coder_reviewer(monkeypatch):
     monkeypatch.setattr(
-        "langbridge_code.tools.agent_worker_reviewer.run_worker_reviewer_loop",
+        "langbridge_code.agents.worker_reviewer.run_worker_reviewer_loop",
         lambda *args, **kwargs: (True, "WORKER_STATUS: READY_FOR_REVIEW\nSummary: done"),
     )
 
@@ -262,10 +262,10 @@ def test_specialist_max_steps_fallback_reports_tool_history(monkeypatch):
             ]
         }
 
-    monkeypatch.setattr("langbridge_code.tools.agent_worker_reviewer.MAX_WORKER_STEPS", 1)
-    monkeypatch.setattr("langbridge_code.tools.agent_worker_reviewer.create_model_response", fake_response)
+    monkeypatch.setattr("langbridge_code.agents.worker_reviewer.MAX_WORKER_STEPS", 1)
+    monkeypatch.setattr("langbridge_code.agents.worker_reviewer.create_model_response", fake_response)
 
-    from langbridge_code.tools.agent_worker_reviewer import WorkerSession
+    from langbridge_code.agents.worker_reviewer import WorkerSession
 
     session = WorkerSession(
         "key",

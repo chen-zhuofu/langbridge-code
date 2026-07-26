@@ -17,8 +17,10 @@ def test_worker_and_reviewer_schemas_include_memory_writer():
 def test_worker_and_reviewer_prompts_mention_memory_writer():
     assert "memory_writer" in worker_system_prompt("coding")
     assert "<memory>" in worker_system_prompt("coding")
+    assert "python3" in worker_system_prompt("coding")
     assert "memory_writer" in reviewer_system_prompt("coding")
     assert "<memory>" in reviewer_system_prompt("coding")
+    assert "python3" in reviewer_system_prompt("coding")
 
 
 def test_worker_begin_send_prefetches_memory(monkeypatch):
@@ -86,10 +88,6 @@ def test_worker_memory_writer_skips_end_schedule(monkeypatch):
     monkeypatch.setattr("langbridge_code.memory.prefetch_memory", lambda *a, **k: "")
     monkeypatch.setattr(
         "langbridge_code.tools.agent_worker_reviewer.write_worklog_received",
-        lambda *a, **k: None,
-    )
-    monkeypatch.setattr(
-        "langbridge_code.tools.agent_worker_reviewer.write_worklog_step",
         lambda *a, **k: None,
     )
     monkeypatch.setattr(

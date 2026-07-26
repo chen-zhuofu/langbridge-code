@@ -1,8 +1,14 @@
-"""Per-subagent raw JSONL traces and full compaction audit records."""
+"""Per-subagent raw markdown traces and progress-merge audit records.
+
+Each subagent dispatch writes {session}/{task-slug}/{role}-{n}.md — the same
+"## Round N" + ```json block format as the main agent's traces.md, so every
+trace in a session reads the same way.
+"""
 from __future__ import annotations
 
 import itertools
 import json
+import re
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
@@ -10,12 +16,19 @@ from pathlib import Path
 from langbridge_code.context.common.budget import estimate_tokens
 from langbridge_code.llm.model_context import model_context_window
 from langbridge_code.settings import TRACES_RESUME_MAX_FRACTION
-from langbridge_code.util.artifacts import slug_first_message, traces_dir
+from langbridge_code.util.artifacts import (
+    artifact_dir,
+    attachments_dir,
+    slug_first_message,
+    task_dir,
+)
 
 _INLINE_COMPACTION_CHARS = 4_000
 _LOCKS: dict[str, threading.Lock] = {}
 _LOCKS_GUARD = threading.Lock()
 _COMPACTION_SEQUENCE = itertools.count()
+
+_JSON_BLOCK_RE = re.compile(r"^```json\s*$(.*?)^```\s*$", re.MULTILINE | re.DOTALL)
 
 
 def _lock_for(path: Path) -> threading.Lock:
@@ -32,47 +45,34 @@ def _role_slug(role: str) -> str:
     return slug_first_message(role or "agent").lower()
 
 
-def _task_slug(task_name: str) -> str:
-    return slug_first_message(task_name or "untitled")
-
-
 def reserve_agent_trace(run_log_path, role: str, task_name: str) -> tuple[Path | None, int | None]:
-    """Reserve ``traces/{role}-{task_name}-{id}.jsonl``; ids start at zero per task."""
-    directory = traces_dir(run_log_path)
-    if directory is None or not (task_name or "").strip():
+    """Reserve ``{task-slug}/{role}-{id}.md``; ids start at zero per task."""
+    directory = task_dir(run_log_path, task_name)
+    if directory is None:
         return None, None
     directory.mkdir(parents=True, exist_ok=True)
-    prefix = f"{_role_slug(role)}-{_task_slug(task_name)}-"
+    prefix = f"{_role_slug(role)}-"
     lock = _lock_for(directory / f".{prefix}counter")
     with lock:
         instance_id = 0
-        while (directory / f"{prefix}{instance_id}.jsonl").exists():
+        while (directory / f"{prefix}{instance_id}.md").exists():
             instance_id += 1
-        path = directory / f"{prefix}{instance_id}.jsonl"
-        metadata = {
-            "type": "agent_trace_start",
-            "role": role,
-            "task_name": task_name,
-            "instance_id": instance_id,
-            "timestamp": _timestamp(),
-        }
-        path.write_text(
-            json.dumps(metadata, ensure_ascii=False, default=str) + "\n",
-            encoding="utf-8",
+        path = directory / f"{prefix}{instance_id}.md"
+        header = (
+            f"# {role} trace — task: {task_name} (instance {instance_id})\n"
+            f"\nStarted: {_timestamp()}\n"
         )
+        path.write_text(header, encoding="utf-8")
     return path, instance_id
 
 
 def append_agent_raw_round(
     path: Path | None,
     *,
-    role: str,
-    task_name: str,
-    instance_id: int | None,
     round_index: int,
     messages: list[dict],
 ) -> None:
-    """Append one uncompressed, non-system message round to an agent JSONL trace."""
+    """Append one uncompressed, non-system message round to an agent trace."""
     if path is None or not messages:
         return
     filtered = [
@@ -80,19 +80,11 @@ def append_agent_raw_round(
     ]
     if not filtered:
         return
-    record = {
-        "type": "round",
-        "role": role,
-        "task_name": task_name,
-        "instance_id": instance_id,
-        "round": round_index,
-        "timestamp": _timestamp(),
-        "messages": filtered,
-    }
-    line = json.dumps(record, ensure_ascii=False, default=str) + "\n"
+    payload = json.dumps(filtered, ensure_ascii=False, indent=2, default=str)
+    block = f"\n## Round {round_index}\n\n```json\n{payload}\n```\n"
     with _lock_for(path):
         with path.open("a", encoding="utf-8") as handle:
-            handle.write(line)
+            handle.write(block)
 
 
 def _trace_instance_id(path: Path) -> int:
@@ -110,13 +102,13 @@ def agent_trace_paths(
     exclude: Path | None = None,
 ) -> list[Path]:
     """Existing traces for one role/task, oldest dispatch first."""
-    directory = traces_dir(run_log_path)
-    if directory is None or not directory.exists() or not (task_name or "").strip():
+    directory = task_dir(run_log_path, task_name)
+    if directory is None or not directory.exists():
         return []
-    prefix = f"{_role_slug(role)}-{_task_slug(task_name)}-"
+    prefix = f"{_role_slug(role)}-"
     excluded = Path(exclude).resolve() if exclude is not None else None
     paths = []
-    for path in directory.glob(f"{prefix}*.jsonl"):
+    for path in directory.glob(f"{prefix}*.md"):
         if excluded is not None and path.resolve() == excluded:
             continue
         paths.append(path)
@@ -127,16 +119,15 @@ def _read_agent_rounds(paths: list[Path]) -> list[list[dict]]:
     rounds: list[list[dict]] = []
     for path in paths:
         try:
-            lines = path.read_text(encoding="utf-8").splitlines()
+            content = path.read_text(encoding="utf-8")
         except OSError:
             continue
-        for line in lines:
+        for match in _JSON_BLOCK_RE.finditer(content):
             try:
-                record = json.loads(line)
-            except json.JSONDecodeError:
+                messages = json.loads(match.group(1))
+            except (json.JSONDecodeError, ValueError):
                 continue
-            messages = record.get("messages")
-            if record.get("type") == "round" and isinstance(messages, list):
+            if isinstance(messages, list) and messages:
                 rounds.append(messages)
     return rounds
 
@@ -194,7 +185,7 @@ def build_agent_resume_background(
 
 def append_compaction_event(run_log_path, event: dict) -> Path | None:
     """Append a compaction index record; oversized full events become attachments."""
-    directory = traces_dir(run_log_path)
+    directory = artifact_dir(run_log_path)
     if directory is None:
         return None
     directory.mkdir(parents=True, exist_ok=True)
@@ -203,7 +194,7 @@ def append_compaction_event(run_log_path, event: dict) -> Path | None:
     payload.setdefault("timestamp", _timestamp())
     rendered = json.dumps(payload, ensure_ascii=False, indent=2, default=str)
     if len(rendered) > _INLINE_COMPACTION_CHARS:
-        attachments = directory / "attachments"
+        attachments = attachments_dir(run_log_path)
         attachments.mkdir(parents=True, exist_ok=True)
         sequence = next(_COMPACTION_SEQUENCE)
         stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H%M%S.%fZ")

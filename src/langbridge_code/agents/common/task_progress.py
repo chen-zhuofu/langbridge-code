@@ -12,15 +12,6 @@ from __future__ import annotations
 
 from langbridge_code.settings import PROGRESS_NOTE_REMINDER_ROUNDS
 
-TASK_NOTE_REMINDER = (
-    "[HOOK] More than {rounds} rounds have passed without a progress note. "
-    "Call note_progress NOW, before any other tool call: record what you have "
-    "done since the last note and the current state of your task. If your "
-    "context is compacted or you are stopped, this file is the only record "
-    "the next agent on this task gets. Then continue working."
-)
-
-
 class TaskProgress:
     """Binds one subagent session to its task progress file."""
 
@@ -43,13 +34,14 @@ class TaskProgress:
         self.turn_id = 0
         self._stack = None
         self._messages = None
+        self._tool_schemas = None
         self._rounds_since_note = 0
 
     @property
     def enabled(self) -> bool:
         return bool(self.task_name and self.run_log_path)
 
-    def attach(self, stack, messages) -> None:
+    def attach(self, stack, messages, tool_schemas=None) -> None:
         """Start one dispatch: pin existing notes and open the next turn section."""
         if not self.enabled:
             return
@@ -57,6 +49,7 @@ class TaskProgress:
 
         self._stack = stack
         self._messages = messages
+        self._tool_schemas = list(tool_schemas) if tool_schemas is not None else None
         self.turn_id = last_progress_turn_id(self.run_log_path, self.task_name) + 1
         self.refresh_block(include_traces=True)
         previous = stack.on_compacted
@@ -108,6 +101,7 @@ class TaskProgress:
                 list(self._messages or []),
                 TASK_NOTE_FORK_INSTRUCTION,
                 label=f"{self.label} note fork",
+                tool_schemas=self._tool_schemas,
             )
         except Exception as error:
             return f"Progress note fork failed: {error}"
@@ -117,12 +111,14 @@ class TaskProgress:
         maybe_compact_progress(self.api_key, self.model, self.run_log_path, self.task_name)
         return result
 
-    def maybe_remind(self, context) -> None:
-        """Same nudge cadence as the main agent: inject a [HOOK] after silent rounds."""
+    def maybe_force_write(self, _context=None) -> None:
+        """After too many silent rounds, fork-write this task's progress (code-enforced)."""
         if not self.enabled:
             return
         self._rounds_since_note += 1
         if self._rounds_since_note <= PROGRESS_NOTE_REMINDER_ROUNDS:
             return
-        self._rounds_since_note = 0
-        context.begin_turn(TASK_NOTE_REMINDER.format(rounds=PROGRESS_NOTE_REMINDER_ROUNDS))
+        self.write_note()
+
+    # Back-compat alias for older call sites / tests.
+    maybe_remind = maybe_force_write

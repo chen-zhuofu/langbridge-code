@@ -10,6 +10,14 @@ def test_goal_verification_tools_match_main_agent_except_merge():
     assert GOAL_VERIFICATION_TOOL_NAMES == MAIN_TOOL_NAMES - {"merge_branch"}
 
 
+def test_evaluator_prompt_and_tools_include_memory_writer():
+    from langbridge_code.agents.goal_evaluator import EVALUATOR_PROMPT, EVALUATOR_TOOL_SCHEMAS
+
+    assert "memory_writer" in EVALUATOR_PROMPT
+    assert "python3" in EVALUATOR_PROMPT
+    assert any(schema["name"] == "memory_writer" for schema in EVALUATOR_TOOL_SCHEMAS)
+
+
 def test_build_continuation_prompt_includes_guidance():
     goal = SessionGoal(
         condition="tests pass",

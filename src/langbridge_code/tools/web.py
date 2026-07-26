@@ -9,7 +9,7 @@ from langbridge_code.settings import (
     MAX_WEB_TIMEOUT_SECONDS,
     MAX_WEBPAGE_CHARS,
 )
-from langbridge_code.tools.common.purpose import PURPOSE_PARAMETER
+from langbridge_code.tools.common.description import DESCRIPTION_PARAMETER
 
 USER_AGENT = "langbridge-code/0.1 (+webpage reader)"
 
@@ -34,7 +34,7 @@ TOOL_SCHEMAS = [
         "parameters": {
             "type": "object",
             "properties": {
-                "purpose": PURPOSE_PARAMETER,
+                "description": DESCRIPTION_PARAMETER,
                 "url": {
                     "type": "string",
                     "description": "Absolute http or https URL of the page to read.",
@@ -50,7 +50,7 @@ TOOL_SCHEMAS = [
                     "default": DEFAULT_WEB_TIMEOUT_SECONDS,
                 },
             },
-            "required": ["purpose", "url"],
+            "required": ["description", "url"],
             "additionalProperties": False,
         },
     }

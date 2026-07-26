@@ -14,9 +14,12 @@ def _no_llm_prefetch(monkeypatch):
     import langbridge_code.agents.common.fork as fork_mod
     import langbridge_code.skills as skills_mod
     import langbridge_code.memory as memory_mod
+    import langbridge_code.tools.memory_writer as memory_writer_mod
 
     monkeypatch.setattr(memory_mod, "prefetch_memory", lambda *args, **kwargs: "")
-    monkeypatch.setattr(memory_mod, "schedule_memory_writer", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        memory_writer_mod, "schedule_memory_writer", lambda *args, **kwargs: None
+    )
     monkeypatch.setattr(
         skills_mod,
         "select_skill_index",
@@ -32,4 +35,23 @@ def _isolated_plan_file(monkeypatch, tmp_path):
     import langbridge_code.agents.common.todo_list as todo_list_mod
 
     monkeypatch.setattr(todo_list_mod, "plan_path", lambda: tmp_path / "todo_list.md")
+    yield
+
+
+@pytest.fixture(autouse=True)
+def _isolated_worktree_git(monkeypatch, tmp_path):
+    """Point worktree git operations away from the developer's real repo.
+
+    Without this, any test that dispatches a coding task without mocking
+    ``is_git_repo`` creates real branches/worktrees in the langbridge-code
+    checkout (e.g. the stale ``lb/run.json/fix-login`` debris). Tests that
+    need real git monkeypatch ``worktree_mod.WORKSPACE_ROOT`` to their own
+    temp repo, which overrides this default.
+    """
+    import langbridge_code.agents.common.worktree as worktree_mod
+
+    not_a_repo = tmp_path / "not-a-repo"
+    not_a_repo.mkdir(exist_ok=True)
+    monkeypatch.setattr(worktree_mod, "WORKSPACE_ROOT", not_a_repo)
+    monkeypatch.setattr(worktree_mod, "AGENT_STATE_DIR", tmp_path / "agent-state")
     yield

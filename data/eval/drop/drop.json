@@ -1,0 +1,4 @@
+{
+  "description": "HUMAN error-analysis drops. Archived under drop/specs/ and drop/docker-images/. Use drop_task.py. LLM drops go in data-pipeline/curate/out/drop.json.",
+  "dropped": []
+}

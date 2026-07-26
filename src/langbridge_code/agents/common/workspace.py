@@ -5,6 +5,23 @@ from pathlib import Path
 
 _tls = threading.local()
 
+# Directories outside the workspace that read tools may access (read-only).
+# Session artifact dirs register here so agents can read persisted reports.
+_readable_roots: set[Path] = set()
+_readable_roots_lock = threading.Lock()
+
+
+def add_readable_root(path) -> None:
+    if path is None:
+        return
+    with _readable_roots_lock:
+        _readable_roots.add(Path(path).resolve())
+
+
+def readable_roots() -> tuple[Path, ...]:
+    with _readable_roots_lock:
+        return tuple(_readable_roots)
+
 
 def get_workspace_root() -> Path:
     if hasattr(_tls, "root"):

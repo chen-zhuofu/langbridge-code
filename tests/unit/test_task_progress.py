@@ -16,8 +16,8 @@ def test_task_progress_path_is_stable_per_task_name(tmp_path):
     other = task_progress_path(tmp_path, "task 4: UI wiring")
     assert first == again
     assert first != other
-    assert first.name.startswith("progress-")
-    assert first.parent == tmp_path
+    assert first.name == "progress.md"
+    assert first.parent.parent == tmp_path
 
 
 def test_task_progress_path_requires_task_name(tmp_path):
@@ -56,12 +56,9 @@ def test_attach_pins_existing_notes_as_progress_block(tmp_path):
 
 
 def test_attach_cold_resume_includes_prior_raw_trace(tmp_path):
-    prior, prior_id = reserve_agent_trace(tmp_path, "Worker", "task-3")
+    prior, _ = reserve_agent_trace(tmp_path, "Worker", "task-3")
     append_agent_raw_round(
         prior,
-        role="Worker",
-        task_name="task-3",
-        instance_id=prior_id,
         round_index=0,
         messages=[{"role": "assistant", "content": "Stopped while fixing PUT semantics"}],
     )
@@ -106,28 +103,29 @@ def test_write_note_appends_via_fork_and_updates_file(tmp_path, monkeypatch):
     assert "Noted" in result
 
 
-def test_maybe_remind_injects_hook_after_silent_rounds(tmp_path, monkeypatch):
+def test_maybe_force_write_after_silent_rounds(tmp_path, monkeypatch):
     monkeypatch.setattr(
         "langbridge_code.agents.common.task_progress.PROGRESS_NOTE_REMINDER_ROUNDS", 2
     )
+    forced = {"n": 0}
 
-    class FakeContext:
-        def __init__(self):
-            self.turns = []
+    def fake_write(self, **_ignored):
+        forced["n"] += 1
+        self._rounds_since_note = 0
+        return "Noted (forced)."
 
-        def begin_turn(self, text):
-            self.turns.append(text)
-
+    monkeypatch.setattr(
+        "langbridge_code.agents.common.task_progress.TaskProgress.write_note",
+        fake_write,
+    )
     progress = TaskProgress("key", "model", tmp_path, "task-3", label="Worker")
     stack = _stack()
     progress.attach(stack, [])
-    context = FakeContext()
-    progress.maybe_remind(context)
-    progress.maybe_remind(context)
-    assert context.turns == []
-    progress.maybe_remind(context)
-    assert len(context.turns) == 1
-    assert "note_progress" in context.turns[0]
+    progress.maybe_force_write()
+    progress.maybe_force_write()
+    assert forced["n"] == 0
+    progress.maybe_force_write()
+    assert forced["n"] == 1
 
 
 def test_refresh_block_after_compaction_rereads_file(tmp_path):

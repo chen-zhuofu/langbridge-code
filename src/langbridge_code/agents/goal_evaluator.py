@@ -10,9 +10,12 @@ from langbridge_code.context.message import recent_chat_turns
 from langbridge_code.context.foreground import ForegroundTracker
 from langbridge_code.settings import GOAL_EVAL_INPUT_CHARS, GOAL_EVALUATOR_MAX_STEPS
 from langbridge_code.tools import GOAL_VERIFICATION_TOOL_SCHEMAS, GOAL_VERIFICATION_TOOLS
-from langbridge_code.tools.common.purpose import without_purpose
+from langbridge_code.tools.common.description import without_description
+from langbridge_code.tools.memory_writer import MEMORY_WRITER_TOOL_SCHEMA
 from langbridge_code.llm.client import create_model_response
 from langbridge_code.llm.parse import extract_output_text, print_step_trace
+
+EVALUATOR_TOOL_SCHEMAS = list(GOAL_VERIFICATION_TOOL_SCHEMAS) + [MEMORY_WRITER_TOOL_SCHEMA]
 
 EVALUATOR_PROMPT = """You are the Goal Evaluator for LangBridge Code — a skeptical second-opinion reviewer.
 
@@ -24,6 +27,12 @@ You have the same verification tools as the main agent: read files, grep, list
 directories, run bash (tests, builds, curl), read_webpage, and read_skill when a
 playbook helps your check. Use them to verify independently — transcript claims
 are hints, not proof.
+
+Call memory_writer when you discover durable environment facts that will prevent
+repeated friction later (e.g. this machine has `python3` not `python`; shell cwd
+is already the workspace root — do not assume `/workspace`; how tests/builds are
+invoked here). Store those as project-scope feedback or project memory. Do not
+store task status or recoverable code/git facts.
 
 Do the following every time:
 1. Read the completion condition.
@@ -37,7 +46,8 @@ Plausibility is not correctness. Announcing success without evidence is
 NEEDS_WORK. Missing evidence for any part of the condition is NEEDS_WORK. If
 you find yourself assuming something probably works, stop and verify with tools.
 
-Do not implement features, edit files, or delegate subagents — verify only.
+Do not implement features, edit files, or delegate subagents — verify only
+(except memory_writer for durable environment facts).
 
 Begin your reply with the bare word PASS or NEEDS_WORK on its own line, with
 nothing before it. Then:
@@ -84,7 +94,7 @@ class GoalEvaluatorAgent:
                     self.api_key,
                     self.model,
                     agent_messages,
-                    tool_schemas=GOAL_VERIFICATION_TOOL_SCHEMAS,
+                    tool_schemas=EVALUATOR_TOOL_SCHEMAS,
                     label=self.label,
                     stream_sink=self.trace_sink,
                 )
@@ -99,7 +109,7 @@ class GoalEvaluatorAgent:
                 for item in output:
                     agent_messages.append(item)
                 for call in tool_calls:
-                    agent_messages.append(self._run_tool(call))
+                    agent_messages.append(self._run_tool(call, agent_messages))
                 foreground.publish()
 
             print_step_trace(last_output, include_message=True, label=self.label, sink=self.trace_sink)
@@ -114,15 +124,20 @@ class GoalEvaluatorAgent:
         finally:
             foreground.deactivate()
 
-    def _run_tool(self, call):
+    def _run_tool(self, call, messages):
         name = call.get("name")
         call_id = call.get("call_id")
         try:
-            arguments = without_purpose(json.loads(call.get("arguments") or "{}"))
-            if name not in GOAL_VERIFICATION_TOOLS:
+            arguments = without_description(json.loads(call.get("arguments") or "{}"), name)
+            if name == "memory_writer":
+                from langbridge_code.tools.memory_writer import run_memory_writer_agent
+
+                output = run_memory_writer_agent(self.api_key, self.model, list(messages))
+            elif name not in GOAL_VERIFICATION_TOOLS:
                 raise ValueError(f"Unknown evaluator tool: {name}")
-            with plan_file_scope(artifact_plan_path(self.run_log_path)):
-                output = GOAL_VERIFICATION_TOOLS[name](**arguments)
+            else:
+                with plan_file_scope(artifact_plan_path(self.run_log_path)):
+                    output = GOAL_VERIFICATION_TOOLS[name](**arguments)
         except Exception as error:
             output = f"Tool error: {error}"
         return {"type": "function_call_output", "call_id": call_id, "output": output}

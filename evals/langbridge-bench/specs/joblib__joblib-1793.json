@@ -47,5 +47,10 @@
     "joblib/test/test_func_inspect.py::test_func_name_on_inner_func",
     "joblib/test/test_func_inspect.py::test_special_source_encoding"
   ],
-  "hard": false
+  "hard": false,
+  "required_tool_calls": [
+    {"tool": "read_file", "path_glob": "joblib/**/*.py"},
+    {"tool": "Edit"},
+    {"tool": "bash", "command_regex": "pytest"}
+  ]
 }

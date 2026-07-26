@@ -18,10 +18,9 @@ from langbridge_code.util.agent_worklog import (
     write_worklog_finish,
     write_worklog_observation,
     write_worklog_received,
-    write_worklog_step,
 )
 from langbridge_code.context.common.budget import messages_with_budget_notice, prepare_agent_messages
-from langbridge_code.tools.approval import approval_reason
+from langbridge_code.agents.common.approval import approval_reason
 from langbridge_code.context.message import recent_chat_turns
 from langbridge_code.context.agent_context import finish_step, init_agent_context
 from langbridge_code.context.foreground import ForegroundTracker
@@ -392,6 +391,8 @@ def run_worker(
     user_prompt=None,
     task_name="",
 ):
+    from langbridge_code.eval.telemetry import timed_agent_task
+
     if session is None:
         session = new_worker_session(
             api_key,
@@ -404,7 +405,8 @@ def run_worker(
             task_name=task_name,
         )
     prompt = user_prompt if user_prompt is not None else worker_user_prompt(task, context, feedback)
-    return session.send(prompt, assigned_task=task)
+    with timed_agent_task("coder", task=str(task or task_name or "")):
+        return session.send(prompt, assigned_task=task)
 
 
 def run_reviewer(
@@ -418,6 +420,8 @@ def run_reviewer(
     session=None,
     task_name="",
 ):
+    from langbridge_code.eval.telemetry import timed_agent_task
+
     if session is None:
         session = new_reviewer_session(
             api_key,
@@ -427,7 +431,8 @@ def run_reviewer(
             turn_id=turn_id,
             task_name=task_name,
         )
-    return session.send(reviewer_user_prompt(task, context), assigned_task=task)
+    with timed_agent_task("reviewer", task=str(task or task_name or "")):
+        return session.send(reviewer_user_prompt(task, context), assigned_task=task)
 
 
 class MemoryPhaseMixin:
@@ -634,7 +639,6 @@ class WorkerSession(MemoryPhaseMixin):
             return StepOutcome.FINAL, extract_output_text(output)
 
         print_step_trace(output, include_message=True, label=self.label, sink=self.trace_sink)
-        write_worklog_step(self.run_log_path, self.label, self.worklog_id, self.turn_id, self.step, output)
         step_items = list(output)
         for call in tool_calls:
             tool_output = run_worker_tool_call(
@@ -812,10 +816,12 @@ class ReviewerSession(MemoryPhaseMixin):
             return StepOutcome.FINAL, extract_output_text(output)
 
         print_step_trace(output, include_message=True, label=self.label, sink=self.trace_sink)
-        write_worklog_step(self.run_log_path, self.label, self.worklog_id, self.turn_id, self.step, output)
         step_items = list(output)
+        from langbridge_code.agents.common.parallel_tools import _with_eval_tool_timing
+
+        timed_run = _with_eval_tool_timing(self._run_tool)
         for call in tool_calls:
-            tool_output = self._run_tool(call)
+            tool_output = timed_run(call)
             step_items.append(tool_output)
             write_worklog_observation(
                 self.run_log_path, self.label, self.worklog_id, self.turn_id, self.step, tool_output

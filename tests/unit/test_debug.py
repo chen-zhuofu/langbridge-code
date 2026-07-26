@@ -27,7 +27,7 @@ def test_llm_debug_output_formats_request_and_response(capsys, monkeypatch):
                 {
                     "type": "function_call",
                     "name": "update_plan",
-                    "arguments": '{"purpose":"Write the todo list.","content":"# Todo"}',
+                    "arguments": '{"description":"Write the todo list.","content":"# Todo"}',
                     "call_id": "call_1",
                 }
             ]
@@ -37,7 +37,7 @@ def test_llm_debug_output_formats_request_and_response(capsys, monkeypatch):
     output = capsys.readouterr().out
     assert output == (
         "[LLM DEBUG] Coder output: 1. message: Implement the calculator. | "
-        '2. purpose: Write the todo list. -> function_call '
+        '2. description: Write the todo list. -> function_call '
         'update_plan({"content":"# Todo"}) '
         "call_id=call_1\n"
     )
@@ -56,7 +56,7 @@ def test_llm_debug_output_truncates_long_items(capsys, monkeypatch):
                 {
                     "type": "function_call",
                     "name": "Edit",
-                    "arguments": '{"purpose":"' + long_text + '","old":"' + long_text + '"}',
+                    "arguments": '{"description":"' + long_text + '","old":"' + long_text + '"}',
                     "call_id": "call_1",
                 }
             ]

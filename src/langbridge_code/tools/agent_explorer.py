@@ -16,7 +16,6 @@ from langbridge_code.util.agent_worklog import (
     write_worklog_finish,
     write_worklog_observation,
     write_worklog_received,
-    write_worklog_step,
 )
 from langbridge_code.context.common.budget import messages_with_budget_notice, prepare_agent_messages
 from langbridge_code.context.agent_context import finish_step, init_agent_context
@@ -169,7 +168,11 @@ AGENT_EXPLORER_TOOL_SCHEMA = {
             "thoroughness": {
                 "type": "string",
                 "enum": ["quick", "medium", "thorough"],
-                "description": "Search depth (default medium).",
+                "description": (
+                    "Search depth (default medium). Must be a JSON string with "
+                    "double quotes, e.g. \"thorough\" — never a bare word like "
+                    "thorough without quotes."
+                ),
             },
         },
         "required": ["purpose", "prompt", "description", "task_name"],
@@ -301,10 +304,12 @@ class ExploreSession:
                         foreground.publish()
                     return self._finish(extract_output_text(output))
                 print_step_trace(output, include_message=True, label=self.label, sink=self.trace_sink)
-                write_worklog_step(self.run_log_path, self.label, self.worklog_id, self.turn_id, self.step, output)
                 step_items = list(output)
+                from langbridge_code.agents.common.parallel_tools import _with_eval_tool_timing
+
+                timed_run = _with_eval_tool_timing(self._run_tool)
                 for call in tool_calls:
-                    tool_output = self._run_tool(call)
+                    tool_output = timed_run(call)
                     step_items.append(tool_output)
                     write_worklog_observation(
                         self.run_log_path, self.label, self.worklog_id, self.turn_id, self.step, tool_output

@@ -1,12 +1,18 @@
 """Git worktree management for parallel worker execution (not an LLM tool)."""
 import json
+import os
 import re
 import subprocess
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 
 from langbridge_code.settings import AGENT_STATE_DIR, WORKSPACE_ROOT
 from langbridge_code.tools.common.runtime import managed_binary
+
+# Parallel workers update the registry concurrently; serialize the
+# read-modify-write so entries are not lost.
+_REGISTRY_LOCK = threading.Lock()
 
 
 @dataclass
@@ -84,23 +90,27 @@ def save_registry(run_log_path, data: dict) -> None:
     if path is None:
         return
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    # Atomic replace so concurrent readers never see a half-written file.
+    tmp = path.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    os.replace(tmp, path)
 
 
 def record_branch(run_log_path, info: WorktreeInfo, status: str) -> None:
-    data = load_registry(run_log_path)
-    entry = {
-        "branch": info.branch,
-        "path": str(info.path),
-        "task": info.task_description,
-        "task_name": info.task_name,
-        "base_commit": info.base_commit,
-        "status": status,
-    }
-    branches = [item for item in data["branches"] if item.get("branch") != info.branch]
-    branches.append(entry)
-    data["branches"] = branches
-    save_registry(run_log_path, data)
+    with _REGISTRY_LOCK:
+        data = load_registry(run_log_path)
+        entry = {
+            "branch": info.branch,
+            "path": str(info.path),
+            "task": info.task_description,
+            "task_name": info.task_name,
+            "base_commit": info.base_commit,
+            "status": status,
+        }
+        branches = [item for item in data["branches"] if item.get("branch") != info.branch]
+        branches.append(entry)
+        data["branches"] = branches
+        save_registry(run_log_path, data)
 
 
 def ready_branches(run_log_path) -> list[str]:
@@ -112,14 +122,15 @@ def ready_branches(run_log_path) -> list[str]:
 
 
 def mark_branch_status(run_log_path, branch: str, status: str) -> None:
-    data = load_registry(run_log_path)
-    updated = False
-    for item in data.get("branches", []):
-        if item.get("branch") == branch:
-            item["status"] = status
-            updated = True
-    if updated:
-        save_registry(run_log_path, data)
+    with _REGISTRY_LOCK:
+        data = load_registry(run_log_path)
+        updated = False
+        for item in data.get("branches", []):
+            if item.get("branch") == branch:
+                item["status"] = status
+                updated = True
+        if updated:
+            save_registry(run_log_path, data)
 
 
 def create_worktree(

@@ -261,13 +261,13 @@ def test_maybe_compact_progress_merges_middle_turns(tmp_path, monkeypatch):
     assert "did thing 3" not in text
     records = [
         json.loads(line)
-        for line in (run_log / "traces" / "compactions.jsonl")
+        for line in (run_log / "compactions.jsonl")
         .read_text(encoding="utf-8")
         .splitlines()
     ]
     assert records[0]["type"] == "progress_compaction"
     if "full_event_attachment" in records[0]:
-        attachment = run_log / "traces" / records[0]["full_event_attachment"]
+        attachment = run_log / records[0]["full_event_attachment"]
         full_event = json.loads(attachment.read_text(encoding="utf-8"))
     else:
         full_event = records[0]

@@ -2,7 +2,7 @@ import pytest
 
 from langbridge_code.context.common.stack import (
     ASSIGNED_TASK_PREFIX,
-    COMPACT_PROSE_PREFIX,
+    COMPACT_NOTICE_PREFIX,
     ContextStack,
 )
 

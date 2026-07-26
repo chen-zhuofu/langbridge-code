@@ -1,6 +1,6 @@
 """Shared ask_user tool for the main agent only."""
 
-from langbridge_code.tools.common.purpose import PURPOSE_PARAMETER
+from langbridge_code.tools.common.description import DESCRIPTION_PARAMETER
 
 ASK_USER_TOOL_SCHEMA = {
     "type": "function",
@@ -22,7 +22,7 @@ ASK_USER_TOOL_SCHEMA = {
     "parameters": {
         "type": "object",
         "properties": {
-            "purpose": PURPOSE_PARAMETER,
+            "description": DESCRIPTION_PARAMETER,
             "question": {
                 "type": "string",
                 "description": "The question for the user, in the user's language.",
@@ -38,7 +38,7 @@ ASK_USER_TOOL_SCHEMA = {
                 ),
             },
         },
-        "required": ["purpose", "question", "options"],
+        "required": ["description", "question", "options"],
         "additionalProperties": False,
     },
 }

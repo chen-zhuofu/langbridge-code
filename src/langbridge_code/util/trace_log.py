@@ -1,9 +1,9 @@
-"""Unified session trace log: one markdown file per session (traces/session.md).
+"""Unified session trace log: one markdown file per session (session.md).
 
 Each turn appends a `## <trace_id>` heading followed by one entry per event,
 written in completion order. Entries carry full text — nothing is truncated.
 Oversized payloads (huge tool outputs etc.) are stored as separate files under
-traces/attachments/ with a markdown link in the entry."""
+attachments/ with a markdown link in the entry."""
 from __future__ import annotations
 
 import itertools
@@ -11,10 +11,14 @@ import json
 import threading
 from dataclasses import dataclass
 
-from langbridge_code.util.artifacts import format_line_timestamp, session_trace_path, traces_dir
+from langbridge_code.util.artifacts import (
+    ATTACHMENTS_DIRNAME,
+    attachments_dir,
+    format_line_timestamp,
+    session_trace_path,
+)
 
 _TRACE_LOG_HEADER = "# Session trace log\n"
-ATTACHMENTS_DIRNAME = "attachments"
 
 # Entries longer than this go to a linked attachment file instead of inline.
 _MAX_INLINE_CHARS = 4_000
@@ -23,7 +27,7 @@ _ATTACHMENT_PREVIEW_CHARS = 200
 
 _attachment_seq = itertools.count(1)
 
-_TOOL_PURPOSE = "purpose"
+_TOOL_DESCRIPTION = "description"
 
 _LOCKS: dict[str, threading.Lock] = {}
 _LOCK_GUARD = threading.Lock()
@@ -86,11 +90,10 @@ def _append_line(run_log_path, trace_id: str, line: str) -> None:
 
 
 def _save_attachment(run_log_path, trace_id: str, text: str) -> str | None:
-    """Store oversized text under traces/attachments/, return the relative link."""
-    base = traces_dir(run_log_path)
-    if base is None:
+    """Store oversized text under attachments/, return the relative link."""
+    directory = attachments_dir(run_log_path)
+    if directory is None:
         return None
-    directory = base / ATTACHMENTS_DIRNAME
     directory.mkdir(parents=True, exist_ok=True)
     name = f"{trace_id}-{next(_attachment_seq):03d}.txt"
     (directory / name).write_text(text, encoding="utf-8")
@@ -192,12 +195,6 @@ def _trace_sections(run_log_path) -> list[tuple[str, list[str]]]:
     return sections
 
 
-def read_trace_lines(run_log_path, trace_id: str) -> list[str]:
-    for section_id, lines in _trace_sections(run_log_path):
-        if section_id == trace_id:
-            return lines
-    return []
-
 
 def read_latest_trace_for_turn(run_log_path, turn_id: int) -> list[str]:
     del turn_id
@@ -214,7 +211,7 @@ def _format_tool_call(item) -> str:
     except json.JSONDecodeError:
         return name
     if isinstance(arguments, dict):
-        arguments = {key: val for key, val in arguments.items() if key != _TOOL_PURPOSE}
+        arguments = {key: val for key, val in arguments.items() if key != _TOOL_DESCRIPTION}
         rendered = json.dumps(arguments, ensure_ascii=False, separators=(",", ":"))
         return f"{name}({rendered})"
     return name

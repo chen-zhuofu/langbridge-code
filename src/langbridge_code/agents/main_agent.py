@@ -12,14 +12,13 @@ from langbridge_code.agents.common.todo_list import artifact_plan_path, migrate_
 from langbridge_code.agents.common.workspace import plan_file_scope
 from langbridge_code.agents.common.limits import now, over_time_budget
 from langbridge_code.llm.client import create_model_response
-from langbridge_code.agents.system_prompt import langbridge_system_prompt
+from langbridge_code.prompt.system import langbridge_system_prompt
 from langbridge_code.llm.parse import extract_output_text, print_step_trace
-from langbridge_code.tools.common.purpose import without_purpose
+from langbridge_code.tools.common.description import without_description
 from langbridge_code.util.agent_worklog import (
     write_worklog_finish,
     write_worklog_observation,
     write_worklog_received,
-    write_worklog_step,
 )
 from langbridge_code.context.common.budget import messages_with_budget_notice, prepare_agent_messages
 from langbridge_code.context.agent_context import finish_step, init_agent_context
@@ -44,7 +43,7 @@ from langbridge_code.settings import (
     model_for_agent,
 )
 from langbridge_code.tools import MAIN_TOOL_SCHEMAS, MAIN_TOOLS
-from langbridge_code.tools.approval import approval_reason
+from langbridge_code.agents.common.approval import approval_reason
 from langbridge_code.tools.ask_user import ASK_USER_TOOL_SCHEMA, resolve_ask_user
 from langbridge_code.tools.memory_writer import MEMORY_WRITER_TOOL_SCHEMA
 from langbridge_code.tools.note_progress import NOTE_FORK_INSTRUCTION, NOTE_PROGRESS_TOOL_SCHEMA
@@ -58,9 +57,9 @@ from langbridge_code.util.goal import (
     goal_turn_limit_reached,
     save_goal,
 )
-from langbridge_code.tools.agent_planner import AGENT_PLANNER_TOOL_SCHEMA, build_agent_planner_tool
-from langbridge_code.tools.agent_worker_reviewer import AGENT_WORKER_TOOL_SCHEMA, build_agent_worker_tool
-from langbridge_code.tools.agent_explorer import AGENT_EXPLORER_TOOL_SCHEMA, build_agent_explorer_tool
+from langbridge_code.agents.planner import AGENT_PLANNER_TOOL_SCHEMA, build_agent_planner_tool
+from langbridge_code.agents.worker_reviewer import AGENT_WORKER_TOOL_SCHEMA, build_agent_worker_tool
+from langbridge_code.agents.explorer import AGENT_EXPLORER_TOOL_SCHEMA, build_agent_explorer_tool
 
 SUBAGENT_TOOL_SCHEMAS = [
     AGENT_PLANNER_TOOL_SCHEMA,
@@ -72,14 +71,6 @@ MAIN_AGENT_TOOL_SCHEMAS = (
     list(MAIN_TOOL_SCHEMAS)
     + [ASK_USER_TOOL_SCHEMA, NOTE_PROGRESS_TOOL_SCHEMA, MEMORY_WRITER_TOOL_SCHEMA]
     + list(SUBAGENT_TOOL_SCHEMAS)
-)
-
-PROGRESS_NOTE_REMINDER = (
-    "[HOOK] More than {rounds} rounds have passed without a progress note. "
-    "Call note_progress NOW, before any other tool call: record what you have "
-    "done since the last note and the current state of the task. This is "
-    "required, not optional — if this context is lost, progress.md is the only "
-    "record. Then continue working."
 )
 
 BACKGROUND_PENDING = (
@@ -214,14 +205,6 @@ class MainAgentSession:
             ),
         })
 
-    def run_turn(self, user_prompt, *, print_reply=False):
-        """Run one user turn: agent loop and assistant reply."""
-        reply = self.send(user_prompt)
-        emit_phase(self.phase_sink, "summarizing")
-        if print_reply:
-            print(f"\n{reply}\n")
-        return reply
-
     def run_goal_loop(
         self,
         goal: SessionGoal,
@@ -336,7 +319,9 @@ class MainAgentSession:
         for completed in completed_calls:
             call = completed.call
             try:
-                arguments = without_purpose(json.loads(call.get("arguments") or "{}"))
+                arguments = without_description(
+                    json.loads(call.get("arguments") or "{}"), call.get("name") or ""
+                )
             except (TypeError, ValueError):
                 arguments = {}
             identity = ", ".join(
@@ -459,7 +444,7 @@ class MainAgentSession:
                 deferred_background_results = []
                 self._deliver_background_results(completed)
                 with self._context_lock:
-                    self.context.compact_to_budget(api_key=self.api_key, model=self.model)
+                    self.context.compact_to_budget(model=self.model)
                 budget = prepare_agent_messages(
                     self.messages,
                     self.model,
@@ -491,7 +476,6 @@ class MainAgentSession:
                         continue
                     return self._finish(extract_output_text(output))
                 print_step_trace(output, include_message=True, label=self.label, sink=self.trace_sink)
-                write_worklog_step(self.run_log_path, self.label, self.worklog_id, self.turn_id, self.step, output)
                 step_items = list(output)
                 tool_outputs, deferred = self._run_completion_driven_tool_step(
                     tool_calls,
@@ -506,23 +490,20 @@ class MainAgentSession:
                 self.step += 1
                 with self._context_lock:
                     finish_step(self.context, step_items, self, budget)
-                self._maybe_remind_progress_note()
+                self._maybe_force_progress_note()
                 foreground.publish()
             return self._finish(f"{self.label} stopped: max steps.")
         finally:
             background_runner.close()
             foreground.deactivate()
 
-    def _maybe_remind_progress_note(self):
-        """Nudge the agent to note_progress after too many silent rounds."""
+    def _maybe_force_progress_note(self):
+        """After too many silent rounds, fork-write progress.md (code-enforced)."""
         self._rounds_since_progress_note += 1
         if self._rounds_since_progress_note <= PROGRESS_NOTE_REMINDER_ROUNDS:
             return
         self._rounds_since_progress_note = 0
-        with self._context_lock:
-            self.context.begin_turn(
-                PROGRESS_NOTE_REMINDER.format(rounds=PROGRESS_NOTE_REMINDER_ROUNDS)
-            )
+        self._write_progress_note_via_fork()
 
     def _write_progress_note_via_fork(self):
         """Fork a one-pass note-writer on the live context (prefix cache) and
@@ -538,6 +519,7 @@ class MainAgentSession:
                 self.messages,
                 NOTE_FORK_INSTRUCTION,
                 label="progress note fork",
+                tool_schemas=MAIN_AGENT_TOOL_SCHEMAS,
             )
         except Exception as error:
             return f"Progress note fork failed: {error}"
@@ -551,14 +533,14 @@ class MainAgentSession:
         name = call.get("name")
         call_id = call.get("call_id")
         try:
-            arguments = without_purpose(json.loads(call.get("arguments") or "{}"))
+            arguments = without_description(json.loads(call.get("arguments") or "{}"), name)
             if name == "ask_user":
                 output = resolve_ask_user(arguments, self.question_callback)
             elif name == "note_progress":
                 output = self._write_progress_note_via_fork()
                 self._rounds_since_progress_note = 0
             elif name == "memory_writer":
-                from langbridge_code.memory import run_memory_writer_agent
+                from langbridge_code.tools.memory_writer import run_memory_writer_agent
 
                 output = run_memory_writer_agent(
                     self.api_key,
@@ -590,9 +572,13 @@ class MainAgentSession:
         return {"type": "function_call_output", "call_id": call_id, "output": output}
 
     def _finish(self, report):
-        from langbridge_code.memory import schedule_memory_writer
+        from langbridge_code.tools.memory_writer import schedule_memory_writer
 
         write_worklog_finish(self.run_log_path, self.label, self.worklog_id, self.turn_id, report)
+        # Catch progress omitted since the last note (same idea as Memory Writer).
+        if self._rounds_since_progress_note > 0:
+            self._write_progress_note_via_fork()
+            self._rounds_since_progress_note = 0
         # A mid-turn Memory Writer already reconciled this context. Otherwise
         # fork the same tool-using writer in the background to catch omissions.
         if not self._memory_writer_ran_this_send:
@@ -635,7 +621,10 @@ def run_agent_turn(
             phase_sink=phase_sink,
             question_callback=question_callback,
         )
-        reply = session.run_turn(target, print_reply=print_reply)
+        reply = session.send(target)
+        emit_phase(phase_sink, "summarizing")
+        if print_reply:
+            print(f"\n{reply}\n")
         outcome = reply or ""
     except control.StopRequested:
         outcome = "Stopped by user."

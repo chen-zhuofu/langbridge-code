@@ -1,3 +1,4 @@
+import json
 import threading
 import time
 
@@ -6,10 +7,11 @@ import pytest
 from langbridge_code.agents.common import control
 from langbridge_code.agents.common.parallel_tools import (
     CompletionDrivenToolRunner,
-    PARALLEL_TOOL_NAMES,
-    can_run_tool_calls_in_parallel,
+    _with_eval_tool_timing,
+    partition_tool_calls,
     run_tool_calls,
 )
+from langbridge_code.tools.concurrency import is_concurrency_safe
 
 
 @pytest.fixture(autouse=True)
@@ -21,23 +23,62 @@ def parallel_agents_enabled(monkeypatch):
     )
 
 
-def test_parallel_tool_names_include_subagents():
-    assert "agent_explorer" in PARALLEL_TOOL_NAMES
-    assert "agent_worker" in PARALLEL_TOOL_NAMES
-    assert "agent_planner" not in PARALLEL_TOOL_NAMES
-    assert "bash" not in PARALLEL_TOOL_NAMES
+def test_is_concurrency_safe_read_only_tools():
+    assert is_concurrency_safe("read_file", {"path": "a.py"})
+    assert is_concurrency_safe("grep", {"pattern": "x"})
+    assert is_concurrency_safe("glob", {"pattern": "*.py"})
+    assert is_concurrency_safe("agent_explorer", {"prompt": "look"})
+    assert is_concurrency_safe("agent_worker", {"prompt": "do"})
+    assert not is_concurrency_safe("agent_planner", {"prompt": "plan"})
+    assert not is_concurrency_safe("Edit", {"path": "a.py"})
+    assert not is_concurrency_safe("write", {"path": "a.py"})
+    assert not is_concurrency_safe("unknown_tool", {})
 
 
-def test_can_parallelize_explorers_and_workers():
-    explore = {"name": "agent_explorer", "call_id": "1"}
-    read = {"name": "read_file", "call_id": "2"}
-    worker_a = {"name": "agent_worker", "call_id": "3"}
-    worker_b = {"name": "agent_worker", "call_id": "4"}
-    planner = {"name": "agent_planner", "call_id": "5"}
-    assert can_run_tool_calls_in_parallel([explore, read])
-    assert can_run_tool_calls_in_parallel([worker_a, worker_b])
-    assert not can_run_tool_calls_in_parallel([explore, planner])
-    assert not can_run_tool_calls_in_parallel([worker_a, planner])
+def test_is_concurrency_safe_bash_depends_on_command():
+    assert is_concurrency_safe("bash", {"command": "git log --oneline"})
+    assert is_concurrency_safe("bash", {"command": "ls -la src/"})
+    assert is_concurrency_safe("bash", {"command": "pytest -q 2>&1 | tail -5"})
+    assert is_concurrency_safe("bash", {"command": "grep -r foo . 2>/dev/null"})
+    assert not is_concurrency_safe("bash", {"command": "rm -rf build/"})
+    assert not is_concurrency_safe("bash", {"command": "git commit -m x"})
+    assert not is_concurrency_safe("bash", {"command": "echo hi > out.txt"})
+    assert not is_concurrency_safe("bash", {"command": "make test >> log.txt"})
+    assert not is_concurrency_safe("bash", {"command": ""})
+    assert not is_concurrency_safe("bash", {})
+
+
+def test_partition_groups_consecutive_safe_calls():
+    def call(name, call_id, arguments=None):
+        item = {"name": name, "call_id": call_id}
+        if arguments is not None:
+            item["arguments"] = json.dumps(arguments)
+        return item
+
+    batches = partition_tool_calls(
+        [
+            call("read_file", "1"),
+            call("grep", "2"),
+            call("Edit", "3"),
+            call("read_file", "4"),
+            call("bash", "5", {"command": "git status"}),
+            call("bash", "6", {"command": "rm -rf x"}),
+        ]
+    )
+    shape = [(b.concurrency_safe, [c["call_id"] for c in b.calls]) for b in batches]
+    assert shape == [
+        (True, ["1", "2"]),
+        (False, ["3"]),
+        (True, ["4", "5"]),
+        (False, ["6"]),
+    ]
+
+
+def test_partition_unparseable_arguments_fail_closed():
+    batches = partition_tool_calls(
+        [{"name": "read_file", "call_id": "1", "arguments": "{not json"}]
+    )
+    assert not batches[0].concurrency_safe
 
 
 def test_run_tool_calls_preserves_order():
@@ -87,6 +128,31 @@ def test_parallel_calls_inherit_trace_context():
         set_trace_context(None)
 
     assert seen == {"a": "turn-42", "b": "turn-42"}
+
+
+def test_parallel_calls_inherit_workspace_root(tmp_path):
+    """Pool threads must see the caller's worktree root, not the default one."""
+    from langbridge_code.agents.common.workspace import (
+        get_workspace_root,
+        workspace_scope,
+    )
+
+    seen = {}
+    lock = threading.Lock()
+
+    def run_fn(call):
+        with lock:
+            seen[call["call_id"]] = get_workspace_root()
+        return {"call_id": call["call_id"], "output": "ok"}
+
+    calls = [
+        {"name": "read_file", "call_id": "a", "arguments": "{}"},
+        {"name": "read_file", "call_id": "b", "arguments": "{}"},
+    ]
+    with workspace_scope(tmp_path):
+        run_tool_calls(run_fn, calls, max_workers=2)
+
+    assert seen == {"a": tmp_path.resolve(), "b": tmp_path.resolve()}
 
 
 def test_completion_runner_calls_inherit_trace_context():
@@ -144,6 +210,24 @@ def test_run_tool_calls_parallel_workers():
     assert set(order) == {"a", "b"}
 
 
+def test_run_tool_calls_mixed_batch_keeps_output_order():
+    def run_fn(call):
+        # Parallel reads sleep so a serial scheduler bug would still pass;
+        # order is asserted on outputs, not on execution timing.
+        if call["name"] == "read_file":
+            time.sleep(0.01)
+        return {"call_id": call["call_id"], "output": call["call_id"]}
+
+    calls = [
+        {"name": "read_file", "call_id": "1"},
+        {"name": "read_file", "call_id": "2"},
+        {"name": "Edit", "call_id": "3"},
+        {"name": "read_file", "call_id": "4"},
+    ]
+    outputs = run_tool_calls(run_fn, calls, max_workers=4)
+    assert [item["output"] for item in outputs] == ["1", "2", "3", "4"]
+
+
 def test_run_tool_calls_serial_when_mixed_with_planner():
     order = []
 
@@ -175,7 +259,6 @@ def test_parallel_agents_disabled_runs_serial(monkeypatch):
         {"name": "agent_worker", "call_id": "a"},
         {"name": "agent_worker", "call_id": "b"},
     ]
-    assert not can_run_tool_calls_in_parallel(calls)
     run_tool_calls(run_fn, calls, max_workers=2)
     assert order == ["a", "b"]
 
@@ -248,3 +331,84 @@ def test_completion_runner_wait_is_interruptible():
         release_worker.set()
         control.clear_stop()
         runner.close()
+
+
+def test_background_thread_records_eval_telemetry():
+    """Worker-pool threads must see the parent telemetry collector."""
+    from langbridge_eval import telemetry
+
+    thread_ids = []
+
+    def run_fn(call):
+        thread_ids.append(threading.get_ident())
+        # Inner tool-style record (what Worker does via _with_eval_tool_timing).
+        telemetry.record_tool_call(
+            tool="read_file",
+            latency_s=0.001,
+            arguments={"path": "foo.py"},
+            agent="Worker",
+        )
+        return {
+            "type": "function_call_output",
+            "call_id": call["call_id"],
+            "output": "ok",
+        }
+
+    main_tid = threading.get_ident()
+    with telemetry.start_telemetry() as tel:
+        with CompletionDrivenToolRunner(run_fn, max_workers=1) as runner:
+            runner.submit([{"name": "agent_worker", "call_id": "bg"}])
+            completed = runner.drain_completed(wait_for_one=True)
+        snap = tel.snapshot()
+
+    assert completed[0].output["output"] == "ok"
+    assert thread_ids and thread_ids[0] != main_tid
+    # Outer wrap from submit + inner record_tool_call above.
+    tools = [e["tool"] for e in snap["detail_events"] if e.get("type") == "tool_call"]
+    assert "agent_worker" in tools
+    assert "read_file" in tools
+
+
+def test_eval_tool_timing_records_all_arguments():
+    from langbridge_eval import telemetry
+
+    def run_fn(call):
+        return {
+            "type": "function_call_output",
+            "call_id": call["call_id"],
+            "output": "ok",
+        }
+
+    timed = _with_eval_tool_timing(run_fn)
+    with telemetry.start_telemetry() as tel:
+        timed(
+            {
+                "name": "read_webpage",
+                "call_id": "w1",
+                "arguments": (
+                    '{"description":"docs","url":"https://example.com/x",'
+                    '"max_chars":1000}'
+                ),
+            }
+        )
+        timed(
+            {
+                "name": "write",
+                "call_id": "w2",
+                "arguments": json.dumps(
+                    {"description": "save", "path": "a.py", "contents": "x" * 600}
+                ),
+            }
+        )
+        snap = tel.snapshot()
+
+    web = next(e for e in snap["detail_events"] if e.get("tool") == "read_webpage")
+    assert web["calls"][0]["arguments"] == {
+        "description": "docs",
+        "url": "https://example.com/x",
+        "max_chars": 1000,
+    }
+    write = next(e for e in snap["detail_events"] if e.get("tool") == "write")
+    contents = write["calls"][0]["arguments"]["contents"]
+    assert contents.endswith("…")
+    assert len(contents) == 501

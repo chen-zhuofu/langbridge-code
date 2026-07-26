@@ -1,0 +1,101 @@
+{
+  "task_id": "networkx__networkx-8584",
+  "status": "ok",
+  "repo": "networkx/networkx",
+  "base_commit": "5d160909eeb42e9844496dd2bbd19b826d2242d7",
+  "problem_statement": "BUG: SpanningTreeIterator raises on next\n\n### Current Behavior\n\nTrying to extract only a single spanning tree from `SpanningTreeIterator` results in an\nAttributeError:\n\n```python\n>>> G = nx.cycle_graph(3)\n>>> spanning_trees = nx.SpanningTreeIterator(G)\n>>> next(spanning_trees)\nTraceback (most recent call last)\n   ...\nAttributeError: 'SpanningTreeIterator' object has no attribute 'partition_queue'\n```\n\n### Expected Behavior\n\nCalling `next` on the iterator should give the next spanning tree\n\n### Environment\n\n<!--- Please provide details about your local environment -->\n\nPython version: 3.14\nNetworkX version: 802c0a2d\n\n### Additional context\n\nThe class is structured such that the `partition_queue` isn't initialized in the constructor, but [in `__iter__`](https://github.com/networkx/networkx/blob/802c0a2d8ea282d8c7c1407a2a22717d7575355e/networkx/algorithms/tree/mst.py#L1053). It should (hopefully) be a relatively simple refactor to move the queue initialization into the constructor instead.\n\nRan into this while reviewing",
+  "test_files": [
+    "networkx/algorithms/tree/tests/test_mst.py"
+  ],
+  "test_patch": "diff --git a/networkx/algorithms/tree/tests/test_mst.py b/networkx/algorithms/tree/tests/test_mst.py\n--- a/networkx/algorithms/tree/tests/test_mst.py\n+++ b/networkx/algorithms/tree/tests/test_mst.py\n@@ -470,6 +470,14 @@ def test_maximum_spanning_tree_iterator(self):\n             assert edges_equal(actual, self.spanning_trees[tree_index])\n             tree_index -= 1\n \n+    def test_next_without_iter(self):\n+        \"\"\"Iteration error. See gh-8563\"\"\"\n+        G = nx.cycle_graph(3)\n+        spanning_trees = nx.SpanningTreeIterator(G)\n+        tree = next(spanning_trees)  # must not raise AttributeError\n+        assert isinstance(tree, nx.Graph)\n+        assert nx.is_tree(tree)\n+\n \n class TestSpanningTreeMultiGraphIterator:\n     \"\"\"\n",
+  "gold_code_patch": "diff --git a/networkx/algorithms/tree/mst.py b/networkx/algorithms/tree/mst.py\n--- a/networkx/algorithms/tree/mst.py\n+++ b/networkx/algorithms/tree/mst.py\n@@ -1074,24 +1074,9 @@ def __init__(self, G, weight=\"weight\", minimum=True, ignore_nan=False):\n         self.partition_key = (\n             \"SpanningTreeIterators super secret partition attribute name\"\n         )\n+        self.partition_queue = None\n \n     def __iter__(self):\n-        \"\"\"\n-        Returns\n-        -------\n-        SpanningTreeIterator\n-            The iterator object for this graph\n-        \"\"\"\n-        self.partition_queue = PriorityQueue()\n-        self._clear_partition(self.G)\n-        mst_weight = partition_spanning_tree(\n-            self.G, self.minimum, self.weight, self.partition_key, self.ignore_nan\n-        ).size(weight=self.weight)\n-\n-        self.partition_queue.put(\n-            self.Partition(mst_weight if self.minimum else -mst_weight, {})\n-        )\n-\n         return self\n \n     def __next__(self):\n@@ -1102,6 +1087,15 @@ def __next__(self):\n             The spanning tree of next greatest weight, which ties broken\n             arbitrarily.\n         \"\"\"\n+        if self.partition_queue is None:\n+            self.partition_queue = PriorityQueue()\n+            self._clear_partition(self.G)\n+            mst_weight = partition_spanning_tree(\n+                self.G, self.minimum, self.weight, self.partition_key, self.ignore_nan\n+            ).size(weight=self.weight)\n+            self.partition_queue.put(\n+                self.Partition(mst_weight if self.minimum else -mst_weight, {})\n+            )\n         if self.partition_queue.empty():\n             del self.G, self.partition_queue\n             raise StopIteration\n",
+  "fail_to_pass": [
+    "networkx/algorithms/tree/tests/test_mst.py::TestSpanningTreeIterator::test_next_without_iter"
+  ],
+  "pass_to_pass": [
+    "networkx/algorithms/tree/tests/test_mst.py::TestBoruvka::test_attributes",
+    "networkx/algorithms/tree/tests/test_mst.py::TestBoruvka::test_disconnected",
+    "networkx/algorithms/tree/tests/test_mst.py::TestBoruvka::test_empty_graph",
+    "networkx/algorithms/tree/tests/test_mst.py::TestBoruvka::test_isolated_node",
+    "networkx/algorithms/tree/tests/test_mst.py::TestBoruvka::test_maximum_edges",
+    "networkx/algorithms/tree/tests/test_mst.py::TestBoruvka::test_maximum_tree",
+    "networkx/algorithms/tree/tests/test_mst.py::TestBoruvka::test_minimum_edges",
+    "networkx/algorithms/tree/tests/test_mst.py::TestBoruvka::test_minimum_spanning_edges_directed_raises",
+    "networkx/algorithms/tree/tests/test_mst.py::TestBoruvka::test_minimum_spanning_edges_multigraph_raises",
+    "networkx/algorithms/tree/tests/test_mst.py::TestBoruvka::test_minimum_tree",
+    "networkx/algorithms/tree/tests/test_mst.py::TestBoruvka::test_nan_weights",
+    "networkx/algorithms/tree/tests/test_mst.py::TestBoruvka::test_nan_weights_MultiGraph",
+    "networkx/algorithms/tree/tests/test_mst.py::TestBoruvka::test_nan_weights_order",
+    "networkx/algorithms/tree/tests/test_mst.py::TestBoruvka::test_unicode_name",
+    "networkx/algorithms/tree/tests/test_mst.py::TestBoruvka::test_weight_attribute",
+    "networkx/algorithms/tree/tests/test_mst.py::TestBoruvka::test_without_data",
+    "networkx/algorithms/tree/tests/test_mst.py::TestKruskal::test_attributes",
+    "networkx/algorithms/tree/tests/test_mst.py::TestKruskal::test_disconnected",
+    "networkx/algorithms/tree/tests/test_mst.py::TestKruskal::test_empty_graph",
+    "networkx/algorithms/tree/tests/test_mst.py::TestKruskal::test_isolated_node",
+    "networkx/algorithms/tree/tests/test_mst.py::TestKruskal::test_key_data_bool",
+    "networkx/algorithms/tree/tests/test_mst.py::TestKruskal::test_maximum_edges",
+    "networkx/algorithms/tree/tests/test_mst.py::TestKruskal::test_maximum_tree",
+    "networkx/algorithms/tree/tests/test_mst.py::TestKruskal::test_minimum_edges",
+    "networkx/algorithms/tree/tests/test_mst.py::TestKruskal::test_minimum_spanning_edges_directed_raises",
+    "networkx/algorithms/tree/tests/test_mst.py::TestKruskal::test_minimum_tree",
+    "networkx/algorithms/tree/tests/test_mst.py::TestKruskal::test_multigraph_keys_max",
+    "networkx/algorithms/tree/tests/test_mst.py::TestKruskal::test_multigraph_keys_min",
+    "networkx/algorithms/tree/tests/test_mst.py::TestKruskal::test_nan_weights",
+    "networkx/algorithms/tree/tests/test_mst.py::TestKruskal::test_nan_weights_MultiGraph",
+    "networkx/algorithms/tree/tests/test_mst.py::TestKruskal::test_nan_weights_order",
+    "networkx/algorithms/tree/tests/test_mst.py::TestKruskal::test_weight_attribute",
+    "networkx/algorithms/tree/tests/test_mst.py::TestKruskal::test_without_data",
+    "networkx/algorithms/tree/tests/test_mst.py::TestPrim::test_attributes",
+    "networkx/algorithms/tree/tests/test_mst.py::TestPrim::test_disconnected",
+    "networkx/algorithms/tree/tests/test_mst.py::TestPrim::test_empty_graph",
+    "networkx/algorithms/tree/tests/test_mst.py::TestPrim::test_ignore_nan",
+    "networkx/algorithms/tree/tests/test_mst.py::TestPrim::test_isolated_node",
+    "networkx/algorithms/tree/tests/test_mst.py::TestPrim::test_maximum_edges",
+    "networkx/algorithms/tree/tests/test_mst.py::TestPrim::test_maximum_tree",
+    "networkx/algorithms/tree/tests/test_mst.py::TestPrim::test_minimum_edges",
+    "networkx/algorithms/tree/tests/test_mst.py::TestPrim::test_minimum_spanning_edges_directed_raises",
+    "networkx/algorithms/tree/tests/test_mst.py::TestPrim::test_minimum_tree",
+    "networkx/algorithms/tree/tests/test_mst.py::TestPrim::test_multigraph_keys_max",
+    "networkx/algorithms/tree/tests/test_mst.py::TestPrim::test_multigraph_keys_min",
+    "networkx/algorithms/tree/tests/test_mst.py::TestPrim::test_multigraph_keys_tree",
+    "networkx/algorithms/tree/tests/test_mst.py::TestPrim::test_multigraph_keys_tree_max",
+    "networkx/algorithms/tree/tests/test_mst.py::TestPrim::test_nan_weights",
+    "networkx/algorithms/tree/tests/test_mst.py::TestPrim::test_nan_weights_MultiGraph",
+    "networkx/algorithms/tree/tests/test_mst.py::TestPrim::test_nan_weights_order",
+    "networkx/algorithms/tree/tests/test_mst.py::TestPrim::test_prim_mst_edges_simple_graph",
+    "networkx/algorithms/tree/tests/test_mst.py::TestPrim::test_weight_attribute",
+    "networkx/algorithms/tree/tests/test_mst.py::TestPrim::test_without_data",
+    "networkx/algorithms/tree/tests/test_mst.py::TestSpanningTreeIterator::test_maximum_spanning_tree_iterator",
+    "networkx/algorithms/tree/tests/test_mst.py::TestSpanningTreeIterator::test_minimum_spanning_tree_iterator",
+    "networkx/algorithms/tree/tests/test_mst.py::TestSpanningTreeMultiGraphIterator::test_maximum_spanning_tree_iterator_multigraph",
+    "networkx/algorithms/tree/tests/test_mst.py::TestSpanningTreeMultiGraphIterator::test_minimum_spanning_tree_iterator_multigraph",
+    "networkx/algorithms/tree/tests/test_mst.py::test_random_spanning_tree_empty_graph",
+    "networkx/algorithms/tree/tests/test_mst.py::test_random_spanning_tree_single_node_graph",
+    "networkx/algorithms/tree/tests/test_mst.py::test_random_spanning_tree_single_node_loop",
+    "networkx/algorithms/tree/tests/test_mst.py::test_unknown_algorithm"
+  ],
+  "hard": false,
+  "required_tool_calls": [
+    {
+      "tool": "read_file",
+      "path_glob": "networkx/algorithms/tree/**/*.py"
+    },
+    {
+      "tool": "Edit"
+    },
+    {
+      "tool": "bash",
+      "command_regex": "pytest.*test_mst"
+    }
+  ],
+  "metadata": {
+    "pr_url": "https://github.com/networkx/networkx/pull/8584",
+    "linked_issues": [
+      8563
+    ],
+    "num_files": 2,
+    "created_at": "2026-03-25T11:55:00Z"
+  },
+  "docker_image": "lb-task:networkx__networkx-8584"
+}

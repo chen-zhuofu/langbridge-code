@@ -29,59 +29,17 @@ validated (for example, the machine is offline or the workspace is read-only),
 LangBridge exits before starting an agent. Set `LANGBRIDGE_RUNTIME_DIR` to
 override the runtime location.
 
-## Train (self-play)
+## Eval (langbridge-bench)
 
-LangBridge Code is **self-improving**: an outer **trainer** improves the team over
-many tasks by editing agent artifacts directly under
-`src/langbridge_code/tools/`, `src/langbridge_code/skills/`, and
-`src/langbridge_code/agents/system_prompt/`, with checkpoints under
-`training/checkpoints/` so you can restore anytime. Trainer code lives in
-`src/langbridge_code/training/`.
-
-Two nested loops:
-
-- **Worker loop** (one task): Coder implements and Reviewer verifies until pass or limits.
-- **Trainer loop**: across a batch of tasks, mine signals from traces, propose file
-  edits, and **gate** them — keep a change only if eval metrics improve.
-
-Today `train` grades and gates changes on the **Worker↔Reviewer inner loop**. It
-can edit tools, skills, and prompts for any role; Reviewer changes require
-calibration evidence. Hidden tests (or an offline jury when unavailable) anchor
-acceptance, and accepted edits are checkpointed.
-
-Per-role **eval** (hidden **FAIL_TO_PASS / PASS_TO_PASS** tests, **langbridge-bench**
-specs in `evals/langbridge-bench/specs/`). Eval lives in `src/langbridge_code/eval/`:
+Public e2e runs the full main agent in Docker — one container per task
+(agent + in-container grade) over specs in `data/eval/specs/`:
 
 ```bash
-# Worker↔Reviewer inner loop, test-graded
-uv run python -m langbridge_code.eval.cli eval --role coder --limit 5
-
-# Reviewer (gold + no-fix cases per task, test-based labels)
-uv run python -m langbridge_code.eval.cli eval --role reviewer --limit 5
-
-# Same inner loop, with loop trace metrics
-uv run python -m langbridge_code.eval.cli eval --role loop --limit 5
-
-# Full workflow
-uv run python -m langbridge_code.eval.cli eval --role workflow --limit 5
-
-# Trainer epoch (direct file edits + checkpoints)
-uv run python -m langbridge_code.training.cli train --epochs 1 --batch-size 2
+uv run python eval/langbridge-bench/run_eval.py --workers 4 --limit 5
 ```
 
-For a local git repo with custom specs, set both paths, build specs once, then
-select the local source:
-
-```bash
-export LANGBRIDGE_TARGET_REPO=./your-repo
-export LANGBRIDGE_SPECS_DIR=training/specs
-uv run python -m langbridge_code.eval.cli specs --issues training/issues.json
-uv run python -m langbridge_code.eval.cli eval --role coder --limit 5 --source local
-uv run python -m langbridge_code.training.cli train --source local
-```
-
-Eval docs: `src/langbridge_code/eval/README.md`. Training docs:
-`src/langbridge_code/training/README.md`.
+Outputs land under `artifacts/evals/<run_id>/`. Dataset pipeline: `data/README.md`.
+Eval docs: `eval/README.md`.
 
 ## Loop Engineering
 
@@ -190,21 +148,29 @@ re-dispatch creates fresh model sessions but restores the unfinished task from d
 Main-agent cold-start uses full `traces.md` when it fits the resume budget;
 otherwise it uses `progress.md` plus traces after the last progress boundary.
 Worker, Reviewer, and Explorer dispatches similarly use one shared
-`progress-{task-slug}.md` (written by Worker/Explorer) plus the prior raw trace
+`{task-slug}/progress.md` (written by Worker/Explorer) plus the prior raw trace
 tail for that role. Reusing the same Worker task's `task_name` also reuses its
 failed worktree branch, so notes, conversation evidence, and code resume
 together.
 
-`traces.md` keeps the uncompressed main-agent rounds. Every specialist dispatch
-writes an uncompressed JSONL trace named
-`traces/{role}-{task-slug}-{instance_id}.jsonl`; ids start at zero for each
-role/task pair. On a later Worker, Reviewer, or Explorer dispatch of the same
-task, that role's previous traces are loaded when they fit the resume budget;
-otherwise its progress note is combined with the newest complete raw rounds.
-`traces/session.md` remains the unified human-readable audit log.
-Every active-context or progress compaction is indexed in
-`traces/compactions.jsonl` with before/after counts and the complete compacted
-input/output; large records are linked from `traces/attachments/`.
+The session artifact directory keeps the main agent's files at its root and
+gives each subagent task its own directory:
+
+```
+session-{slug}-{timestamp}/
+├── progress.md          main-agent progress note
+├── traces.md            main-agent raw rounds (markdown + json blocks)
+├── session.md           unified human-readable activity log (all agents)
+├── attachments/         oversized payloads linked from session.md / audits
+├── compactions.jsonl    progress-note merge audit
+└── {task-slug}/         one directory per subagent task
+    ├── progress.md      task note, shared across dispatches and roles
+    └── {role}-{n}.md    raw trace of dispatch instance n (same format as traces.md)
+```
+
+On a later Worker, Reviewer, or Explorer dispatch of the same task, that
+role's previous traces are loaded when they fit the resume budget; otherwise
+its progress note is combined with the newest complete raw rounds.
 
 Long-term memory uses two indexes which are both considered on every prefetch:
 `~/.langbridge-code/memory.md` (global user scope) and
@@ -249,9 +215,9 @@ todo only when the contract itself is blocked or needs to change.
 
 ## Eval (benchmarks & datasets)
 
-The `evals/` tree measures LangBridge Code on real issues and builds new task data.
+The `eval/` tree measures LangBridge Code on real issues and builds new task data.
 
-### SWE-bench e2e (`evals/swe-bench/`)
+### SWE-bench e2e (`eval/swe-bench/`)
 
 End-to-end benchmark on published SWE-bench instances: run headless LangBridge
 Code inside each instance's official Docker image (repo already at
@@ -263,10 +229,10 @@ grade with the official harness.
 uv sync --group eval
 
 # Stage 1 — generate predictions (agent inside the official SWE-bench image)
-sg docker -c "uv run python evals/swe-bench/run_eval_docker.py --difficulty lite --count 10"
+sg docker -c "uv run python eval/swe-bench/run_eval_docker.py --difficulty lite --count 10"
 
-# Stage 2 — grade (from evals/swe-bench/)
-cd evals/swe-bench && uv run python -m swebench.harness.run_evaluation \
+# Stage 2 — grade (from eval/swe-bench/)
+cd eval/swe-bench && uv run python -m swebench.harness.run_evaluation \
   --dataset_name princeton-nlp/SWE-bench_Lite \
   --predictions_path out/predictions.jsonl \
   --max_workers 4 --run_id langbridge-l4-lite
@@ -274,23 +240,20 @@ cd evals/swe-bench && uv run python -m swebench.harness.run_evaluation \
 
 Datasets: `lite` (~300), `verified` (500), and `pro` (731 public, hard).
 The two-stage command above is for Lite/Verified. Pro uses the host prediction
-runner and Scale's grading harness; see `evals/swe-bench/README.md`.
+runner and Scale's grading harness; see `eval/swe-bench/README.md`.
 
-### langbridge-bench (`evals/langbridge-bench/`)
+### langbridge-bench (`data-pipeline/` + `data/eval/` + `eval/langbridge-bench/`)
 
-Self-built benchmark from GitHub PRs: run these steps in order to collect merged
-PRs, validate with reference tests, then materialize **one JSON per task** under
-`instances/` and `specs/`. The final step consumes the validated output from the
-second.
+Self-built benchmark from GitHub PRs. Pipeline under `data-pipeline/`;
+eval-ready specs under `data/eval/specs/` (Dockerfiles under
+`data/eval/docker-images/`).
 
 ```bash
-uv run python evals/langbridge-bench/collect_prs.py --repo pytest-dev/pytest --max-per-repo 5
-uv run python evals/langbridge-bench/reference_test.py --run
-uv run python evals/langbridge-bench/materialize.py
+uv run python data-pipeline/run_pipeline.py
+uv run python eval/langbridge-bench/run_eval.py --workers 4 --limit 5
 ```
 
-Training eval/train reads `evals/langbridge-bench/specs/` by default. See
-`evals/langbridge-bench/README.md` and `evals/README.md`.
+See `data-pipeline/README.md` and `eval/README.md`.
 
 ## Run
 

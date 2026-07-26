@@ -31,7 +31,7 @@ def test_create_artifact_session_layout(tmp_path, monkeypatch):
     session_dir = create_artifact_session("Fix login API")
     assert session_dir.is_dir()
     assert session_dir.name.startswith("session-Fix-login-API-")
-    assert (session_dir / "traces").is_dir()
+    assert not (session_dir / "traces").exists()
     assert not (session_dir / "debug").exists()
     assert (session_dir / "progress.md").is_file()
     assert (session_dir / "traces.md").is_file()

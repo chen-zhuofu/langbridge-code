@@ -69,10 +69,9 @@ def _bind(cfg):
     context = cfg["context"]
     fs = cfg["tools"]["filesystem"]
     execution = cfg["tools"]["execution"]
-    testing = cfg["tools"]["testing"]
     web = cfg["tools"]["web"]
     debug = cfg["tools"]["debug"]
-    training = cfg["training"]
+    training = cfg.get("eval") or cfg.get("training") or {}
     paths = cfg.get("paths", {})
     api = cfg.get("api", {})
 
@@ -97,29 +96,22 @@ def _bind(cfg):
             "LANGBRIDGE_API_STREAMING_ENABLED",
             api.get("streaming_enabled", True),
         ),
-        "DEFAULT_MAX_GUIDANCE": cfg["max_guidance"],
         "MAX_AGENT_STEPS": agent["max_agent_steps"],
-        "MAX_AGENT_SECONDS": agent.get("max_agent_seconds", 3600),
+        "MAX_AGENT_SECONDS": int(
+            os.environ.get("LANGBRIDGE_MAX_AGENT_SECONDS", agent.get("max_agent_seconds", 3600))
+        ),
         "MAX_EXPLORER_STEPS": agent.get("max_explorer_steps", 30),
         "MAX_EXPLORER_SECONDS": agent.get("max_explorer_seconds", 900),
         "MAX_WORKER_STEPS": agent.get("max_worker_steps", 30),
         "MAX_WORKER_SECONDS": agent.get("max_worker_seconds", 900),
         "MAX_REVIEWER_STEPS": agent.get("max_reviewer_steps", 30),
         "MAX_REVIEWER_SECONDS": agent.get("max_reviewer_seconds", 900),
-        "MAX_WORKFLOW_SECONDS": agent.get("max_workflow_seconds", 3600),
         "MAX_PLANNER_STEPS": agent.get("max_planner_steps", 30),
         "MAX_PLANNER_SECONDS": agent.get("max_planner_seconds", 600),
         "MAX_WORKER_REVIEWER_STEPS": agent.get("max_worker_reviewer_steps", agent.get("max_agent_steps", 50)),
         "MAX_WORKER_REVIEWER_SECONDS": agent.get("max_worker_reviewer_seconds", 1800),
-        "WORKFLOW_OUTER_MULTIPLIER": agent.get("workflow_outer_multiplier", 2),
         "MAX_PARALLEL_TOOL_CALLS": int(
-            os.environ.get("LANGBRIDGE_MAX_PARALLEL_TOOL_CALLS", agent.get("max_parallel_tool_calls", 4))
-        ),
-        "MAX_PARALLEL_WORKERS": int(
-            os.environ.get(
-                "LANGBRIDGE_MAX_PARALLEL_WORKERS",
-                agent.get("max_parallel_workers", 2),
-            )
+            os.environ.get("LANGBRIDGE_MAX_PARALLEL_TOOL_CALLS", agent.get("max_parallel_tool_calls", 10))
         ),
         "PARALLEL_AGENTS_ENABLED": _env_bool(
             "LANGBRIDGE_PARALLEL_AGENTS_ENABLED",
@@ -149,32 +141,28 @@ def _bind(cfg):
         "MODEL_CONTEXT_WINDOWS": context.get("model_context_windows", {}),
         "MAX_SESSION_CHOICES": context["max_session_choices"],
         "MAX_SESSION_SUMMARY_INPUT_CHARS": context["max_session_summary_input_chars"],
-        # Raw tail kept on compaction: one more than the progress-note cadence
-        # (11 > 10) so the compressed middle always overlaps progress.md.
+        # Raw tail kept on compaction: one more than the forced progress-note
+        # cadence (11 > 10) so dropped rounds are always covered by progress.md.
         "COMPACT_RAW_KEEP": int(context.get("compact_raw_keep", 11)),
         "COMPACT_FRACTION": float(context.get("compact_fraction", 0.4)),
-        "PROGRESS_MAX_FRACTION": float(context.get("progress_max_fraction", 0.1)),
-        "TRACES_RESUME_MAX_FRACTION": float(context.get("traces_resume_max_fraction", 0.3)),
         "COMPACT_USE_LLM": context.get("compact_use_llm", True),
         "COMPACT_PROSE_TARGET_CHARS": int(context.get("compact_prose_target_chars", 16000)),
+        "PROGRESS_MAX_FRACTION": float(context.get("progress_max_fraction", 0.1)),
+        "TRACES_RESUME_MAX_FRACTION": float(context.get("traces_resume_max_fraction", 0.3)),
         "PROGRESS_NOTE_REMINDER_ROUNDS": int(context.get("progress_note_reminder_rounds", 10)),
         "MAX_FILE_BYTES": fs["max_file_bytes"],
-        "MAX_SEARCH_FILE_BYTES": fs["max_search_file_bytes"],
         "MAX_EXECUTION_OUTPUT_CHARS": execution["max_output_chars"],
         "DEFAULT_EXECUTION_TIMEOUT_SECONDS": execution["default_timeout_seconds"],
         "MAX_EXECUTION_TIMEOUT_SECONDS": execution["max_timeout_seconds"],
-        "MAX_TEST_OUTPUT_CHARS": testing["max_output_chars"],
-        "DEFAULT_TEST_TIMEOUT_SECONDS": testing["default_timeout_seconds"],
-        "MAX_TEST_TIMEOUT_SECONDS": testing["max_timeout_seconds"],
         "DEFAULT_WEB_TIMEOUT_SECONDS": web["default_timeout_seconds"],
         "MAX_WEB_TIMEOUT_SECONDS": web["max_timeout_seconds"],
         "MAX_WEBPAGE_CHARS": web["max_webpage_chars"],
         "DEFAULT_DEBUG_MAX_CHARS": debug["default_max_chars"],
-        "TRAIN_DEFAULT_EPOCHS": training["default_epochs"],
-        "TRAIN_DEFAULT_BATCH_SIZE": training["default_batch_size"],
-        "TRAIN_DEFAULT_CHECKPOINT_EVERY": training["default_checkpoint_every"],
-        "EVAL_LAYER_TIMEOUT_SECONDS": training["eval_layer_timeout_seconds"],
-        "GRADE_TIMEOUT_SECONDS": training["grade_timeout_seconds"],
+        "EVAL_LAYER_TIMEOUT_SECONDS": training.get("eval_layer_timeout_seconds", 3600),
+        "GRADE_TIMEOUT_SECONDS": training.get("grade_timeout_seconds", 600),
+        "TRAIN_DEFAULT_EPOCHS": training.get("default_epochs", 1),
+        "TRAIN_DEFAULT_BATCH_SIZE": training.get("default_batch_size", 2),
+        "TRAIN_DEFAULT_CHECKPOINT_EVERY": training.get("default_checkpoint_every", "batch"),
     })
 
     workspace_root = Path.cwd().resolve()

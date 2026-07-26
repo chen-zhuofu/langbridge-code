@@ -10,7 +10,7 @@ from langbridge_code.settings import (
 )
 from langbridge_code.tools.common.env import workspace_env
 from langbridge_code.tools.common.proc import run_command
-from langbridge_code.tools.common.purpose import PURPOSE_PARAMETER
+from langbridge_code.tools.common.description import DESCRIPTION_PARAMETER
 from langbridge_code.tools.common.runtime import managed_binary
 from langbridge_code.agents.common.workspace import get_workspace_root
 
@@ -19,11 +19,13 @@ WORKSPACE_ROOT = Path.cwd().resolve()
 _PRIVILEGED_COMMAND_RE = re.compile(r"\b(sudo|su|doas|pkexec)\b", re.IGNORECASE)
 _WRITE_BASH_PATTERN = re.compile(
     r"(^|[;&|]\s*)(rm\s|rmdir\s|mv\s|cp\s|touch\s|mkdir\s|"
-    r"chmod\s|chown\s|tee\s|truncate\s|>"
-    r"|>>\s|sed\s+-i|git\s+(add|commit|push|checkout\s+-b|merge|rebase|reset|clean)|"
+    r"chmod\s|chown\s|tee\s|truncate\s|"
+    r"sed\s+-i|git\s+(add|commit|push|checkout\s+-b|merge|rebase|reset|clean)|"
     r"pip\s+install|uv\s+add|npm\s+install|yarn\s+add|cargo\s+install)",
     re.IGNORECASE,
 )
+# Redirects that do not write files: fd duplication (2>&1) and /dev/null.
+_HARMLESS_REDIRECT = re.compile(r"\d?>>?\s*(&\d|/dev/null)")
 
 TOOL_SCHEMAS = [
     {
@@ -40,7 +42,7 @@ TOOL_SCHEMAS = [
         "parameters": {
             "type": "object",
             "properties": {
-                "purpose": PURPOSE_PARAMETER,
+                "description": DESCRIPTION_PARAMETER,
                 "command": {
                     "type": "string",
                     "description": "Shell command to run, e.g. 'uv add pytest' or 'python -m pytest tests/ -q'.",
@@ -56,7 +58,7 @@ TOOL_SCHEMAS = [
                     "default": DEFAULT_EXECUTION_TIMEOUT_SECONDS,
                 },
             },
-            "required": ["purpose", "command"],
+            "required": ["description", "command"],
             "additionalProperties": False,
         },
     },
@@ -70,7 +72,7 @@ TOOL_SCHEMAS = [
         "parameters": {
             "type": "object",
             "properties": {
-                "purpose": PURPOSE_PARAMETER,
+                "description": DESCRIPTION_PARAMETER,
                 "command": {
                     "type": "string",
                     "description": "PowerShell command to run.",
@@ -86,7 +88,7 @@ TOOL_SCHEMAS = [
                     "default": DEFAULT_EXECUTION_TIMEOUT_SECONDS,
                 },
             },
-            "required": ["purpose", "command"],
+            "required": ["description", "command"],
             "additionalProperties": False,
         },
     },
@@ -127,6 +129,8 @@ def bash_write_guard(command: str, *, role: str = "agent") -> str | None:
         return None
     if _WRITE_BASH_PATTERN.search(cleaned):
         return f"{role} may only run read-only shell commands."
+    if ">" in _HARMLESS_REDIRECT.sub("", cleaned):
+        return f"{role} may only run read-only shell commands (file redirect)."
     return None
 
 

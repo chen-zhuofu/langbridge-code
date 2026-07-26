@@ -1,0 +1,91 @@
+{
+  "task_id": "pallets__click-3504",
+  "status": "ok",
+  "repo": "pallets/click",
+  "base_commit": "bc36cd1a2b3bc18f401a98476154dbc5a2d212c9",
+  "problem_statement": "Multi-line help text is not handled correctly in fish\n\nMulti-line help text (e.g. `help=\"\\b\\nAttachment with explicit mimetype,\\n--at image.jpg image/jpeg\"`) causes error when doing shell completion in fish.\n\n# How to replicate\n\nFrom [simonw/llm](https://github.com/simonw/llm/blob/921fae9a0ad3d664a872e35e4639b16089b61c1d/llm/cli.py#L365-L373):\n\n```py\n@click.option(\n    \"attachment_types\",\n    \"--at\",\n    \"--attachment-type\",\n    type=(str, str),\n    multiple=True,\n    callback=attachment_types_callback,\n    help=\"\\b\\nAttachment with explicit mimetype,\\n--at image.jpg image/jpeg\",\n)\n```\n\nType `llm --`, then press <kbd>Tab</kbd> to complete, observe the following error output:\n\n```shellsession\n$ llm --\nstring split: --at image.jpg image/jpeg: unknown option\n\n/opt/homebrew/share/fish/vendor_completions.d/llm.fish (line 1):\nstring split \",\" $completion\n^\nin command substitution\n\tcalled on line 5 of file /opt/homebrew/share/fish/vendor_completions.d/llm.fish\nin function '_llm_completion'\nin command substitution\n\n(Type 'help string' for related documentation)\ntest: Missing argument at index 3\n= dir\n      ^\n/opt/homebrew/share/fish/vendor_completions.d/llm.fish (line 7):\n        if test $metadata[1] = \"dir\";\n           ^\nin function '_llm_completion'\nin command substitution\ntest: Missing argument at index 3\n= file\n       ^\n/opt/homebrew/share/fish/vendor_completions.d/llm.fish (line 9):\n        else if test $metadata[1] = \"file\";\n                ^\nin function '_llm_completion'\nin command substitution\ntest: Missing argument at index 3\n= plain\n        ^\n/opt/homebrew/share/fish/vendor_completions.d/llm.fish (line 11):\n        else if test $metadata[1] = \"plain\";\n                ^\nin function '_llm_completion'\nin command substitution\nstring split: --at image.jpg image/jpeg: unknown option\n\n/opt/homebrew/share/fish/vendor_completions.d/llm.fish (line 1):\nstring split \",\" $completion\n^\nin command substitution\n\tcalled on line 5 of file /opt/homebrew/share/fish/vendor_completions.d/llm.fish\nin function '_llm_completion'\nin command substitution\n\n(Type 'help string' for related documentation)\ntest: Missing argument at index 3\n= dir\n      ^\n/opt/homebrew/share/fish/vendor_completions.d/llm.fish (line 7):\n        if test $metadata[1] = \"dir\";\n           ^\nin function '_llm_completion'\nin command substitution\ntest: Missing argument at index 3\n= file\n       ^\n/opt/homebrew/share/fish/vendor_completions.d/llm.fish (line 9):\n        else if test $metadata[1] = \"file\";\n                ^\nin function '_llm_completion'\nin command substitution\ntest: Missing argument at index 3\n= plain\n        ^\n/opt/homebrew/share/fish/vendor_completions.d/llm.fish (line 11):\n        else if test $metadata[1] = \"plain\";\n                ^\nin function '_llm_completion'\nin command substitution\n```\n\n# Analysis\n\nObtaining raw completion from click:\n\n```shellsession\n$ env _LLM_COMPLETE=fish_complete COMP_WORDS='llm --' COMP_CWORD='--' llm\nplain,--system\tSystem prompt to use\nplain,--model\tModel to use\nplain,--database\tPath to log database\nplain,--query\tUse first model matching these strings\nplain,--attachment\tAttachment path or URL or -\nplain,--at\nAttachment with explicit mimetype,\n--at image.jpg image/jpeg\nplain,--attachment-type\nAttachment with explicit mimetype,\n--at image.jpg image/jpeg\nplain,--tool\tName of a tool to make available to the model\nplain,--functions\tPython code block or file path defining functions to register as tools\nplain,--td\tShow full details of tool executions\nplain,--tools-debug\tShow full details of tool executions\nplain,--ta\tManually approve every tool execution\nplain,--tools-approve\tManually approve every tool execution\nplain,--cl\tHow many chained tool responses to allow, default 5, set 0 for unlimited\nplain,--chain-limit\tHow many chained tool responses to allow, default 5, set 0 for unlimited\nplain,--option\tkey/value options for the model\nplain,--schema\tJSON schema, filepath or ID\nplain,--schema-multi\tJSON schema to use for multiple results\nplain,--fragment\tFragment (alias, URL, hash or file path) to add to the prompt\nplain,--sf\tFragment to add to system prompt\nplain,--system-fragment\tFragment to add to system prompt\nplain,--template\tTemplate to use\nplain,--param\tParameters for template\nplain,--no-stream\tDo not stream output\nplain,--no-log\tDon't log to database\nplain,--log\tLog prompt and response to the database\nplain,--continue\tContinue the most recent conversation.\nplain,--cid\tContinue the conversation with the given ID.\nplain,--conversation\tContinue the conversation with the given ID.\nplain,--key\tAPI key to use\nplain,--save\tSave prompt with this template name\nplain,--async\tRun prompt asynchronously\nplain,--usage\tShow token usage\nplain,--extract\tExtract first fenced code block\nplain,--xl\tExtract last fenced code block\nplain,--extract-last\tExtract last fenced code block\nplain,--help\tShow this message and exit.\n```\n\nObserve that option with multi-line help text is not escaped/handled:\n\n```\nplain,--at\nAttachment with explicit mimetype,\n--at image.jpg image/jpeg\nplain,--attachment-type\nAttachment with explicit mimetype,\n--at image.jpg image/jpeg\n```\n\nWhich causes unexpected arguments passed to `string split`, causing the error:\n\nhttps://github.com/pallets/click/blob/9b13d463a4e2b455310f39122d5e6135abf3835e/src/click/shell_completion.py#L183\n\n# Environment\n\n- Python version: 3.13.7\n- Click version: 8.2.1\n- Fish version: 4.0.2",
+  "test_files": [
+    "tests/test_shell_completion.py"
+  ],
+  "test_patch": "diff --git a/tests/test_shell_completion.py b/tests/test_shell_completion.py\n--- a/tests/test_shell_completion.py\n+++ b/tests/test_shell_completion.py\n@@ -359,9 +359,9 @@ def test_full_source(runner, shell):\n         (\"bash\", {\"COMP_WORDS\": \"a b\", \"COMP_CWORD\": \"1\"}, \"plain,b\\n\"),\n         (\"zsh\", {\"COMP_WORDS\": \"\", \"COMP_CWORD\": \"0\"}, \"plain\\na\\n_\\nplain\\nb\\nbee\\n\"),\n         (\"zsh\", {\"COMP_WORDS\": \"a b\", \"COMP_CWORD\": \"1\"}, \"plain\\nb\\nbee\\n\"),\n-        (\"fish\", {\"COMP_WORDS\": \"\", \"COMP_CWORD\": \"\"}, \"plain\\na\\n_\\nplain\\nb\\nbee\\n\"),\n-        (\"fish\", {\"COMP_WORDS\": \"a b\", \"COMP_CWORD\": \"b\"}, \"plain\\nb\\nbee\\n\"),\n-        (\"fish\", {\"COMP_WORDS\": 'a \"b', \"COMP_CWORD\": '\"b'}, \"plain\\nb\\nbee\\n\"),\n+        (\"fish\", {\"COMP_WORDS\": \"\", \"COMP_CWORD\": \"\"}, \"plain,a\\nplain,b\\tbee\\n\"),\n+        (\"fish\", {\"COMP_WORDS\": \"a b\", \"COMP_CWORD\": \"b\"}, \"plain,b\\tbee\\n\"),\n+        (\"fish\", {\"COMP_WORDS\": 'a \"b', \"COMP_CWORD\": '\"b'}, \"plain,b\\tbee\\n\"),\n     ],\n )\n @pytest.mark.usefixtures(\"_patch_for_completion\")\n@@ -576,50 +576,3 @@ def cli(ctx, config_file):\n             assert not current_warnings, \"There should be no warnings to start\"\n             _get_completions(cli, args=[], incomplete=\"\")\n             assert not current_warnings, \"There should be no warnings after either\"\n-\n-\n-@pytest.mark.usefixtures(\"_patch_for_completion\")\n-def test_fish_multiline_help_complete(runner):\n-    \"\"\"Test Fish completion with multi-line help text doesn't cause errors.\"\"\"\n-    cli = Command(\n-        \"cli\",\n-        params=[\n-            Option(\n-                [\"--at\", \"--attachment-type\"],\n-                type=(str, str),\n-                multiple=True,\n-                help=(\n-                    \"\\b\\nAttachment with explicit mimetype,\\n--at image.jpg image/jpeg\"\n-                ),\n-            ),\n-            Option([\"--other\"], help=\"Normal help\"),\n-        ],\n-    )\n-\n-    result = runner.invoke(\n-        cli,\n-        env={\n-            \"COMP_WORDS\": \"cli --\",\n-            \"COMP_CWORD\": \"--\",\n-            \"_CLI_COMPLETE\": \"fish_complete\",\n-        },\n-    )\n-\n-    # Should not fail\n-    assert result.exit_code == 0\n-\n-    # Output should contain escaped newlines, not literal newlines\n-    # Fish expects: plain\\n--at\\n{help_with_\\\\n}\n-    lines = result.output.split(\"\\n\")\n-\n-    # Find the --at completion block (3 lines: type, value, help)\n-    for i in range(0, len(lines) - 2, 3):\n-        if lines[i] == \"plain\" and lines[i + 1] in (\"--at\", \"--attachment-type\"):\n-            help_line = lines[i + 2]\n-            # Help should have escaped newlines (\\\\n), not actual newlines\n-            assert \"\\\\n\" in help_line\n-            # Should contain the example text\n-            assert \"image.jpg\" in help_line.replace(\"\\\\n\", \" \")\n-            break\n-    else:\n-        pytest.fail(\"--at completion not found in output\")\n",
+  "gold_code_patch": "diff --git a/src/click/shell_completion.py b/src/click/shell_completion.py\n--- a/src/click/shell_completion.py\n+++ b/src/click/shell_completion.py\n@@ -181,18 +181,14 @@ def __getattr__(self, name: str) -> t.Any:\n COMP_CWORD=(commandline -t) %(prog_name)s);\n \n     for completion in $response;\n-        set -l metadata (string split \\n $completion);\n+        set -l metadata (string split \",\" $completion);\n \n         if test $metadata[1] = \"dir\";\n             __fish_complete_directories $metadata[2];\n         else if test $metadata[1] = \"file\";\n             __fish_complete_path $metadata[2];\n         else if test $metadata[1] = \"plain\";\n-            if test $metadata[3] != \"_\";\n-                echo $metadata[2]\\t$metadata[3];\n-            else;\n-                echo $metadata[2];\n-            end;\n+            echo $metadata[2];\n         end;\n     end;\n end;\n@@ -427,15 +423,15 @@ def format_completion(self, item: CompletionItem) -> str:\n             Escape newlines in value and help to fix completion errors with\n             multi-line help strings.\n         \"\"\"\n-        # The fish completion script splits each response line on literal\n-        # newlines, so any newline in the value or help would corrupt the\n-        # frame. Replace them with the two-character escape \"\\n\" so the text\n-        # round-trips through fish without breaking the format. The \"_\"\n-        # sentinel for missing help mirrors :class:`ZshComplete`.\n-        help_ = item.help or \"_\"\n-        value = item.value.replace(\"\\n\", r\"\\n\")\n-        help_escaped = help_.replace(\"\\n\", r\"\\n\")\n-        return f\"{item.type}\\n{value}\\n{help_escaped}\"\n+        # According to https://fishshell.com/docs/current/cmds/complete.html\n+        # Command substitutions found in ARGUMENTS should return a newline-\n+        # separated list of arguments, and each argument may optionally have a tab\n+        # character followed by the argument description.\n+        if item.help:\n+            help_ = item.help.replace(\"\\n\", \"\\\\n\").replace(\"\\t\", \" \")\n+            return f\"{item.type},{item.value}\\t{help_}\"\n+\n+        return f\"{item.type},{item.value}\"\n \n \n ShellCompleteType = t.TypeVar(\"ShellCompleteType\", bound=\"type[ShellComplete]\")\n",
+  "fail_to_pass": [
+    "tests/test_shell_completion.py::test_full_complete[fish-env4-plain,a\\nplain,b\\tbee\\n]",
+    "tests/test_shell_completion.py::test_full_complete[fish-env5-plain,b\\tbee\\n]",
+    "tests/test_shell_completion.py::test_full_complete[fish-env6-plain,b\\tbee\\n]"
+  ],
+  "pass_to_pass": [
+    "tests/test_shell_completion.py::test_absolute_path",
+    "tests/test_shell_completion.py::test_add_completion_class",
+    "tests/test_shell_completion.py::test_add_completion_class_decorator",
+    "tests/test_shell_completion.py::test_add_completion_class_with_name",
+    "tests/test_shell_completion.py::test_add_different_name",
+    "tests/test_shell_completion.py::test_argument_default",
+    "tests/test_shell_completion.py::test_argument_nargs",
+    "tests/test_shell_completion.py::test_argument_order",
+    "tests/test_shell_completion.py::test_chained",
+    "tests/test_shell_completion.py::test_choice_case_sensitive[False-expect0]",
+    "tests/test_shell_completion.py::test_choice_case_sensitive[True-expect1]",
+    "tests/test_shell_completion.py::test_choice_conflicting_prefix",
+    "tests/test_shell_completion.py::test_choice_special_characters",
+    "tests/test_shell_completion.py::test_command",
+    "tests/test_shell_completion.py::test_completion_item_data",
+    "tests/test_shell_completion.py::test_context_settings",
+    "tests/test_shell_completion.py::test_double_dash",
+    "tests/test_shell_completion.py::test_files_closed",
+    "tests/test_shell_completion.py::test_flag_option_with_nargs_option",
+    "tests/test_shell_completion.py::test_full_complete[bash-env0-plain,a\\nplain,b\\n]",
+    "tests/test_shell_completion.py::test_full_complete[bash-env1-plain,b\\n]",
+    "tests/test_shell_completion.py::test_full_complete[zsh-env2-plain\\na\\n_\\nplain\\nb\\nbee\\n]",
+    "tests/test_shell_completion.py::test_full_complete[zsh-env3-plain\\nb\\nbee\\n]",
+    "tests/test_shell_completion.py::test_full_source[bash]",
+    "tests/test_shell_completion.py::test_full_source[fish]",
+    "tests/test_shell_completion.py::test_full_source[zsh]",
+    "tests/test_shell_completion.py::test_group",
+    "tests/test_shell_completion.py::test_group_command_same_option",
+    "tests/test_shell_completion.py::test_help_option",
+    "tests/test_shell_completion.py::test_hidden",
+    "tests/test_shell_completion.py::test_nested_group[args0--expect0]",
+    "tests/test_shell_completion.py::test_nested_group[args1--expect1]",
+    "tests/test_shell_completion.py::test_nested_group[args2--expect2]",
+    "tests/test_shell_completion.py::test_nested_group[args3---expect3]",
+    "tests/test_shell_completion.py::test_nested_group[args4--expect4]",
+    "tests/test_shell_completion.py::test_nested_group[args5---expect5]",
+    "tests/test_shell_completion.py::test_option_count",
+    "tests/test_shell_completion.py::test_option_custom",
+    "tests/test_shell_completion.py::test_option_flag",
+    "tests/test_shell_completion.py::test_option_multiple",
+    "tests/test_shell_completion.py::test_option_nargs",
+    "tests/test_shell_completion.py::test_option_optional",
+    "tests/test_shell_completion.py::test_path_types[type0-file]",
+    "tests/test_shell_completion.py::test_path_types[type1-file]",
+    "tests/test_shell_completion.py::test_path_types[type2-dir]",
+    "tests/test_shell_completion.py::test_source_uses_lf_line_endings",
+    "tests/test_shell_completion.py::test_type_choice",
+    "tests/test_shell_completion.py::test_zsh_full_complete_with_colons[env0-plain\\na\\n_\\nplain\\nb\\nbee\\nplain\\nc\\\\:d\\ncee:dee\\nplain\\nc:e\\n_\\n]",
+    "tests/test_shell_completion.py::test_zsh_full_complete_with_colons[env1-plain\\nc\\\\:d\\ncee:dee\\nplain\\nc:e\\n_\\n]",
+    "tests/test_shell_completion.py::test_zsh_full_complete_with_colons[env2-plain\\nc\\\\:d\\ncee:dee\\nplain\\nc:e\\n_\\n]"
+  ],
+  "hard": true,
+  "required_tool_calls": [
+    {
+      "tool": "read_file",
+      "path_glob": "src/click/shell_completion.py"
+    },
+    {
+      "tool": "Edit"
+    },
+    {
+      "tool": "bash",
+      "command_regex": "pytest.*test_shell_completion"
+    }
+  ],
+  "metadata": {
+    "pr_url": "https://github.com/pallets/click/pull/3504",
+    "linked_issues": [
+      3043
+    ],
+    "num_files": 2,
+    "created_at": "2026-05-22T16:29:56Z"
+  }
+}

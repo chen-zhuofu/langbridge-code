@@ -2,7 +2,7 @@ from langbridge_code.llm.trace import ThoughtEvent, extract_trace_events
 from langbridge_code.ui.bridge import format_approval_request
 
 
-def test_extract_trace_events_prefers_tool_purpose_and_hides_it_from_action():
+def test_extract_trace_events_prefers_tool_description_and_hides_it_from_action():
     output = [
         {
             "type": "message",
@@ -11,7 +11,7 @@ def test_extract_trace_events_prefers_tool_purpose_and_hides_it_from_action():
         {
             "type": "function_call",
             "name": "read_file",
-            "arguments": '{"purpose":"Inspect the README.","path":"README.md"}',
+            "arguments": '{"description":"Inspect the README.","path":"README.md"}',
         },
     ]
 

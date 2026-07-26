@@ -1,0 +1,66 @@
+{
+  "task_id": "python-websockets__websockets-1618",
+  "status": "ok",
+  "repo": "python-websockets/websockets",
+  "base_commit": "5cd37cdf38fe508640a5a9acd56cce2d9242b7da",
+  "problem_statement": "ValueError: unsupported protocol with HTTP/1.0 proxy server\n\nWhen using websockets 15.0.1 to establish a connection through a HTTP/1.0 only proxy server, I get the following traceback:\n```\nvenv/lib64/python3.11/site-packages/websockets/asyncio/client.py:765: in run_parser\n    next(self.parser)\nvenv/lib64/python3.11/site-packages/websockets/http11.py:250: in parse\n    raise ValueError(\nE   ValueError: unsupported protocol; expected HTTP/1.1: HTTP/1.0 200 Connection Established\n\nThe above exception was the direct cause of the following exception:\ntests/test_notification.py:31: in test_websocket\n    async with websockets.connect(uri, origin = gateway_url, additional_headers = additional_headers, ssl = ssl_context, proxy = proxy) as websocket:\nvenv/lib64/python3.11/site-packages/websockets/asyncio/client.py:587: in __aenter__\n    return await self\nvenv/lib64/python3.11/site-packages/websockets/asyncio/client.py:541: in __await_impl__\n    self.connection = await self.create_connection\nvenv/lib64/python3.11/site-packages/websockets/asyncio/client.py:440: in create_connection\n    transport = await connect_http_proxy(\nvenv/lib64/python3.11/site-packages/websockets/asyncio/client.py:815: in connect_http_proxy\n    await protocol.response\nE   websockets.exceptions.InvalidProxyMessage: did not receive a valid HTTP response from proxy\n```\n\nManually checking the behavior of the proxy server:\n```bash\n$ nc proxy-host.com 3128\nCONNECT websocket-host.com:443 HTTP/1.1\nHost: websocket-host.com\n\nHTTP/1.0 200 Connection Established\n```\n\nIt is my understanding [reading the spec](https://httpwg.org/specs/rfc9112.html#http.version) that responding with HTTP/1.0 to a HTTP/1.1 request is allowed.",
+  "test_files": [
+    "tests/test_http11.py"
+  ],
+  "test_patch": "diff --git a/tests/test_http11.py b/tests/test_http11.py\n--- a/tests/test_http11.py\n+++ b/tests/test_http11.py\n@@ -328,22 +328,22 @@ def test_parse_body_not_modified(self):\n         response = self.assertGeneratorReturns(self.parse())\n         self.assertEqual(response.body, b\"\")\n \n-    def test_parse_without_body(self):\n+    def test_parse_proxy_response_does_not_read_body(self):\n         self.reader.feed_data(b\"HTTP/1.1 200 Connection Established\\r\\n\\r\\n\")\n-        response = self.assertGeneratorReturns(self.parse(include_body=False))\n+        response = self.assertGeneratorReturns(self.parse(proxy=True))\n         self.assertEqual(response.body, b\"\")\n \n-    def test_parse_http10(self):\n+    def test_parse_proxy_http10(self):\n         self.reader.feed_data(b\"HTTP/1.0 200 OK\\r\\nContent-Length: 0\\r\\n\\r\\n\")\n-        response = self.assertGeneratorReturns(self.parse(allow_http10=True))\n+        response = self.assertGeneratorReturns(self.parse(proxy=True))\n         self.assertEqual(response.status_code, 200)\n         self.assertEqual(response.reason_phrase, \"OK\")\n         self.assertEqual(response.body, b\"\")\n \n-    def test_parse_http10_unsupported_protocol(self):\n+    def test_parse_proxy_unsupported_protocol(self):\n         self.reader.feed_data(b\"HTTP/1.2 400 Bad Request\\r\\n\\r\\n\")\n         with self.assertRaises(ValueError) as raised:\n-            next(self.parse(allow_http10=True))\n+            next(self.parse(proxy=True))\n         self.assertEqual(\n             str(raised.exception),\n             \"unsupported protocol; expected HTTP/1.1 or HTTP/1.0: \"\n",
+  "gold_code_patch": "diff --git a/src/websockets/asyncio/client.py b/src/websockets/asyncio/client.py\n--- a/src/websockets/asyncio/client.py\n+++ b/src/websockets/asyncio/client.py\n@@ -754,8 +754,7 @@ def __init__(\n             self.reader.read_line,\n             self.reader.read_exact,\n             self.reader.read_to_eof,\n-            include_body=False,\n-            allow_http10=True,\n+            proxy=True,\n         )\n \n         loop = asyncio.get_running_loop()\ndiff --git a/src/websockets/http11.py b/src/websockets/http11.py\n--- a/src/websockets/http11.py\n+++ b/src/websockets/http11.py\n@@ -213,8 +213,7 @@ def parse(\n         read_line: Callable[[int], Generator[None, None, bytes]],\n         read_exact: Callable[[int], Generator[None, None, bytes]],\n         read_to_eof: Callable[[int], Generator[None, None, bytes]],\n-        include_body: bool = True,\n-        allow_http10: bool = False,\n+        proxy: bool = False,\n     ) -> Generator[None, None, Response]:\n         \"\"\"\n         Parse a WebSocket handshake response.\n@@ -250,7 +249,7 @@ def parse(\n             protocol, raw_status_code, raw_reason = status_line.split(b\" \", 2)\n         except ValueError:  # not enough values to unpack (expected 3, got 1-2)\n             raise ValueError(f\"invalid HTTP status line: {d(status_line)}\") from None\n-        if allow_http10:  # some proxies still use HTTP/1.0\n+        if proxy:  # some proxies still use HTTP/1.0\n             if protocol not in [b\"HTTP/1.1\", b\"HTTP/1.0\"]:\n                 raise ValueError(\n                     f\"unsupported protocol; expected HTTP/1.1 or HTTP/1.0: \"\n@@ -277,12 +276,12 @@ def parse(\n \n         headers = yield from parse_headers(read_line)\n \n-        if include_body:\n+        if proxy:\n+            body = b\"\"\n+        else:\n             body = yield from read_body(\n                 status_code, headers, read_line, read_exact, read_to_eof\n             )\n-        else:\n-            body = b\"\"\n \n         return cls(status_code, reason, headers, body)\n \ndiff --git a/src/websockets/sync/client.py b/src/websockets/sync/client.py\n--- a/src/websockets/sync/client.py\n+++ b/src/websockets/sync/client.py\n@@ -498,8 +498,7 @@ def read_connect_response(sock: socket.socket, deadline: Deadline) -> Response:\n         reader.read_line,\n         reader.read_exact,\n         reader.read_to_eof,\n-        include_body=False,\n-        allow_http10=True,\n+        proxy=True,\n     )\n     try:\n         while True:\n",
+  "fail_to_pass": [
+    "tests/test_http11.py::ResponseTests::test_parse_proxy_http10",
+    "tests/test_http11.py::ResponseTests::test_parse_proxy_response_does_not_read_body",
+    "tests/test_http11.py::ResponseTests::test_parse_proxy_unsupported_protocol"
+  ],
+  "pass_to_pass": [
+    "tests/test_http11.py::HeadersTests::test_parse_invalid_line_ending",
+    "tests/test_http11.py::HeadersTests::test_parse_invalid_name",
+    "tests/test_http11.py::HeadersTests::test_parse_invalid_value",
+    "tests/test_http11.py::HeadersTests::test_parse_too_long_line",
+    "tests/test_http11.py::HeadersTests::test_parse_too_long_value",
+    "tests/test_http11.py::RequestTests::test_parse",
+    "tests/test_http11.py::RequestTests::test_parse_body",
+    "tests/test_http11.py::RequestTests::test_parse_body_content_length_zero",
+    "tests/test_http11.py::RequestTests::test_parse_body_with_transfer_encoding",
+    "tests/test_http11.py::RequestTests::test_parse_empty",
+    "tests/test_http11.py::RequestTests::test_parse_invalid_header",
+    "tests/test_http11.py::RequestTests::test_parse_invalid_request_line",
+    "tests/test_http11.py::RequestTests::test_parse_unsupported_method",
+    "tests/test_http11.py::RequestTests::test_parse_unsupported_protocol",
+    "tests/test_http11.py::RequestTests::test_serialize",
+    "tests/test_http11.py::ResponseTests::test_parse",
+    "tests/test_http11.py::ResponseTests::test_parse_body",
+    "tests/test_http11.py::ResponseTests::test_parse_body_no_content",
+    "tests/test_http11.py::ResponseTests::test_parse_body_not_modified",
+    "tests/test_http11.py::ResponseTests::test_parse_body_too_large",
+    "tests/test_http11.py::ResponseTests::test_parse_body_with_chunked_transfer_encoding",
+    "tests/test_http11.py::ResponseTests::test_parse_body_with_chunked_transfer_encoding_and_chunk_too_large",
+    "tests/test_http11.py::ResponseTests::test_parse_body_with_chunked_transfer_encoding_and_chunk_way_too_large",
+    "tests/test_http11.py::ResponseTests::test_parse_body_with_chunked_transfer_encoding_and_chunk_without_crlf",
+    "tests/test_http11.py::ResponseTests::test_parse_body_with_content_length",
+    "tests/test_http11.py::ResponseTests::test_parse_body_with_content_length_and_body_too_large",
+    "tests/test_http11.py::ResponseTests::test_parse_body_with_content_length_and_body_way_too_large",
+    "tests/test_http11.py::ResponseTests::test_parse_body_with_unsupported_transfer_encoding",
+    "tests/test_http11.py::ResponseTests::test_parse_empty",
+    "tests/test_http11.py::ResponseTests::test_parse_invalid_header",
+    "tests/test_http11.py::ResponseTests::test_parse_invalid_reason",
+    "tests/test_http11.py::ResponseTests::test_parse_invalid_status_line",
+    "tests/test_http11.py::ResponseTests::test_parse_non_integer_status",
+    "tests/test_http11.py::ResponseTests::test_parse_non_three_digit_status",
+    "tests/test_http11.py::ResponseTests::test_parse_unsupported_protocol",
+    "tests/test_http11.py::ResponseTests::test_serialize",
+    "tests/test_http11.py::ResponseTests::test_serialize_with_body"
+  ],
+  "hard": true,
+  "metadata": {
+    "pr_url": "https://github.com/python-websockets/websockets/pull/1618",
+    "linked_issues": [
+      1609
+    ],
+    "num_files": 4,
+    "created_at": "2025-04-14T19:30:51Z"
+  },
+  "docker_image": "lb-task:python-websockets__websockets-1618"
+}

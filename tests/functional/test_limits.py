@@ -69,7 +69,7 @@ def test_workflow_stops_on_time_budget(tmp_path, monkeypatch):
         def __init__(self, *args, **kwargs):
             self.messages = kwargs.get("messages")
 
-        def run_turn(self, prompt, **kwargs):
+        def send(self, prompt, **kwargs):
             from langbridge_code.tools.agent_worker_reviewer import build_agent_worker_tool
 
             agent_worker = build_agent_worker_tool(

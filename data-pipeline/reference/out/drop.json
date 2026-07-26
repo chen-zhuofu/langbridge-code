@@ -1,0 +1,10 @@
+{
+  "description": "Tasks dropped at reference (no FAIL_TO_PASS, patch apply failure, missing image, timeout, …).",
+  "dropped": [
+    {
+      "task_id": "pytest-dev__pytest-14760",
+      "reason": "missing image lb-task:pytest-dev__pytest-14760",
+      "stage": "reference"
+    }
+  ]
+}

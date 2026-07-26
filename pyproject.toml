@@ -14,10 +14,10 @@ dependencies = [
 langbridge-code = "langbridge_code.main:main"
 
 [tool.setuptools]
-package-dir = {"" = "src"}
+package-dir = {"" = "src", "langbridge_eval" = "eval/langbridge_eval"}
 
 [tool.setuptools.packages.find]
-where = ["src"]
+where = ["src", "eval"]
 
 [build-system]
 requires = ["setuptools>=69"]

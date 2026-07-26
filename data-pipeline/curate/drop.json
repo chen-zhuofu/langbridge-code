@@ -1,0 +1,22 @@
+{
+  "description": "Tasks dropped from eval (human analysis or LLM curate). Docker tags for these task_ids are removed. Collect and env skip these ids so crawl will not recreate them.",
+  "dropped": [
+    {
+      "task_id": "python-websockets__websockets-1543",
+      "reason": "documentation gap, not a code bug fix"
+    },
+    {
+      "task_id": "sympy__sympy-23082",
+      "reason": "vague problem statement ('maybe diff should...')"
+    },
+    {
+      "task_id": "pygments__pygments-3090",
+      "reason": "duplicate of pygments-3078 (same issue text)"
+    },
+    {
+      "task_id": "pytest-dev__pytest-14694",
+      "reason": "human error analysis: problem statement too vague to reproduce the hidden-test case (rootdir conftest visibility / #14683). Agent repros always pass, so it cannot locate the real bug and drifts to unrelated failures (e.g. _find_lineno).",
+      "source": "human_error_analysis"
+    }
+  ]
+}

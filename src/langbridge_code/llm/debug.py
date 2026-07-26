@@ -3,7 +3,7 @@ import os
 
 from langbridge_code.settings import DEFAULT_DEBUG_MAX_CHARS
 from langbridge_code.llm.parse import extract_output_text, truncate_text
-from langbridge_code.tools.common.purpose import TOOL_PURPOSE
+from langbridge_code.tools.common.description import TOOL_DESCRIPTION
 
 
 DEBUG_AGENT_LABELS = {"Planner", "Coder", "Reviewer", "Presenter"}
@@ -63,9 +63,9 @@ def format_output_item(index, item):
 
 def format_function_call(index, item):
     arguments = parse_arguments(item.get("arguments") or "{}")
-    purpose = ""
+    description = ""
     if isinstance(arguments, dict):
-        purpose = arguments.pop(TOOL_PURPOSE, "")
+        description = arguments.pop(TOOL_DESCRIPTION, "")
         rendered_arguments = json.dumps(arguments, ensure_ascii=False, separators=(",", ":"))
     else:
         rendered_arguments = str(arguments)
@@ -74,8 +74,8 @@ def format_function_call(index, item):
         f"function_call {item.get('name', 'unknown')}"
         f"({truncate_text(rendered_arguments, debug_max_chars())}) call_id={item.get('call_id', '')}"
     )
-    if purpose:
-        return f"{index}. purpose: {truncate_text(purpose, debug_max_chars())} -> {call}"
+    if description:
+        return f"{index}. description: {truncate_text(description, debug_max_chars())} -> {call}"
     return f"{index}. {call}"
 
 

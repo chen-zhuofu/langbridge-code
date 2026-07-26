@@ -1,10 +1,13 @@
-"""Per-agent instance ids and trace logging (replaces per-role worklog files)."""
+"""Per-agent instance ids and session-trace helpers.
+
+Step think/tool lines are written once via ``print_step_trace(..., sink=)`` →
+``trace_sink``. This module records received / tool results / finish only.
+"""
 from __future__ import annotations
 
 import threading
 
-from langbridge_code.llm.parse import extract_output_text, extract_reasoning_summaries
-from langbridge_code.util.trace_log import log_finish, log_from_step_output, log_received, log_tool_result
+from langbridge_code.util.trace_log import log_finish, log_received, log_tool_result
 
 # Labels that get per-instance ids (and thus per-instance trace entries).
 _WORKLOG_FILE_BY_LABEL = {
@@ -33,11 +36,6 @@ def new_worklog_id(run_log_path, label):
 def write_worklog_received(run_log_path, label, instance_id, turn_id, text):
     del run_log_path, instance_id, turn_id
     log_received(label, text)
-
-
-def write_worklog_step(run_log_path, label, instance_id, turn_id, step, output):
-    del run_log_path, instance_id, turn_id, step
-    log_from_step_output(label, output)
 
 
 def write_worklog_observation(run_log_path, label, instance_id, turn_id, step, tool_output):

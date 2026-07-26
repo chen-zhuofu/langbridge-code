@@ -1,0 +1,4 @@
+{
+  "description": "LLM/pipeline curate drops. Code reads this for resume. Human error-analysis drops go in data/eval/drop/ instead. Not synced to data/eval/specs/.",
+  "dropped": []
+}

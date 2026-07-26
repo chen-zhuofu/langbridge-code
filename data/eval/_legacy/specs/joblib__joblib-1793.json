@@ -1,0 +1,73 @@
+{
+  "task_id": "joblib__joblib-1793",
+  "status": "ok",
+  "repo": "joblib/joblib",
+  "base_commit": "a78f652fa21cffcd05cb79431ba5896bc5d78bd3",
+  "problem_statement": "joblib.memory does not correctly handle *kwarg without default value\n\nreproduction:\n\n```python\nimport joblib\n\nmemory = joblib.Memory('/tmp')\n\n@memory.cache\ndef simple_function(\n    *,\n    some_arg: int = 9,\n    device: str,\n):\n    return dict\n\nsimple_function(device='123')\n```\n\ncode above should work, but instead it raises an exception.\n\n```\nValueError: Wrong number of arguments for simple_function(*, some_arg: int = 9, device: str | torch.device):\n     simple_function(, device=123) was called.\n```\n\nSwapping order of args in function definition makes code work.\n\nObserved in joblib==1.4.0",
+  "test_files": [
+    "joblib/test/test_func_inspect.py"
+  ],
+  "test_patch": "diff --git a/joblib/test/test_func_inspect.py b/joblib/test/test_func_inspect.py\n--- a/joblib/test/test_func_inspect.py\n+++ b/joblib/test/test_func_inspect.py\n@@ -198,6 +198,19 @@ def func_with_signature(a: int, b: int) -> None:\n     pass\n \n \n+def func_with_kwonly_default_before_required(*, kw1=\"kw1\", kw2):\n+    pass\n+\n+\n+def test_filter_args_kwonly_default_before_required():\n+    assert filter_args(\n+        func_with_kwonly_default_before_required, [], (), {\"kw2\": 2}\n+    ) == {\"kw1\": \"kw1\", \"kw2\": 2}\n+    assert filter_args(\n+        func_with_kwonly_default_before_required, [], (), {\"kw1\": 1, \"kw2\": 2}\n+    ) == {\"kw1\": 1, \"kw2\": 2}\n+\n+\n def test_filter_args_edge_cases():\n     assert filter_args(func_with_kwonly_args, [], (1, 2), {\"kw1\": 3, \"kw2\": 4}) == {\n         \"a\": 1,\n",
+  "gold_code_patch": "diff --git a/CHANGES.rst b/CHANGES.rst\n--- a/CHANGES.rst\n+++ b/CHANGES.rst\n@@ -8,6 +8,10 @@ In development\n   of cloudpickle\n   https://github.com/joblib/joblib/pull/1775\n \n+- Fix ``Memory.cache`` for functions with a keyword-only argument that has a\n+  default declared before a keyword-only argument without a default.\n+  https://github.com/joblib/joblib/issues/1731\n+\n - Fix a concurrency error that could happen with unordered generator.\n   https://github.com/joblib/joblib/pull/1789\n \ndiff --git a/joblib/func_inspect.py b/joblib/func_inspect.py\n--- a/joblib/func_inspect.py\n+++ b/joblib/func_inspect.py\n@@ -237,7 +237,7 @@ def filter_args(func, ignore_lst, args=(), kwargs=dict()):\n         return {\"*\": args, \"**\": kwargs}\n     arg_sig = inspect.signature(func)\n     arg_names = []\n-    arg_defaults = []\n+    arg_defaults = {}\n     arg_kwonlyargs = []\n     arg_varargs = None\n     arg_varkw = None\n@@ -252,7 +252,7 @@ def filter_args(func, ignore_lst, args=(), kwargs=dict()):\n         elif param.kind is param.VAR_KEYWORD:\n             arg_varkw = param.name\n         if param.default is not param.empty:\n-            arg_defaults.append(param.default)\n+            arg_defaults[param.name] = param.default\n     if inspect.ismethod(func):\n         # First argument is 'self', it has been removed by Python\n         # we need to add it back:\n@@ -289,13 +289,12 @@ def filter_args(func, ignore_lst, args=(), kwargs=dict()):\n                 )\n \n         else:\n-            position = arg_position - len(arg_names)\n             if arg_name in kwargs:\n                 arg_dict[arg_name] = kwargs[arg_name]\n             else:\n                 try:\n-                    arg_dict[arg_name] = arg_defaults[position]\n-                except (IndexError, KeyError) as e:\n+                    arg_dict[arg_name] = arg_defaults[arg_name]\n+                except KeyError as e:\n                     # Missing argument\n                     raise ValueError(\n                         \"Wrong number of arguments for %s:\\n\"\n",
+  "fail_to_pass": [
+    "joblib/test/test_func_inspect.py::test_filter_args_kwonly_default_before_required"
+  ],
+  "pass_to_pass": [
+    "joblib/test/test_func_inspect.py::test_bound_methods",
+    "joblib/test/test_func_inspect.py::test_clean_win_chars",
+    "joblib/test/test_func_inspect.py::test_filter_args[f-args0-filtered_args0]",
+    "joblib/test/test_func_inspect.py::test_filter_args[f-args1-filtered_args1]",
+    "joblib/test/test_func_inspect.py::test_filter_args[f-args2-filtered_args2]",
+    "joblib/test/test_func_inspect.py::test_filter_args[f-args3-filtered_args3]",
+    "joblib/test/test_func_inspect.py::test_filter_args[f-args4-filtered_args4]",
+    "joblib/test/test_func_inspect.py::test_filter_args[f-args5-filtered_args5]",
+    "joblib/test/test_func_inspect.py::test_filter_args[f-args6-filtered_args6]",
+    "joblib/test/test_func_inspect.py::test_filter_args[g-args7-filtered_args7]",
+    "joblib/test/test_func_inspect.py::test_filter_args[i-args8-filtered_args8]",
+    "joblib/test/test_func_inspect.py::test_filter_args_2",
+    "joblib/test/test_func_inspect.py::test_filter_args_edge_cases",
+    "joblib/test/test_func_inspect.py::test_filter_args_method",
+    "joblib/test/test_func_inspect.py::test_filter_args_no_kwargs_mutation",
+    "joblib/test/test_func_inspect.py::test_filter_kwargs[k-args0-filtered_args0]",
+    "joblib/test/test_func_inspect.py::test_filter_kwargs[k-args1-filtered_args1]",
+    "joblib/test/test_func_inspect.py::test_filter_kwargs[m1-args2-filtered_args2]",
+    "joblib/test/test_func_inspect.py::test_filter_kwargs[m2-args3-filtered_args3]",
+    "joblib/test/test_func_inspect.py::test_filter_varargs[h-args0-filtered_args0]",
+    "joblib/test/test_func_inspect.py::test_filter_varargs[h-args1-filtered_args1]",
+    "joblib/test/test_func_inspect.py::test_filter_varargs[h-args2-filtered_args2]",
+    "joblib/test/test_func_inspect.py::test_filter_varargs[h-args3-filtered_args3]",
+    "joblib/test/test_func_inspect.py::test_format_signature_long_arguments",
+    "joblib/test/test_func_inspect.py::test_format_signature_numpy",
+    "joblib/test/test_func_inspect.py::test_func_code_consistency",
+    "joblib/test/test_func_inspect.py::test_func_inspect_errors",
+    "joblib/test/test_func_inspect.py::test_func_name[cached_func-cached_func]",
+    "joblib/test/test_func_inspect.py::test_func_name[f-f]",
+    "joblib/test/test_func_inspect.py::test_func_name[g-g]",
+    "joblib/test/test_func_inspect.py::test_func_name_collision_on_inner_func",
+    "joblib/test/test_func_inspect.py::test_func_name_on_inner_func",
+    "joblib/test/test_func_inspect.py::test_special_source_encoding"
+  ],
+  "hard": false,
+  "required_tool_calls": [
+    {
+      "tool": "read_file",
+      "path_glob": "joblib/func_inspect.py"
+    },
+    {
+      "tool": "Edit"
+    },
+    {
+      "tool": "bash",
+      "command_regex": "pytest"
+    }
+  ],
+  "metadata": {
+    "pr_url": "https://github.com/joblib/joblib/pull/1793",
+    "linked_issues": [
+      1731
+    ],
+    "num_files": 3,
+    "created_at": "2026-05-13T00:12:48Z"
+  },
+  "docker_image": "lb-task:joblib__joblib-1793"
+}

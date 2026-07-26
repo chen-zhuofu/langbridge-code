@@ -1,7 +1,7 @@
 import json
 from dataclasses import dataclass
 
-_TOOL_PURPOSE = "purpose"
+_TOOL_DESCRIPTION = "description"
 
 
 @dataclass(frozen=True)
@@ -15,7 +15,7 @@ class ThoughtEvent:
 
 def extract_trace_events(output, label="Agent", include_message=False):
     # The model's own reasoning summary ("what it is thinking") is surfaced on
-    # every step, ahead of the tool purpose and the action it leads to.
+    # every step, ahead of the tool description and the action it leads to.
     reasoning_events = [
         ThoughtEvent(role=label, kind="reasoning", text=summary)
         for summary in extract_reasoning_summaries(output)
@@ -26,9 +26,9 @@ def extract_trace_events(output, label="Agent", include_message=False):
         if item.get("type") != "function_call":
             continue
 
-        purpose = extract_tool_purpose(item)
-        if purpose:
-            thought_events.append(ThoughtEvent(role=label, kind="thought", text=purpose))
+        description = extract_tool_description(item)
+        if description:
+            thought_events.append(ThoughtEvent(role=label, kind="thought", text=description))
         action_events.append(
             ThoughtEvent(
                 role=label,
@@ -54,17 +54,17 @@ def extract_trace_events(output, label="Agent", include_message=False):
     return reasoning_events
 
 
-def extract_tool_purpose(item):
+def extract_tool_description(item):
     arguments = parse_json_string(item.get("arguments") or "{}")
     if isinstance(arguments, dict):
-        return arguments.get(_TOOL_PURPOSE, "")
+        return arguments.get(_TOOL_DESCRIPTION, "")
     return ""
 
 
 def format_tool_arguments(item):
     arguments = parse_json_string(item.get("arguments") or "{}")
     if isinstance(arguments, dict):
-        arguments.pop(_TOOL_PURPOSE, None)
+        arguments.pop(_TOOL_DESCRIPTION, None)
         return json.dumps(arguments, ensure_ascii=False, separators=(",", ":"))
     return item.get("arguments") or "{}"
 

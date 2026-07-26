@@ -28,7 +28,6 @@
     "openai": null,
     "deepseek": null
   },
-  "max_guidance": 12,
   "agent": {
     "max_agent_steps": 1000000,
     "max_agent_seconds": 1000000,
@@ -38,14 +37,11 @@
     "max_worker_seconds": 1000000,
     "max_reviewer_steps": 1000000,
     "max_reviewer_seconds": 1000000,
-    "max_workflow_seconds": 1000000,
     "max_planner_steps": 1000000,
     "max_planner_seconds": 1000000,
     "max_worker_reviewer_steps": 1000000,
     "max_worker_reviewer_seconds": 1000000,
-    "workflow_outer_multiplier": 2,
     "max_parallel_tool_calls": 1000,
-    "max_parallel_workers": 1000,
     "parallel_agents_enabled": true
   },
   "goal": {
@@ -63,21 +59,13 @@
     "compact_fraction": 0.4,
     "progress_max_fraction": 0.1,
     "traces_resume_max_fraction": 0.3,
-    "compact_use_llm": true,
-    "compact_prose_target_chars": 16000,
     "progress_note_reminder_rounds": 10
   },
   "tools": {
     "filesystem": {
-      "max_file_bytes": 262144,
-      "max_search_file_bytes": 200000
+      "max_file_bytes": 262144
     },
     "execution": {
-      "max_output_chars": 30000,
-      "default_timeout_seconds": 60,
-      "max_timeout_seconds": 300
-    },
-    "testing": {
       "max_output_chars": 30000,
       "default_timeout_seconds": 60,
       "max_timeout_seconds": 300
@@ -91,11 +79,8 @@
       "default_max_chars": 200
     }
   },
-  "training": {
-    "default_epochs": 1,
-    "default_batch_size": 2,
-    "default_checkpoint_every": "batch",
-    "eval_layer_timeout_seconds": 3600,
+  "eval": {
+    "eval_layer_timeout_seconds": 2400,
     "grade_timeout_seconds": 600
   },
   "paths": {

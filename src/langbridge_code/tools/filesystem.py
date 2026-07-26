@@ -4,7 +4,7 @@ import subprocess
 from pathlib import Path
 
 from langbridge_code.settings import MAX_FILE_BYTES
-from langbridge_code.tools.common.purpose import PURPOSE_PARAMETER
+from langbridge_code.tools.common.description import DESCRIPTION_PARAMETER
 from langbridge_code.tools.common.runtime import managed_binary
 from langbridge_code.util.read_file_in_range import (
     FileTooLargeError,
@@ -36,7 +36,7 @@ TOOL_SCHEMAS = [
         "parameters": {
             "type": "object",
             "properties": {
-                "purpose": PURPOSE_PARAMETER,
+                "description": DESCRIPTION_PARAMETER,
                 "pattern": {
                     "type": "string",
                     "description": "Glob pattern to match file paths.",
@@ -52,7 +52,7 @@ TOOL_SCHEMAS = [
                     "default": DEFAULT_GLOB_LIMIT,
                 },
             },
-            "required": ["purpose", "pattern"],
+            "required": ["description", "pattern"],
             "additionalProperties": False,
         },
     },
@@ -67,7 +67,7 @@ TOOL_SCHEMAS = [
         "parameters": {
             "type": "object",
             "properties": {
-                "purpose": PURPOSE_PARAMETER,
+                "description": DESCRIPTION_PARAMETER,
                 "path": {
                     "type": "string",
                     "description": "File path relative to the current workspace.",
@@ -87,7 +87,7 @@ TOOL_SCHEMAS = [
                     ),
                 },
             },
-            "required": ["purpose", "path"],
+            "required": ["description", "path"],
             "additionalProperties": False,
         },
     },
@@ -102,7 +102,7 @@ TOOL_SCHEMAS = [
         "parameters": {
             "type": "object",
             "properties": {
-                "purpose": PURPOSE_PARAMETER,
+                "description": DESCRIPTION_PARAMETER,
                 "pattern": {
                     "type": "string",
                     "description": "The regular expression pattern to search for in file contents.",
@@ -188,7 +188,7 @@ TOOL_SCHEMAS = [
                     "default": False,
                 },
             },
-            "required": ["purpose", "pattern"],
+            "required": ["description", "pattern"],
             "additionalProperties": False,
         },
     },
@@ -203,7 +203,7 @@ TOOL_SCHEMAS = [
         "parameters": {
             "type": "object",
             "properties": {
-                "purpose": PURPOSE_PARAMETER,
+                "description": DESCRIPTION_PARAMETER,
                 "path": {
                     "type": "string",
                     "description": "File path relative to the current workspace.",
@@ -222,7 +222,7 @@ TOOL_SCHEMAS = [
                     "default": False,
                 },
             },
-            "required": ["purpose", "path", "old_string", "new_string"],
+            "required": ["description", "path", "old_string", "new_string"],
             "additionalProperties": False,
         },
     },
@@ -236,7 +236,7 @@ TOOL_SCHEMAS = [
         "parameters": {
             "type": "object",
             "properties": {
-                "purpose": PURPOSE_PARAMETER,
+                "description": DESCRIPTION_PARAMETER,
                 "path": {
                     "type": "string",
                     "description": "File path relative to the current workspace.",
@@ -246,7 +246,7 @@ TOOL_SCHEMAS = [
                     "description": "Full file content to write.",
                 },
             },
-            "required": ["purpose", "path", "content"],
+            "required": ["description", "path", "content"],
             "additionalProperties": False,
         },
     },
@@ -278,6 +278,27 @@ def resolve_workspace_path(path):
     except ValueError:
         raise ValueError("Path must stay inside the current workspace")
     return target
+
+
+def resolve_readable_path(path):
+    """Workspace resolution plus read-only access to registered session dirs.
+
+    Read tools use this so agents can follow absolute paths handed to them in
+    tool results (e.g. persisted explorer reports in the session artifact dir).
+    Write tools must keep using resolve_workspace_path.
+    """
+    from langbridge_code.agents.common.workspace import readable_roots
+
+    try:
+        return resolve_workspace_path(path)
+    except ValueError:
+        candidate = Path(path)
+        if candidate.is_absolute():
+            resolved = candidate.resolve()
+            for root in readable_roots():
+                if resolved.is_relative_to(root):
+                    return resolved
+        raise
 
 
 def _rg_binary():
@@ -342,7 +363,7 @@ def glob(pattern, path=".", max_results=DEFAULT_GLOB_LIMIT):
 @tool("read_file")
 def read_file(path, offset=None, limit=None, start_line=None, end_line=None, function_name=None):
     """Read tool — ported from Claude Code Read (offset/limit, line-numbered output)."""
-    target = resolve_workspace_path(path)
+    target = resolve_readable_path(path)
     if not target.exists():
         raise FileNotFoundError(f"No such file: {path}")
     if not target.is_file():

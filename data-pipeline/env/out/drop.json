@@ -1,0 +1,4 @@
+{
+  "description": "Tasks dropped because the Docker env could not execute the test suite.",
+  "dropped": []
+}

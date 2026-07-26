@@ -1,4 +1,15 @@
-"""Artifact session paths under artifacts/{project}/session-{slug}-{timestamp}/."""
+"""Artifact session paths under artifacts/{project}/session-{slug}-{timestamp}/.
+
+Layout:
+  progress.md          main-agent progress note
+  traces.md            main-agent raw trace
+  session.md           activity log all agents write to
+  attachments/         oversized payloads linked from session.md / audit events
+  compactions.jsonl    progress-note merge audit
+  {task-slug}/         one directory per subagent task
+    progress.md        task note (shared across dispatches and roles)
+    {role}-{n}.md      raw trace of dispatch instance n
+"""
 from __future__ import annotations
 
 import re
@@ -8,10 +19,9 @@ from pathlib import Path
 from langbridge_code.settings import ARTIFACTS_DIR
 
 PROGRESS_MD = "progress.md"
-TASK_PROGRESS_PREFIX = "progress-"
 TRACES_MD = "traces.md"
-TRACES_DIRNAME = "traces"
 SESSION_TRACE_MD = "session.md"
+ATTACHMENTS_DIRNAME = "attachments"
 
 _INVALID_PATH_CHARS = re.compile(r'[/\\:*?"<>|\s]+')
 _SESSION_DIR_RE = re.compile(r"^session-.+-(\d{4}-\d{2}-\d{2}T\d{6})$")
@@ -63,16 +73,24 @@ def progress_path(run_log_path) -> Path | None:
     return directory / PROGRESS_MD
 
 
+def task_dir(run_log_path, task_name: str) -> Path | None:
+    """Per-task directory for subagent artifacts: {session}/{task-slug}/."""
+    directory = artifact_dir(run_log_path)
+    if directory is None or not (task_name or "").strip():
+        return None
+    return directory / slug_first_message(task_name)
+
+
 def task_progress_path(run_log_path, task_name: str) -> Path | None:
-    """Per-task progress notes for subagents: {session}/progress-{task-slug}.md.
+    """Per-task progress notes for subagents: {session}/{task-slug}/progress.md.
 
     The same task_name across re-dispatches maps to the same file, so a
     later subagent resumes from the earlier one's notes.
     """
-    directory = artifact_dir(run_log_path)
-    if directory is None or not (task_name or "").strip():
+    directory = task_dir(run_log_path, task_name)
+    if directory is None:
         return None
-    return directory / f"{TASK_PROGRESS_PREFIX}{slug_first_message(task_name)}.md"
+    return directory / PROGRESS_MD
 
 
 def traces_md_path(run_log_path) -> Path | None:
@@ -82,16 +100,16 @@ def traces_md_path(run_log_path) -> Path | None:
     return directory / TRACES_MD
 
 
-def traces_dir(run_log_path) -> Path | None:
+def attachments_dir(run_log_path) -> Path | None:
     directory = artifact_dir(run_log_path)
     if directory is None:
         return None
-    return directory / TRACES_DIRNAME
+    return directory / ATTACHMENTS_DIRNAME
 
 
 def session_trace_path(run_log_path) -> Path | None:
-    """Single human-readable trace log for the whole session (traces/session.md)."""
-    directory = traces_dir(run_log_path)
+    """Single human-readable trace log for the whole session (session.md)."""
+    directory = artifact_dir(run_log_path)
     if directory is None:
         return None
     return directory / SESSION_TRACE_MD
@@ -107,7 +125,6 @@ def create_artifact_session(first_user_message: str, when: datetime | None = Non
         session_dir = ARTIFACTS_DIR / f"{name}-{suffix}"
         suffix += 1
     session_dir.mkdir(parents=True)
-    (session_dir / TRACES_DIRNAME).mkdir(exist_ok=True)
     (session_dir / PROGRESS_MD).write_text("# Session progress\n", encoding="utf-8")
     (session_dir / TRACES_MD).write_text("# Session traces\n", encoding="utf-8")
     return session_dir
