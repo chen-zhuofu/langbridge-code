@@ -1,7 +1,7 @@
 """Approval policy: only high-risk, hard-to-reverse operations need approval."""
 import pytest
 
-from langbridge_code.tools.approval import approval_reason, circuit_breaker_reason
+from langbridge_code.agents.common.approval import approval_reason, circuit_breaker_reason
 
 
 @pytest.mark.parametrize("name,arguments", [

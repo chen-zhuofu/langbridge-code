@@ -5,7 +5,7 @@ from langbridge_code.tools.ask_user import (
     resolve_ask_user,
     resolve_ask_user_answer,
 )
-from langbridge_code.tools.agent_planner import PLANNER_TOOL_SCHEMAS
+from langbridge_code.agents.planner import PLANNER_TOOL_SCHEMAS
 from langbridge_code.tools import MAIN_TOOL_SCHEMAS
 
 

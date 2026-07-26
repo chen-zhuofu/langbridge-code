@@ -1,7 +1,7 @@
-from langbridge_code.agents.system_prompt import WORKER_ENGINEER_PROMPT, worker_system_prompt
-from langbridge_code.agents.system_prompt.planner import PLANNER_PROMPT, planner_system_prompt
-from langbridge_code.agents.system_prompt.explorer import explorer_system_prompt
-from langbridge_code.agents.system_prompt.langbridge import langbridge_system_prompt
+from langbridge_code.prompt.system import WORKER_ENGINEER_PROMPT, worker_system_prompt
+from langbridge_code.prompt.system.planner import PLANNER_PROMPT, planner_system_prompt
+from langbridge_code.prompt.system.explorer import explorer_system_prompt
+from langbridge_code.prompt.system.langbridge import langbridge_system_prompt
 from langbridge_code.skills import (
     EXPLORER_SKILL_NAMES,
     PLANNER_SKILL_NAMES,
@@ -12,8 +12,8 @@ from langbridge_code.skills import (
     worker_skill_catalog,
     reviewer_skill_catalog,
 )
-from langbridge_code.tools.agent_explorer import EXPLORE_TOOL_NAMES
-from langbridge_code.tools.agent_planner import PLANNER_TOOL_NAMES
+from langbridge_code.agents.explorer import EXPLORE_TOOL_NAMES
+from langbridge_code.agents.planner import PLANNER_TOOL_NAMES
 
 
 def test_planner_skill_catalog_excludes_coder_only_skills():
@@ -117,7 +117,7 @@ def test_select_skill_index_swallows_llm_failure(monkeypatch):
 
 
 def test_worker_session_sets_skill_index_block():
-    from langbridge_code.tools.agent_worker_reviewer import WorkerSession
+    from langbridge_code.agents.worker_reviewer import WorkerSession
 
     session = WorkerSession("key", "model", [], {}, task_type="coding")
     session.begin_send("do it", assigned_task="Build the parser")
@@ -164,7 +164,7 @@ def test_worker_coding_prompt_tells_worker_to_commit_as_it_goes():
 
 
 def test_reviewer_coding_prompt_includes_general_loop_guidance():
-    from langbridge_code.agents.system_prompt.reviewer import reviewer_system_prompt
+    from langbridge_code.prompt.system.reviewer import reviewer_system_prompt
 
     prompt = reviewer_system_prompt("coding")
     assert "worker-reviewer loop" in prompt.lower()

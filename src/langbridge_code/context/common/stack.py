@@ -1,4 +1,4 @@
-"""Layered context: pinned blocks + compact prose + raw rounds.
+"""Layered context: pinned blocks + raw rounds.
 
 Assembled message order:
   system
@@ -6,23 +6,21 @@ Assembled message order:
   [ASSIGNED_TASK] pinned user   (subagents)
   <progress>…</progress>        (main agent: progress.md)
   <skill_index>…</skill_index>  (task-relevant skill index lines)
-  [CONTEXT_COMPACT] prose       (compressed middle, after compaction)
   …raw rounds (tail)…
 
 Hyperparameters (settings):
   COMPACT_RAW_KEEP — raw rounds kept verbatim in the tail (default 11 — one
-                     more than the progress-note cadence, so the compressed
-                     middle always overlaps progress.md)
+                     more than the progress-note cadence, so dropped rounds
+                     are always covered by progress.md)
   COMPACT_FRACTION — when assembled context reaches this fraction of the
-                     model window, older rounds are compressed into prose
+                     model window, older rounds are dropped
 
 Flow after each agent step:
   1. Append one raw round (user message on first step of a send(), then assistant+tools).
-  2. When tokens >= window * FRACTION (or the caller's budget): merge every
-     round except the last COMPACT_RAW_KEEP, plus any prior prose, into one
-     compact prose block via one LLM call. Then ``on_compacted`` fires so the
-     owner can drop the stale <memory> head, re-prefetch it, and re-read
-     progress.md.
+  2. When tokens >= window * FRACTION (or the caller's budget): drop every
+     round except the last COMPACT_RAW_KEEP. History lives in progress.md
+     and on-disk agent traces — no LLM prose summary. Then ``on_compacted``
+     fires so the owner can refresh <memory> / <progress>.
   3. Rebuild flat messages[] for the next model call.
 """
 from __future__ import annotations
@@ -31,15 +29,15 @@ import copy
 
 from langbridge_code.context.common.budget import estimate_tokens
 from langbridge_code.context.message import iter_tool_rounds
-from langbridge_code.context.prose import COMPACT_PROSE_PREFIX, compact_rounds_to_prose
 from langbridge_code.llm.model_context import model_context_window
 from langbridge_code.settings import (
     COMPACT_FRACTION,
     COMPACT_RAW_KEEP,
-    COMPACT_USE_LLM,
 )
 
 ASSIGNED_TASK_PREFIX = "[ASSIGNED_TASK]\n"
+# Legacy resume sessions may still carry a prose compact user message; skip it.
+_LEGACY_COMPACT_PREFIX = "[CONTEXT_COMPACT]\n"
 
 MEMORY_TAG = "memory"
 PROGRESS_TAG = "progress"
@@ -69,7 +67,6 @@ class ContextStack:
         label: str = "Worker",
         raw_keep: int | None = None,
         compact_fraction: float | None = None,
-        prose_compactor=None,
     ):
         self.system_content = system_content
         self.label = label
@@ -77,19 +74,16 @@ class ContextStack:
         self.compact_fraction = (
             COMPACT_FRACTION if compact_fraction is None else compact_fraction
         )
-        self._prose_compactor = prose_compactor or compact_rounds_to_prose
 
-        self.compact_prose: str | None = None
         self.pinned_user_content: str | None = None
         self.memory_block: str | None = None
         self.progress_block: str | None = None
         self.skill_index_block: str | None = None
         self.raw_rounds: list[list[dict]] = []
-        # Called after a successful prose compaction so the owner can refresh
+        self.dropped_round_count = 0
+        # Called after a successful drop so the owner can refresh
         # the <memory> / <progress> blocks (re-prefetch, re-read progress.md).
         self.on_compacted = None
-        # Audit hook receiving the complete compacted input and output.
-        self.on_compaction = None
 
         self._pending_user: str | None = None
 
@@ -138,8 +132,7 @@ class ContextStack:
                 self.pinned_user_content = content
                 index += 1
                 continue
-            if content.startswith(COMPACT_PROSE_PREFIX):
-                self.compact_prose = content[len(COMPACT_PROSE_PREFIX) :]
+            if content.startswith(_LEGACY_COMPACT_PREFIX):
                 index += 1
                 continue
             if self._absorb_block_message(content):
@@ -156,7 +149,7 @@ class ContextStack:
                 if content.startswith(ASSIGNED_TASK_PREFIX):
                     index += 1
                     continue
-                if content.startswith(COMPACT_PROSE_PREFIX):
+                if content.startswith(_LEGACY_COMPACT_PREFIX):
                     index += 1
                     continue
                 if any(
@@ -225,21 +218,24 @@ class ContextStack:
     def maybe_advance(
         self,
         *,
-        api_key: str | None,
-        model: str | None,
+        api_key: str | None = None,
+        model: str | None = None,
         budget_tokens: int | None = None,
     ) -> dict:
-        """Compress older rounds into prose when over budget. Returns a stats dict."""
+        """Drop older rounds when over budget. Returns a stats dict.
+
+        ``api_key`` is accepted for call-site compatibility; drop compaction
+        does not call the model.
+        """
+        del api_key  # unused — kept for callers that still pass it
         stats = {
-            "prose_compacted": False,
+            "compacted": False,
             "tokens": self.token_count(),
         }
-        if not (api_key and model and COMPACT_USE_LLM):
-            return stats
 
         if self._should_compact(model, budget_tokens):
-            if self._compact(api_key, model):
-                stats["prose_compacted"] = True
+            if self._compact():
+                stats["compacted"] = True
                 if self.on_compacted is not None:
                     try:
                         self.on_compacted(self)
@@ -261,13 +257,6 @@ class ContextStack:
             messages.append(
                 {"role": "user", "content": wrap_block(SKILL_INDEX_TAG, self.skill_index_block)}
             )
-        if self.compact_prose:
-            messages.append(
-                {
-                    "role": "user",
-                    "content": COMPACT_PROSE_PREFIX + self.compact_prose,
-                }
-            )
         for round_messages in self.raw_rounds:
             messages.extend(copy.deepcopy(round_messages))
         if self._pending_user is not None:
@@ -279,12 +268,12 @@ class ContextStack:
 
     def layer_snapshot(self) -> dict:
         return {
-            "compact_prose": bool(self.compact_prose),
             "pinned_user": bool(self.pinned_user_content),
             "memory_block": bool(self.memory_block),
             "progress_block": bool(self.progress_block),
             "skill_index_block": bool(self.skill_index_block),
             "raw_round_count": len(self.raw_rounds),
+            "dropped_round_count": self.dropped_round_count,
             "pending_user": self._pending_user is not None,
         }
 
@@ -297,48 +286,10 @@ class ContextStack:
             threshold = min(threshold, budget_tokens)
         return self.token_count() >= threshold
 
-    def _compact(self, api_key: str, model: str) -> bool:
-        batch = self.raw_rounds[: len(self.raw_rounds) - self.raw_keep]
-        if not batch:
+    def _compact(self) -> bool:
+        drop_count = len(self.raw_rounds) - self.raw_keep
+        if drop_count <= 0:
             return False
-        before_tokens = self.token_count()
-        before_round_count = len(self.raw_rounds)
-        prior_prose = self.compact_prose
-        merged = self._prose_compactor(
-            api_key,
-            model,
-            compact_prose=prior_prose,
-            rounds=batch,
-            label=f"{self.label} prose compact",
-        )
-        if not merged.strip():
-            return False
-        self.compact_prose = merged
-        self.raw_rounds = self.raw_rounds[len(batch) :]
-        if self.on_compaction is not None:
-            event = {
-                "type": "active_context_compaction",
-                "model": model,
-                "role": self.label,
-                "before": {
-                    "tokens": before_tokens,
-                    "raw_round_count": before_round_count,
-                    "prior_compact_prose": prior_prose,
-                },
-                "input": {
-                    "prior_compact_prose": prior_prose,
-                    "rounds": copy.deepcopy(batch),
-                },
-                "output": {
-                    "compact_prose": merged,
-                },
-                "after": {
-                    "tokens": self.token_count(),
-                    "raw_round_count": len(self.raw_rounds),
-                },
-            }
-            try:
-                self.on_compaction(event)
-            except Exception:
-                pass
+        self.raw_rounds = self.raw_rounds[drop_count:]
+        self.dropped_round_count += drop_count
         return True

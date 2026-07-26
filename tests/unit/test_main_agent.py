@@ -6,7 +6,7 @@ from langbridge_code.agents.main_agent import (
     MainAgentSession,
     ensure_langbridge_system_prompt,
 )
-from langbridge_code.tools.agent_planner import build_agent_planner_tool
+from langbridge_code.agents.planner import build_agent_planner_tool
 
 
 def test_ensure_langbridge_system_prompt_inserts_system_message():
@@ -51,7 +51,7 @@ def test_subagent_planner_returns_draft_without_committing(tmp_path, monkeypatch
             "## Summary\nPlan ready.\n"
         )
 
-    monkeypatch.setattr("langbridge_code.tools.agent_planner.run_planner", fake_planner)
+    monkeypatch.setattr("langbridge_code.agents.planner.run_planner", fake_planner)
 
     tools = {
         "agent_planner": build_agent_planner_tool(
@@ -113,7 +113,7 @@ def test_memory_writer_tool_forks_live_context_and_skips_end_hook(tmp_path, monk
 
     monkeypatch.setattr("langbridge_code.agents.main_agent.emit_phase", lambda *a, **k: None)
     monkeypatch.setattr("langbridge_code.agents.main_agent.write_worklog_received", lambda *a, **k: None)
-    monkeypatch.setattr("langbridge_code.agents.main_agent.write_worklog_step", lambda *a, **k: None)
+    monkeypatch.setattr("langbridge_code.agents.main_agent.write_worklog_finish", lambda *a, **k: None)
     monkeypatch.setattr("langbridge_code.agents.main_agent.write_worklog_observation", lambda *a, **k: None)
     monkeypatch.setattr("langbridge_code.agents.main_agent.write_worklog_finish", lambda *a, **k: None)
 
@@ -126,7 +126,7 @@ def test_memory_writer_tool_forks_live_context_and_skips_end_hook(tmp_path, monk
                         "type": "function_call",
                         "name": "memory_writer",
                         "call_id": "memory-1",
-                        "arguments": '{"purpose":"save user correction"}',
+                        "arguments": '{"description":"save user correction"}',
                     }
                 ]
             }
@@ -187,7 +187,7 @@ def test_plan_file_lives_only_in_session_artifacts(tmp_path, monkeypatch):
                 "name": "write",
                 "call_id": "write-plan",
                 "arguments": (
-                    '{"purpose":"write plan","path":"todo_list.md",'
+                    '{"description":"write plan","path":"todo_list.md",'
                     '"content":"- [ ] Task 1\\n"}'
                 ),
             }
@@ -200,7 +200,7 @@ def test_plan_file_lives_only_in_session_artifacts(tmp_path, monkeypatch):
                 "name": "Edit",
                 "call_id": "tick-plan",
                 "arguments": (
-                    '{"purpose":"mark done","path":"todo_list.md",'
+                    '{"description":"mark done","path":"todo_list.md",'
                     '"old_string":"- [ ]","new_string":"- [x]"}'
                 ),
             }
@@ -242,7 +242,7 @@ def test_main_agent_handles_first_worker_result_while_another_runs(tmp_path, mon
 
     monkeypatch.setattr("langbridge_code.agents.main_agent.emit_phase", lambda *a, **k: None)
     monkeypatch.setattr("langbridge_code.agents.main_agent.write_worklog_received", lambda *a, **k: None)
-    monkeypatch.setattr("langbridge_code.agents.main_agent.write_worklog_step", lambda *a, **k: None)
+    monkeypatch.setattr("langbridge_code.agents.main_agent.write_worklog_finish", lambda *a, **k: None)
     monkeypatch.setattr("langbridge_code.agents.main_agent.write_worklog_observation", lambda *a, **k: None)
     monkeypatch.setattr("langbridge_code.agents.main_agent.write_worklog_finish", lambda *a, **k: None)
 
@@ -337,7 +337,7 @@ def test_main_agent_session_injects_session_context(monkeypatch, tmp_path):
         fake_response,
     )
     monkeypatch.setattr("langbridge_code.agents.main_agent.write_worklog_received", lambda *a, **k: None)
-    monkeypatch.setattr("langbridge_code.agents.main_agent.write_worklog_step", lambda *a, **k: None)
+    monkeypatch.setattr("langbridge_code.agents.main_agent.write_worklog_finish", lambda *a, **k: None)
     monkeypatch.setattr("langbridge_code.agents.main_agent.write_worklog_finish", lambda *a, **k: None)
     monkeypatch.setattr("langbridge_code.agents.main_agent.emit_phase", lambda *a, **k: None)
 
@@ -435,7 +435,7 @@ def test_main_agent_reuses_messages_across_turns(monkeypatch, tmp_path):
         fake_response,
     )
     monkeypatch.setattr("langbridge_code.agents.main_agent.write_worklog_received", lambda *a, **k: None)
-    monkeypatch.setattr("langbridge_code.agents.main_agent.write_worklog_step", lambda *a, **k: None)
+    monkeypatch.setattr("langbridge_code.agents.main_agent.write_worklog_finish", lambda *a, **k: None)
     monkeypatch.setattr("langbridge_code.agents.main_agent.write_worklog_finish", lambda *a, **k: None)
     monkeypatch.setattr("langbridge_code.agents.main_agent.emit_phase", lambda *a, **k: None)
 
@@ -500,7 +500,7 @@ def test_progress_note_reminder_injected_after_quiet_rounds(monkeypatch, tmp_pat
         fake_response,
     )
     monkeypatch.setattr("langbridge_code.agents.main_agent.write_worklog_received", lambda *a, **k: None)
-    monkeypatch.setattr("langbridge_code.agents.main_agent.write_worklog_step", lambda *a, **k: None)
+    monkeypatch.setattr("langbridge_code.agents.main_agent.write_worklog_finish", lambda *a, **k: None)
     monkeypatch.setattr("langbridge_code.agents.main_agent.write_worklog_observation", lambda *a, **k: None)
     monkeypatch.setattr("langbridge_code.agents.main_agent.write_worklog_finish", lambda *a, **k: None)
     monkeypatch.setattr("langbridge_code.agents.main_agent.emit_phase", lambda *a, **k: None)
@@ -583,7 +583,7 @@ def test_note_progress_tool_forks_note_writer(monkeypatch, tmp_path):
                         "type": "function_call",
                         "call_id": "c1",
                         "name": "note_progress",
-                        "arguments": '{"purpose": "record"}',
+                        "arguments": '{"description": "record"}',
                     }
                 ]
             }
@@ -595,7 +595,7 @@ def test_note_progress_tool_forks_note_writer(monkeypatch, tmp_path):
 
     monkeypatch.setattr("langbridge_code.agents.main_agent.create_model_response", fake_response)
     monkeypatch.setattr("langbridge_code.agents.main_agent.write_worklog_received", lambda *a, **k: None)
-    monkeypatch.setattr("langbridge_code.agents.main_agent.write_worklog_step", lambda *a, **k: None)
+    monkeypatch.setattr("langbridge_code.agents.main_agent.write_worklog_finish", lambda *a, **k: None)
     monkeypatch.setattr("langbridge_code.agents.main_agent.write_worklog_observation", lambda *a, **k: None)
     monkeypatch.setattr("langbridge_code.agents.main_agent.write_worklog_finish", lambda *a, **k: None)
 
@@ -630,7 +630,7 @@ def test_main_agent_session_returns_direct_reply(monkeypatch):
         fake_response,
     )
     monkeypatch.setattr("langbridge_code.agents.main_agent.write_worklog_received", lambda *a, **k: None)
-    monkeypatch.setattr("langbridge_code.agents.main_agent.write_worklog_step", lambda *a, **k: None)
+    monkeypatch.setattr("langbridge_code.agents.main_agent.write_worklog_finish", lambda *a, **k: None)
     monkeypatch.setattr("langbridge_code.agents.main_agent.write_worklog_finish", lambda *a, **k: None)
 
     session = MainAgentSession("key", "model", messages, None, 1, target="what is this?")

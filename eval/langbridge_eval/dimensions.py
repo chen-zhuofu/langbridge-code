@@ -68,7 +68,12 @@ def static_baseline(repo_dir: str, spec: dict, changed_files: list[str]) -> dict
 def score_static_analysis(
     repo_dir: str,
     spec: dict,
- 
+    changed_files: list[str],
+    baseline: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Score = share of analyzers that report no NEW findings vs the baseline."""
+    commands = resolve_static_commands(spec)
+    if not commands or not changed_files:
         return {"score": None, "max": 1.0, "results": [], "skipped": True}
 
     results = []

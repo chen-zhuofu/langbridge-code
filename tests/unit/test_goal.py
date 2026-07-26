@@ -67,7 +67,7 @@ def test_evaluator_uses_web_tools_before_verdict():
                 "type": "function_call",
                 "name": "read_webpage",
                 "call_id": "call_1",
-                "arguments": '{"purpose":"check deploy","url":"https://example.com"}',
+                "arguments": '{"description":"check deploy","url":"https://example.com"}',
             }
         ]
     }
@@ -101,7 +101,7 @@ def test_evaluator_can_run_bash_for_verification():
                 "type": "function_call",
                 "name": "bash",
                 "call_id": "call_1",
-                "arguments": '{"purpose":"run tests","command":"pytest -q"}',
+                "arguments": '{"description":"run tests","command":"pytest -q"}',
             }
         ]
     }

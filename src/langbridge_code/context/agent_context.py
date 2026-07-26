@@ -94,20 +94,23 @@ class AgentContextManager:
         self,
         step_items: list[dict],
         *,
+        api_key=None,
         model,
         budget_tokens,
     ) -> dict:
         self.last_completed_round = self._stack.complete_step(normalize_step_items(step_items))
         stats = self._stack.maybe_advance(
+            api_key=api_key,
             model=model,
             budget_tokens=budget_tokens,
         )
         self.sync()
         return stats
 
-    def compact_to_budget(self, *, model, budget_tokens=None) -> dict:
+    def compact_to_budget(self, *, api_key=None, model, budget_tokens=None) -> dict:
         """Force token-driven compaction before a model call; rebuilds messages."""
         stats = self._stack.maybe_advance(
+            api_key=api_key,
             model=model,
             budget_tokens=budget_tokens,
         )
@@ -149,6 +152,7 @@ def init_agent_context(
 def finish_step(context: AgentContextManager, step_items: list[dict], session, budget: int) -> None:
     context.after_tool_step(
         step_items,
+        api_key=getattr(session, "api_key", None),
         model=session.model,
         budget_tokens=budget,
     )

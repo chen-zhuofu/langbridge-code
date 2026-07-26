@@ -71,7 +71,7 @@ def _bind(cfg):
     execution = cfg["tools"]["execution"]
     web = cfg["tools"]["web"]
     debug = cfg["tools"]["debug"]
-    training = cfg.get("eval") or cfg.get("training") or {}
+    eval_cfg = cfg.get("eval") or {}
     paths = cfg.get("paths", {})
     api = cfg.get("api", {})
 
@@ -145,8 +145,6 @@ def _bind(cfg):
         # cadence (11 > 10) so dropped rounds are always covered by progress.md.
         "COMPACT_RAW_KEEP": int(context.get("compact_raw_keep", 11)),
         "COMPACT_FRACTION": float(context.get("compact_fraction", 0.4)),
-        "COMPACT_USE_LLM": context.get("compact_use_llm", True),
-        "COMPACT_PROSE_TARGET_CHARS": int(context.get("compact_prose_target_chars", 16000)),
         "PROGRESS_MAX_FRACTION": float(context.get("progress_max_fraction", 0.1)),
         "TRACES_RESUME_MAX_FRACTION": float(context.get("traces_resume_max_fraction", 0.3)),
         "PROGRESS_NOTE_REMINDER_ROUNDS": int(context.get("progress_note_reminder_rounds", 10)),
@@ -158,11 +156,8 @@ def _bind(cfg):
         "MAX_WEB_TIMEOUT_SECONDS": web["max_timeout_seconds"],
         "MAX_WEBPAGE_CHARS": web["max_webpage_chars"],
         "DEFAULT_DEBUG_MAX_CHARS": debug["default_max_chars"],
-        "EVAL_LAYER_TIMEOUT_SECONDS": training.get("eval_layer_timeout_seconds", 3600),
-        "GRADE_TIMEOUT_SECONDS": training.get("grade_timeout_seconds", 600),
-        "TRAIN_DEFAULT_EPOCHS": training.get("default_epochs", 1),
-        "TRAIN_DEFAULT_BATCH_SIZE": training.get("default_batch_size", 2),
-        "TRAIN_DEFAULT_CHECKPOINT_EVERY": training.get("default_checkpoint_every", "batch"),
+        "EVAL_LAYER_TIMEOUT_SECONDS": eval_cfg.get("eval_layer_timeout_seconds", 3600),
+        "GRADE_TIMEOUT_SECONDS": eval_cfg.get("grade_timeout_seconds", 600),
     })
 
     workspace_root = Path.cwd().resolve()

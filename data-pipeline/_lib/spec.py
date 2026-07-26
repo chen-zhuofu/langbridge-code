@@ -174,16 +174,33 @@ def sync_curate_out_to_specs() -> dict[str, list[str]]:
 
 
 def prune_docker_to_eval_specs(*, remove_image_tags: bool = True) -> list[str]:
-    """Keep docker-images + tags only for eval specs. Delete the rest."""
-    from .docker_util import remove_image
+    """Keep docker-images + tags for eval specs and mid-pipeline work.
 
-    active = eval_spec_ids()
+    Do not delete images that still have pending env→reference→curate work;
+    otherwise a curate pass would wipe a freshly built env image before
+    reference runs.
+    """
+    from .docker_util import remove_image
+    from .io import dropped_task_ids_from_json, existing_task_ids_from_jsonl
+
+    env_out = existing_task_ids_from_jsonl(paths.DEFAULT_ENV_JSONL)
+    ref_out = existing_task_ids_from_jsonl(paths.DEFAULT_REFERENCE_JSONL)
+    ref_drop = dropped_task_ids_from_json(paths.DEFAULT_REFERENCE_DROP)
+    curate_drop = dropped_task_ids_from_json(paths.DEFAULT_CURATE_DROP)
+    pending_reference = env_out - ref_out - ref_drop
+    keep = (
+        eval_spec_ids()
+        | curate_out_ids()
+        | ref_out
+        | pending_reference
+    ) - human_dropped_ids() - curate_drop
+
     removed: list[str] = []
     if paths.DOCKER_IMAGES_DIR.exists():
         for child in list(paths.DOCKER_IMAGES_DIR.iterdir()):
             if not child.is_dir() or child.name.startswith("."):
                 continue
-            if child.name in active:
+            if child.name in keep:
                 continue
             shutil.rmtree(child)
             if remove_image_tags:

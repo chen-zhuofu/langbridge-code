@@ -25,9 +25,5 @@ evals/swe-bench/*.log
 evals/langbridge-bench/out/
 evals/langbridge-bench/*.jsonl
 
-# training eval/trainer run artifacts
-training/results/
-training/policy/
-
 # imported/personal Cursor skills & rules (not project-specific)
 .cursor/rules/imported/

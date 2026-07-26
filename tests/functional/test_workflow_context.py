@@ -54,13 +54,13 @@ def test_workflow_resume_can_execute_existing_todo(tmp_path, monkeypatch):
     _write_todo(run_log, ["- [ ] Build a web game"])
     # Simulate a non-git workspace: the worker runs in place (no worktree).
     monkeypatch.setattr(
-        "langbridge_code.tools.agent_worker_reviewer.worktree_mod.is_git_repo",
+        "langbridge_code.agents.worker_reviewer.worktree_mod.is_git_repo",
         lambda cwd=None: False,
     )
 
     class ResumeSession(_FakeMainSession):
         def run_turn(self, prompt, **kwargs):
-            from langbridge_code.tools.agent_worker_reviewer import build_agent_worker_tool
+            from langbridge_code.agents.worker_reviewer import build_agent_worker_tool
 
             agent_worker = build_agent_worker_tool(
                 api_key="key",
@@ -76,7 +76,7 @@ def test_workflow_resume_can_execute_existing_todo(tmp_path, monkeypatch):
             )
 
     monkeypatch.setattr(
-        "langbridge_code.tools.agent_worker_reviewer.run_worker_reviewer_loop",
+        "langbridge_code.agents.worker_reviewer.run_worker_reviewer_loop",
         lambda *args, **kwargs: (True, "Build a web game done"),
     )
     monkeypatch.setattr(

@@ -240,13 +240,13 @@ def test_memory_writer_fork_uses_common_file_tools_for_add_update_delete(monkeyp
                         "type": "function_call",
                         "name": "read_file",
                         "call_id": "read-user-index",
-                        "arguments": '{"purpose":"inspect index","path":"user/memory.md"}',
+                        "arguments": '{"description":"inspect index","path":"user/memory.md"}',
                     },
                     {
                         "type": "function_call",
                         "name": "read_file",
                         "call_id": "read-project-index",
-                        "arguments": '{"purpose":"inspect index","path":"project/memory.md"}',
+                        "arguments": '{"description":"inspect index","path":"project/memory.md"}',
                     },
                 ]
             }
@@ -259,7 +259,7 @@ def test_memory_writer_fork_uses_common_file_tools_for_add_update_delete(monkeyp
                         "name": "read_file",
                         "call_id": "read-stale",
                         "arguments": (
-                            '{"purpose":"verify stale entry",'
+                            '{"description":"verify stale entry",'
                             '"path":"user/memory/stale-app-form.md"}'
                         ),
                     }
@@ -273,7 +273,7 @@ def test_memory_writer_fork_uses_common_file_tools_for_add_update_delete(monkeyp
                         "name": "bash",
                         "call_id": "delete-stale",
                         "arguments": (
-                            '{"purpose":"remove inaccurate memory",'
+                            '{"description":"remove inaccurate memory",'
                             '"command":"rm user/memory/stale-app-form.md"}'
                         ),
                     },
@@ -282,7 +282,7 @@ def test_memory_writer_fork_uses_common_file_tools_for_add_update_delete(monkeyp
                         "name": "write",
                         "call_id": "write-project-feedback",
                         "arguments": (
-                            '{"purpose":"save project preference",'
+                            '{"description":"save project preference",'
                             '"path":"project/memory/native-app-form.md",'
                             '"content":"---\\nname: \\"native-app-form\\"\\n'
                             'description: \\"当前项目要求原生 Mac App\\"\\n'

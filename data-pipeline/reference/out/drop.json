@@ -5,6 +5,11 @@
       "task_id": "pytest-dev__pytest-14760",
       "reason": "missing image lb-task:pytest-dev__pytest-14760",
       "stage": "reference"
+    },
+    {
+      "task_id": "scikit-learn__scikit-learn-33906",
+      "reason": "missing image lb-task:scikit-learn__scikit-learn-33906",
+      "stage": "reference"
     }
   ]
 }

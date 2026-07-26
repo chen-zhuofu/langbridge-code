@@ -3,8 +3,8 @@ import subprocess
 
 import pytest
 
-from langbridge_code.tools import agent_worker_reviewer as awr
-from langbridge_code.tools.agent_worker_reviewer import (
+from langbridge_code.agents import worker_reviewer as awr
+from langbridge_code.agents.worker_reviewer import (
     StepOutcome,
     partial_work_note,
     run_worker_reviewer_loop,

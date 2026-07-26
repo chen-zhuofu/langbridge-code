@@ -1,4 +1,4 @@
-from langbridge_code.tools.agent_planner import initial_plan_prompt, parse_plan_task_type
+from langbridge_code.agents.planner import initial_plan_prompt
 
 
 def test_initial_plan_prompt_uses_plain_checkboxes():
@@ -43,10 +43,3 @@ def test_initial_plan_prompt_requires_complete_task_contracts():
         assert section in prompt
     assert "Acceptance spec defines correct behavior" in prompt
     assert "contradictory" in prompt
-
-
-def test_parse_plan_task_type_reads_planner_report():
-    assert parse_plan_task_type("PLAN_TASK_TYPE: coding\n\nSix steps.") == "coding"
-    assert parse_plan_task_type("PLAN_TASK_TYPE: slide\nDone.") == "coding"
-    assert parse_plan_task_type("PLAN_TASK_TYPE: presentation\nDone.") == "coding"
-    assert parse_plan_task_type("No type here") is None

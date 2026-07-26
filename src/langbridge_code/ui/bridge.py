@@ -26,7 +26,7 @@ from pathlib import Path
 from langbridge_code import settings
 from langbridge_code.agents.common import control
 from langbridge_code.agents.main_agent import MainAgentSession
-from langbridge_code.agents.system_prompt import langbridge_system_prompt
+from langbridge_code.prompt.system import langbridge_system_prompt
 from langbridge_code.context.common.budget import format_status_context_line
 from langbridge_code.context.foreground import (
     clear_foreground,
@@ -35,7 +35,7 @@ from langbridge_code.context.foreground import (
     unregister_foreground_listener,
 )
 from langbridge_code.settings import load_api_key
-from langbridge_code.tools.approval import circuit_breaker_reason
+from langbridge_code.agents.common.approval import circuit_breaker_reason
 from langbridge_code.tools.common.runtime import RuntimeBootstrapError, bootstrap_runtime
 from langbridge_code.ui.message_queue import UserMessageQueue
 from langbridge_code.util.artifacts import artifact_dir, format_trace_timestamp

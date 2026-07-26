@@ -7,7 +7,7 @@ import pytest
 
 from langbridge_code.agents.common import worktree as worktree_mod
 from langbridge_code.agents.common.workspace import get_workspace_root
-from langbridge_code.tools.agent_worker_reviewer import build_agent_worker_tool
+from langbridge_code.agents.worker_reviewer import build_agent_worker_tool
 from langbridge_code.tools.merge_branch import merge_branch
 
 
@@ -46,7 +46,7 @@ def repo(tmp_path, monkeypatch):
 def test_parallel_workers_then_main_agent_merges(repo, tmp_path, monkeypatch):
     """Two parallel workers commit in worktrees; the main agent merges both branches."""
     monkeypatch.setattr(
-        "langbridge_code.tools.agent_worker_reviewer.emit_phase", lambda *a, **k: None
+        "langbridge_code.agents.worker_reviewer.emit_phase", lambda *a, **k: None
     )
 
     run_log = tmp_path / "run.json"
@@ -82,7 +82,7 @@ def test_parallel_workers_then_main_agent_merges(repo, tmp_path, monkeypatch):
         return True, "REVIEW_VERDICT: PASS"
 
     monkeypatch.setattr(
-        "langbridge_code.tools.agent_worker_reviewer.run_worker_reviewer_loop",
+        "langbridge_code.agents.worker_reviewer.run_worker_reviewer_loop",
         fake_worker_loop,
     )
 

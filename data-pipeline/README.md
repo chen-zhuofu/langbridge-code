@@ -30,3 +30,13 @@ uv run python data-pipeline/reset_task.py pytest-dev__pytest-14730
 ```bash
 uv run python eval/langbridge-bench/run_eval.py --task pytest-dev__pytest-14730
 ```
+
+**Produce N new benches end-to-end:**
+
+```bash
+uv run python data-pipeline/run_pipeline.py --limit 1
+```
+
+`--limit N` means keep running until **N new** files appear under `data/eval/specs/`
+(or the pipeline is stuck). Failed / dropped attempts do not count. The runner
+drains `curate` → `reference` → `env` backlog before collecting more.

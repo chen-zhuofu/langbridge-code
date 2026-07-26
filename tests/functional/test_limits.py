@@ -1,7 +1,7 @@
 from langbridge_code.agents.common import limits
-from langbridge_code.tools.agent_worker_reviewer import run_worker_component
+from langbridge_code.agents.worker_reviewer import run_worker_component
 from langbridge_code.agents.common.limits import over_context_budget, over_time_budget
-from langbridge_code.tools.agent_worker_reviewer import WorkerSession, ReviewerSession
+from langbridge_code.agents.worker_reviewer import WorkerSession, ReviewerSession
 from langbridge_code.agents.main_agent import run_agent_turn
 
 READY = "WORKER_STATUS: READY_FOR_REVIEW\nSummary: implemented"
@@ -38,7 +38,7 @@ def test_specialist_keeps_running_over_context_budget(monkeypatch):
             ]
         }
 
-    monkeypatch.setattr("langbridge_code.tools.agent_worker_reviewer.create_model_response", fake_response)
+    monkeypatch.setattr("langbridge_code.agents.worker_reviewer.create_model_response", fake_response)
     monkeypatch.setattr("langbridge_code.context.common.budget.context_budget_tokens", lambda model, fraction=None: 1)
 
     session = WorkerSession("k", "m", [], {})
@@ -53,8 +53,8 @@ def test_specialist_stops_on_time_budget(monkeypatch):
     def fake_response(api_key, model, messages, tool_schemas, label, **kwargs):
         raise AssertionError("model should not be called once the time budget is gone")
 
-    monkeypatch.setattr("langbridge_code.tools.agent_worker_reviewer.create_model_response", fake_response)
-    monkeypatch.setattr("langbridge_code.tools.agent_worker_reviewer.MAX_REVIEWER_SECONDS", 0)
+    monkeypatch.setattr("langbridge_code.agents.worker_reviewer.create_model_response", fake_response)
+    monkeypatch.setattr("langbridge_code.agents.worker_reviewer.MAX_REVIEWER_SECONDS", 0)
 
     session = ReviewerSession("k", "m", [], {})
     report = session.send("user")
@@ -70,7 +70,7 @@ def test_workflow_stops_on_time_budget(tmp_path, monkeypatch):
             self.messages = kwargs.get("messages")
 
         def send(self, prompt, **kwargs):
-            from langbridge_code.tools.agent_worker_reviewer import build_agent_worker_tool
+            from langbridge_code.agents.worker_reviewer import build_agent_worker_tool
 
             agent_worker = build_agent_worker_tool(
                 api_key="k",
@@ -87,11 +87,11 @@ def test_workflow_stops_on_time_budget(tmp_path, monkeypatch):
 
     monkeypatch.setattr("langbridge_code.agents.main_agent.MainAgentSession", ExecSession)
     monkeypatch.setattr(
-        "langbridge_code.tools.agent_worker_reviewer.worktree_mod.is_git_repo",
+        "langbridge_code.agents.worker_reviewer.worktree_mod.is_git_repo",
         lambda cwd=None: False,
     )
     monkeypatch.setattr(
-        "langbridge_code.tools.agent_worker_reviewer.run_worker_reviewer_loop",
+        "langbridge_code.agents.worker_reviewer.run_worker_reviewer_loop",
         lambda *args, **kwargs: (False, "Worker/reviewer loop timed out."),
     )
 
@@ -102,7 +102,7 @@ def test_workflow_stops_on_time_budget(tmp_path, monkeypatch):
 
 def test_coder_stops_on_time_budget(monkeypatch):
     monkeypatch.setattr(
-        "langbridge_code.tools.agent_worker_reviewer.run_worker_reviewer_loop",
+        "langbridge_code.agents.worker_reviewer.run_worker_reviewer_loop",
         lambda *args, **kwargs: (False, "Coder/reviewer loop timed out."),
     )
 

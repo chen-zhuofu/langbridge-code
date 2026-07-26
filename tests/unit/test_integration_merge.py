@@ -2,7 +2,7 @@ import pytest
 
 from langbridge_code.agents.common import control
 from langbridge_code.agents.common import worktree as worktree_mod
-from langbridge_code.tools.agent_worker_reviewer import (
+from langbridge_code.agents.worker_reviewer import (
     build_agent_worker_tool,
     is_merge_task_prompt,
 )
@@ -19,15 +19,15 @@ def test_dispatch_worker_pass_instructs_main_agent_to_mark_todo(tmp_path, monkey
         lambda: tmp_path / "todo_list.md",
     )
     monkeypatch.setattr(
-        "langbridge_code.tools.agent_worker_reviewer.worktree_mod.is_git_repo",
+        "langbridge_code.agents.worker_reviewer.worktree_mod.is_git_repo",
         lambda cwd=None: False,
     )
     monkeypatch.setattr(
-        "langbridge_code.tools.agent_worker_reviewer.run_worker_reviewer_loop",
+        "langbridge_code.agents.worker_reviewer.run_worker_reviewer_loop",
         lambda *args, **kwargs: (True, "REVIEW_VERDICT: PASS"),
     )
     monkeypatch.setattr(
-        "langbridge_code.tools.agent_worker_reviewer.emit_phase",
+        "langbridge_code.agents.worker_reviewer.emit_phase",
         lambda *args, **kwargs: None,
     )
 
@@ -54,19 +54,19 @@ def test_dispatch_worker_does_not_auto_refine_plan(tmp_path, monkeypatch):
     planner_calls = []
 
     monkeypatch.setattr(
-        "langbridge_code.tools.agent_worker_reviewer.worktree_mod.is_git_repo",
+        "langbridge_code.agents.worker_reviewer.worktree_mod.is_git_repo",
         lambda cwd=None: False,
     )
     monkeypatch.setattr(
-        "langbridge_code.tools.agent_worker_reviewer.run_worker_reviewer_loop",
+        "langbridge_code.agents.worker_reviewer.run_worker_reviewer_loop",
         lambda *args, **kwargs: (False, "REVIEW_VERDICT: FAIL"),
     )
     monkeypatch.setattr(
-        "langbridge_code.tools.agent_planner.run_planner",
+        "langbridge_code.agents.planner.run_planner",
         lambda *args, **kwargs: planner_calls.append(True),
     )
     monkeypatch.setattr(
-        "langbridge_code.tools.agent_worker_reviewer.emit_phase",
+        "langbridge_code.agents.worker_reviewer.emit_phase",
         lambda *args, **kwargs: None,
     )
 
@@ -91,23 +91,23 @@ def test_dispatch_worker_uses_worktree_by_default(tmp_path, monkeypatch):
     captured = {}
 
     monkeypatch.setattr(
-        "langbridge_code.tools.agent_worker_reviewer.worktree_mod.is_git_repo",
+        "langbridge_code.agents.worker_reviewer.worktree_mod.is_git_repo",
         lambda cwd=None: True,
     )
     monkeypatch.setattr(
-        "langbridge_code.tools.agent_worker_reviewer.worktree_mod.create_worktree",
+        "langbridge_code.agents.worker_reviewer.worktree_mod.create_worktree",
         lambda *args, **kwargs: info,
     )
     monkeypatch.setattr(
-        "langbridge_code.tools.agent_worker_reviewer.worktree_mod.record_branch",
+        "langbridge_code.agents.worker_reviewer.worktree_mod.record_branch",
         lambda run_log_path, wt_info, status: captured.update({"status": status}),
     )
     monkeypatch.setattr(
-        "langbridge_code.tools.agent_worker_reviewer.run_worker_reviewer_loop",
+        "langbridge_code.agents.worker_reviewer.run_worker_reviewer_loop",
         lambda *args, **kwargs: (True, "REVIEW_VERDICT: PASS"),
     )
     monkeypatch.setattr(
-        "langbridge_code.tools.agent_worker_reviewer.emit_phase",
+        "langbridge_code.agents.worker_reviewer.emit_phase",
         lambda *args, **kwargs: None,
     )
 
@@ -135,28 +135,28 @@ def test_dispatch_worker_failure_records_failed_branch_with_partial_work(tmp_pat
     captured = {}
 
     monkeypatch.setattr(
-        "langbridge_code.tools.agent_worker_reviewer.worktree_mod.is_git_repo",
+        "langbridge_code.agents.worker_reviewer.worktree_mod.is_git_repo",
         lambda cwd=None: True,
     )
     monkeypatch.setattr(
-        "langbridge_code.tools.agent_worker_reviewer.worktree_mod.create_worktree",
+        "langbridge_code.agents.worker_reviewer.worktree_mod.create_worktree",
         lambda *args, **kwargs: info,
     )
     monkeypatch.setattr(
-        "langbridge_code.tools.agent_worker_reviewer.worktree_mod.record_branch",
+        "langbridge_code.agents.worker_reviewer.worktree_mod.record_branch",
         lambda run_log_path, wt_info, status: captured.update({"status": status}),
     )
     commits = []
     monkeypatch.setattr(
-        "langbridge_code.tools.agent_worker_reviewer.commit_task",
+        "langbridge_code.agents.worker_reviewer.commit_task",
         lambda label, task, cwd=None: commits.append((label, cwd)),
     )
     monkeypatch.setattr(
-        "langbridge_code.tools.agent_worker_reviewer.run_worker_reviewer_loop",
+        "langbridge_code.agents.worker_reviewer.run_worker_reviewer_loop",
         lambda *args, **kwargs: (False, "REVIEW_VERDICT: FAIL"),
     )
     monkeypatch.setattr(
-        "langbridge_code.tools.agent_worker_reviewer.emit_phase",
+        "langbridge_code.agents.worker_reviewer.emit_phase",
         lambda *args, **kwargs: None,
     )
 
@@ -190,19 +190,19 @@ def test_dispatch_worker_hard_stop_records_resumable_worktree_without_commit(
     commits = []
 
     monkeypatch.setattr(
-        "langbridge_code.tools.agent_worker_reviewer.worktree_mod.is_git_repo",
+        "langbridge_code.agents.worker_reviewer.worktree_mod.is_git_repo",
         lambda cwd=None: True,
     )
     monkeypatch.setattr(
-        "langbridge_code.tools.agent_worker_reviewer.worktree_mod.create_worktree",
+        "langbridge_code.agents.worker_reviewer.worktree_mod.create_worktree",
         lambda *args, **kwargs: info,
     )
     monkeypatch.setattr(
-        "langbridge_code.tools.agent_worker_reviewer.worktree_mod.record_branch",
+        "langbridge_code.agents.worker_reviewer.worktree_mod.record_branch",
         lambda run_log_path, wt_info, status: captured.update({"status": status}),
     )
     monkeypatch.setattr(
-        "langbridge_code.tools.agent_worker_reviewer.commit_task",
+        "langbridge_code.agents.worker_reviewer.commit_task",
         lambda *args, **kwargs: commits.append(args),
     )
 
@@ -210,11 +210,11 @@ def test_dispatch_worker_hard_stop_records_resumable_worktree_without_commit(
         raise control.StopRequested()
 
     monkeypatch.setattr(
-        "langbridge_code.tools.agent_worker_reviewer.run_worker_reviewer_loop",
+        "langbridge_code.agents.worker_reviewer.run_worker_reviewer_loop",
         stopped,
     )
     monkeypatch.setattr(
-        "langbridge_code.tools.agent_worker_reviewer.emit_phase",
+        "langbridge_code.agents.worker_reviewer.emit_phase",
         lambda *args, **kwargs: None,
     )
 
@@ -241,19 +241,19 @@ def test_dispatch_worker_runs_in_place_outside_git_repo(tmp_path, monkeypatch):
     run_log = tmp_path / "run.json"
     created = []
     monkeypatch.setattr(
-        "langbridge_code.tools.agent_worker_reviewer.worktree_mod.is_git_repo",
+        "langbridge_code.agents.worker_reviewer.worktree_mod.is_git_repo",
         lambda cwd=None: False,
     )
     monkeypatch.setattr(
-        "langbridge_code.tools.agent_worker_reviewer.worktree_mod.create_worktree",
+        "langbridge_code.agents.worker_reviewer.worktree_mod.create_worktree",
         lambda *args, **kwargs: created.append(True),
     )
     monkeypatch.setattr(
-        "langbridge_code.tools.agent_worker_reviewer.run_worker_reviewer_loop",
+        "langbridge_code.agents.worker_reviewer.run_worker_reviewer_loop",
         lambda *args, **kwargs: (True, "REVIEW_VERDICT: PASS"),
     )
     monkeypatch.setattr(
-        "langbridge_code.tools.agent_worker_reviewer.emit_phase",
+        "langbridge_code.agents.worker_reviewer.emit_phase",
         lambda *args, **kwargs: None,
     )
 
@@ -290,11 +290,11 @@ def test_agent_worker_rejects_merge_prompts(tmp_path, monkeypatch):
     )
     loop_calls = []
     monkeypatch.setattr(
-        "langbridge_code.tools.agent_worker_reviewer.run_worker_reviewer_loop",
+        "langbridge_code.agents.worker_reviewer.run_worker_reviewer_loop",
         lambda *args, **kwargs: loop_calls.append(True) or (True, "REVIEW_VERDICT: PASS"),
     )
     monkeypatch.setattr(
-        "langbridge_code.tools.agent_worker_reviewer.emit_phase",
+        "langbridge_code.agents.worker_reviewer.emit_phase",
         lambda *args, **kwargs: None,
     )
 

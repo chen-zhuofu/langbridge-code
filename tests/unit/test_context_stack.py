@@ -2,7 +2,6 @@ import pytest
 
 from langbridge_code.context.common.stack import (
     ASSIGNED_TASK_PREFIX,
-    COMPACT_NOTICE_PREFIX,
     ContextStack,
 )
 
@@ -19,27 +18,18 @@ def _tool_step(call_id: str, name: str, output: str) -> list[dict]:
     ]
 
 
-def _fake_prose_compactor(api_key, model, *, compact_prose, rounds, label=""):
-    parts = []
-    if compact_prose:
-        parts.append(compact_prose)
-    parts.append(f"{len(rounds)} rounds folded")
-    return "compact prose: " + " | ".join(parts)
-
-
 @pytest.fixture
 def stack():
     return ContextStack(
         system_content="system prompt",
         raw_keep=2,
         compact_fraction=0.4,
-        prose_compactor=_fake_prose_compactor,
     )
 
 
 def test_default_raw_keep_is_eleven():
-    # One more than the 10-round progress-note cadence, so the compressed
-    # middle always overlaps progress.md.
+    # One more than the 10-round progress-note cadence, so dropped
+    # rounds are always covered by progress.md.
     assert ContextStack(system_content="sys").raw_keep == 11
 
 
@@ -48,12 +38,12 @@ def test_raw_rounds_accumulate_under_budget(stack):
     for index in range(6):
         stack.complete_step(_tool_step(f"c{index}", "grep", f"out-{index}"))
     stats = stack.maybe_advance(api_key="k", model="test-model", budget_tokens=999_999)
-    assert stats["prose_compacted"] is False
+    assert stats["compacted"] is False
     assert len(stack.raw_rounds) == 6
-    assert stack.compact_prose is None
+    assert stack.dropped_round_count == 0
 
 
-def test_compact_keeps_recent_rounds_and_folds_rest(stack, monkeypatch):
+def test_compact_keeps_recent_rounds_and_drops_rest(stack, monkeypatch):
     monkeypatch.setattr(
         "langbridge_code.context.common.stack.model_context_window",
         lambda _model: 100,
@@ -63,14 +53,16 @@ def test_compact_keeps_recent_rounds_and_folds_rest(stack, monkeypatch):
         stack.complete_step(_tool_step(f"c{index}", "grep", "x" * 200))
     stats = stack.maybe_advance(api_key="k", model="test-model", budget_tokens=40)
 
-    assert stats["prose_compacted"] is True
-    assert stack.compact_prose is not None
-    assert "4 rounds folded" in stack.compact_prose
+    assert stats["compacted"] is True
+    assert stack.dropped_round_count == 4
     assert len(stack.raw_rounds) == 2
-    assert COMPACT_PROSE_PREFIX in stack.to_messages()[1]["content"]
+    assert not any(
+        str(m.get("content", "")).startswith("[CONTEXT_COMPACT]")
+        for m in stack.to_messages()
+    )
 
 
-def test_second_compact_merges_prior_prose(stack, monkeypatch):
+def test_second_compact_drops_again(stack, monkeypatch):
     monkeypatch.setattr(
         "langbridge_code.context.common.stack.model_context_window",
         lambda _model: 100,
@@ -79,20 +71,14 @@ def test_second_compact_merges_prior_prose(stack, monkeypatch):
     for index in range(6):
         stack.complete_step(_tool_step(f"c{index}", "grep", "x" * 200))
     stack.maybe_advance(api_key="k", model="test-model", budget_tokens=40)
-    first_prose = stack.compact_prose
+    assert stack.dropped_round_count == 4
 
     for index in range(6, 10):
         stack.complete_step(_tool_step(f"c{index}", "grep", "y" * 200))
     stack.maybe_advance(api_key="k", model="test-model", budget_tokens=40)
 
-    assert first_prose in stack.compact_prose
+    assert stack.dropped_round_count == 8
     assert len(stack.raw_rounds) == 2
-    # Only one compact prose message in the transcript.
-    prose_messages = [
-        m for m in stack.to_messages()
-        if str(m.get("content", "")).startswith(COMPACT_PROSE_PREFIX)
-    ]
-    assert len(prose_messages) == 1
 
 
 def test_no_compact_when_few_rounds_even_over_budget(stack, monkeypatch):
@@ -106,7 +92,7 @@ def test_no_compact_when_few_rounds_even_over_budget(stack, monkeypatch):
 
     stats = stack.maybe_advance(api_key="k", model="test-model", budget_tokens=1)
 
-    assert stats["prose_compacted"] is False
+    assert stats["compacted"] is False
     assert len(stack.raw_rounds) == 2
 
 
@@ -134,16 +120,19 @@ def test_bootstrap_from_flat_messages(stack):
     assert any(m.get("call_id") == "c1" for m in rebuilt if m.get("type") == "function_call")
 
 
-def test_bootstrap_restores_compact_prose(stack):
+def test_bootstrap_skips_legacy_compact_prose(stack):
     messages = [
         {"role": "system", "content": "system prompt"},
-        {"role": "user", "content": COMPACT_PROSE_PREFIX + "earlier work summary"},
+        {"role": "user", "content": "[CONTEXT_COMPACT]\nearlier work summary"},
         {"role": "user", "content": "task"},
         *_tool_step("c0", "grep", "one"),
     ]
     stack.bootstrap_from_messages(messages)
-    assert stack.compact_prose == "earlier work summary"
     assert len(stack.raw_rounds) == 1
+    assert not any(
+        str(m.get("content", "")).startswith("[CONTEXT_COMPACT]")
+        for m in stack.to_messages()
+    )
 
 
 def test_bootstrap_preserves_trailing_user_message(stack):
@@ -172,13 +161,17 @@ def test_agent_context_manager_mutates_in_place():
     assert any(m.get("content") == "hello" for m in messages if m.get("role") == "user")
 
 
-def test_maybe_advance_noop_without_api_key(stack):
+def test_maybe_advance_works_without_api_key(stack, monkeypatch):
+    monkeypatch.setattr(
+        "langbridge_code.context.common.stack.model_context_window",
+        lambda _model: 100,
+    )
     stack.start_turn("task")
     for index in range(6):
-        stack.complete_step(_tool_step(f"c{index}", "grep", f"out-{index}"))
-    stats = stack.maybe_advance(api_key=None, model=None)
-    assert stats["prose_compacted"] is False
-    assert len(stack.raw_rounds) == 6
+        stack.complete_step(_tool_step(f"c{index}", "grep", "x" * 200))
+    stats = stack.maybe_advance(api_key=None, model="test-model", budget_tokens=40)
+    assert stats["compacted"] is True
+    assert len(stack.raw_rounds) == 2
 
 
 def test_pinned_assigned_task_in_every_to_messages(stack):
@@ -212,7 +205,7 @@ def test_pinned_survives_compaction(stack, monkeypatch):
     pinned = [m for m in messages if m.get("content", "").startswith(ASSIGNED_TASK_PREFIX)]
     assert len(pinned) == 1
     assert "Add retry logic" in pinned[0]["content"]
-    assert stack.compact_prose is not None
+    assert stack.dropped_round_count == 4
 
 
 def test_bootstrap_restores_pinned_assigned_task(stack):
@@ -275,7 +268,7 @@ def test_blocks_survive_compaction_and_callback_fires(stack, monkeypatch):
         stack.complete_step(_tool_step(f"c{index}", "grep", "x" * 200))
     stats = stack.maybe_advance(api_key="k", model="test-model", budget_tokens=40)
 
-    assert stats["prose_compacted"] is True
+    assert stats["compacted"] is True
     assert fired.get("called") is True
     contents = [str(m.get("content", "")) for m in stack.to_messages()]
     memory = next(c for c in contents if c.startswith("<memory>"))

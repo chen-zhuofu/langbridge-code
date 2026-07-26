@@ -1,2 +1,0 @@
-metrics: {'n': 27, 'gt_pass_rate': 0.037, 'completion_rate': 0.0, 'reward_hack_rate': 0.0, 'avg_component_tasks': None, 'avg_pm_rounds': None, 'l5_routing_rate': None}
-recorded: /home/seanlinux/langbridge-cli/training/results/pm/20260706-124656-pm-kimi-k2.7-code.json

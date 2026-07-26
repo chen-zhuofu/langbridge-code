@@ -33,13 +33,13 @@ def test_workflow_delegation_run_coding(tmp_path, monkeypatch):
     calls = []
     # Simulate a non-git workspace: the worker runs in place (no worktree).
     monkeypatch.setattr(
-        "langbridge_code.tools.agent_worker_reviewer.worktree_mod.is_git_repo",
+        "langbridge_code.agents.worker_reviewer.worktree_mod.is_git_repo",
         lambda cwd=None: False,
     )
 
     class CodingSession(_FakeMainSession):
         def run_turn(self, prompt, **kwargs):
-            from langbridge_code.tools.agent_worker_reviewer import build_agent_worker_tool
+            from langbridge_code.agents.worker_reviewer import build_agent_worker_tool
 
             agent_worker = build_agent_worker_tool(
                 api_key="key",
@@ -55,7 +55,7 @@ def test_workflow_delegation_run_coding(tmp_path, monkeypatch):
                 encoding="utf-8",
             )
             monkeypatch.setattr(
-                "langbridge_code.tools.agent_worker_reviewer.run_worker_reviewer_loop",
+                "langbridge_code.agents.worker_reviewer.run_worker_reviewer_loop",
                 lambda *args, **kwargs: calls.append(args) or (True, "Add widget done"),
             )
             return agent_worker(
@@ -79,14 +79,14 @@ def test_workflow_delegation_plan_then_execute(tmp_path, monkeypatch):
     run_log = tmp_path / "run.json"
     planner_calls = []
     monkeypatch.setattr(
-        "langbridge_code.tools.agent_worker_reviewer.worktree_mod.is_git_repo",
+        "langbridge_code.agents.worker_reviewer.worktree_mod.is_git_repo",
         lambda cwd=None: False,
     )
 
     class PlanThenRunSession(_FakeMainSession):
         def run_turn(self, prompt, **kwargs):
-            from langbridge_code.tools.agent_worker_reviewer import build_agent_worker_tool
-            from langbridge_code.tools.agent_planner import build_agent_planner_tool
+            from langbridge_code.agents.worker_reviewer import build_agent_worker_tool
+            from langbridge_code.agents.planner import build_agent_planner_tool
 
             agent_planner = build_agent_planner_tool(
                 api_key="key",
@@ -112,9 +112,9 @@ def test_workflow_delegation_plan_then_execute(tmp_path, monkeypatch):
                 )
                 return "PLAN_TASK_TYPE: coding\n\nReady."
 
-            monkeypatch.setattr("langbridge_code.tools.agent_planner.run_planner", fake_planner)
+            monkeypatch.setattr("langbridge_code.agents.planner.run_planner", fake_planner)
             monkeypatch.setattr(
-                "langbridge_code.tools.agent_worker_reviewer.run_worker_reviewer_loop",
+                "langbridge_code.agents.worker_reviewer.run_worker_reviewer_loop",
                 lambda *args, **kwargs: (True, "Build auth system done"),
             )
             agent_planner(
@@ -142,15 +142,15 @@ def test_workflow_worker_failure_returns_without_auto_refine(tmp_path, monkeypat
     refine_calls = []
 
     monkeypatch.setattr(
-        "langbridge_code.tools.agent_worker_reviewer.run_worker_reviewer_loop",
+        "langbridge_code.agents.worker_reviewer.run_worker_reviewer_loop",
         lambda *args, **kwargs: (False, "REVIEW_VERDICT: FAIL"),
     )
     monkeypatch.setattr(
-        "langbridge_code.tools.agent_planner.run_planner",
+        "langbridge_code.agents.planner.run_planner",
         lambda *args, **kwargs: refine_calls.append(True),
     )
 
-    from langbridge_code.tools.agent_worker_reviewer import build_agent_worker_tool
+    from langbridge_code.agents.worker_reviewer import build_agent_worker_tool
 
     agent_worker = build_agent_worker_tool(
         api_key="key",

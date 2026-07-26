@@ -1,5 +1,5 @@
-from langbridge_code.agents.system_prompt import reviewer_system_prompt, worker_system_prompt
-from langbridge_code.tools.agent_worker_reviewer import (
+from langbridge_code.prompt.system import reviewer_system_prompt, worker_system_prompt
+from langbridge_code.agents.worker_reviewer import (
     new_reviewer_session,
     new_worker_session,
 )
@@ -55,7 +55,7 @@ def test_worker_memory_writer_skips_end_schedule(monkeypatch):
                         "type": "function_call",
                         "name": "memory_writer",
                         "call_id": "m1",
-                        "arguments": '{"purpose":"save durable fact"}',
+                        "arguments": '{"description":"save durable fact"}',
                     }
                 ]
             }
@@ -74,7 +74,7 @@ def test_worker_memory_writer_skips_end_schedule(monkeypatch):
         }
 
     monkeypatch.setattr(
-        "langbridge_code.tools.agent_worker_reviewer.create_model_response",
+        "langbridge_code.agents.worker_reviewer.create_model_response",
         fake_response,
     )
     monkeypatch.setattr(
@@ -87,15 +87,15 @@ def test_worker_memory_writer_skips_end_schedule(monkeypatch):
     )
     monkeypatch.setattr("langbridge_code.memory.prefetch_memory", lambda *a, **k: "")
     monkeypatch.setattr(
-        "langbridge_code.tools.agent_worker_reviewer.write_worklog_received",
+        "langbridge_code.agents.worker_reviewer.write_worklog_received",
         lambda *a, **k: None,
     )
     monkeypatch.setattr(
-        "langbridge_code.tools.agent_worker_reviewer.write_worklog_observation",
+        "langbridge_code.agents.worker_reviewer.write_worklog_observation",
         lambda *a, **k: None,
     )
     monkeypatch.setattr(
-        "langbridge_code.tools.agent_worker_reviewer.write_worklog_finish",
+        "langbridge_code.agents.worker_reviewer.write_worklog_finish",
         lambda *a, **k: None,
     )
 
@@ -110,7 +110,7 @@ def test_worker_phase_end_schedules_when_unused(monkeypatch):
     calls = {"scheduled": 0}
 
     monkeypatch.setattr(
-        "langbridge_code.tools.agent_worker_reviewer.create_model_response",
+        "langbridge_code.agents.worker_reviewer.create_model_response",
         lambda *a, **k: {
             "output": [
                 {
@@ -131,11 +131,11 @@ def test_worker_phase_end_schedules_when_unused(monkeypatch):
     )
     monkeypatch.setattr("langbridge_code.memory.prefetch_memory", lambda *a, **k: "")
     monkeypatch.setattr(
-        "langbridge_code.tools.agent_worker_reviewer.write_worklog_received",
+        "langbridge_code.agents.worker_reviewer.write_worklog_received",
         lambda *a, **k: None,
     )
     monkeypatch.setattr(
-        "langbridge_code.tools.agent_worker_reviewer.write_worklog_finish",
+        "langbridge_code.agents.worker_reviewer.write_worklog_finish",
         lambda *a, **k: None,
     )
 
@@ -148,7 +148,7 @@ def test_reviewer_phase_end_schedules_when_unused(monkeypatch):
     calls = {"scheduled": 0}
 
     monkeypatch.setattr(
-        "langbridge_code.tools.agent_worker_reviewer.create_model_response",
+        "langbridge_code.agents.worker_reviewer.create_model_response",
         lambda *a, **k: {
             "output": [
                 {
@@ -169,11 +169,11 @@ def test_reviewer_phase_end_schedules_when_unused(monkeypatch):
     )
     monkeypatch.setattr("langbridge_code.memory.prefetch_memory", lambda *a, **k: "")
     monkeypatch.setattr(
-        "langbridge_code.tools.agent_worker_reviewer.write_worklog_received",
+        "langbridge_code.agents.worker_reviewer.write_worklog_received",
         lambda *a, **k: None,
     )
     monkeypatch.setattr(
-        "langbridge_code.tools.agent_worker_reviewer.write_worklog_finish",
+        "langbridge_code.agents.worker_reviewer.write_worklog_finish",
         lambda *a, **k: None,
     )
 

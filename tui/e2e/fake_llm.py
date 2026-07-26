@@ -52,7 +52,7 @@ def _tool_call_response():
                             "function": {
                                 "name": "bash",
                                 "arguments": json.dumps(
-                                    {"purpose": "e2e approval test", "command": "echo approved-run"}
+                                    {"description": "e2e approval test", "command": "echo approved-run"}
                                 ),
                             },
                         }
