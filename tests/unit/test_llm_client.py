@@ -42,7 +42,7 @@ def test_to_chat_messages_with_tool_roundtrip():
             "type": "function_call",
             "name": "read_file",
             "call_id": "call_1",
-            "arguments": json.dumps({"path": "README.md", "purpose": "inspect docs"}),
+            "arguments": json.dumps({"path": "README.md", "description": "inspect docs"}),
         },
         {"type": "function_call_output", "call_id": "call_1", "output": "# Title"},
         {"role": "user", "content": "thanks"},

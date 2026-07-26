@@ -122,7 +122,7 @@ call `read_skill(name)` to load one. Bundled skills include Karpathy guidelines
 and vendored [Superpowers](https://github.com/obra/superpowers) under
 `src/langbridge_code/skills/_external/superpowers/`.
 
-Each tool call includes a required `purpose` field: a short, user-visible sentence
+Each tool call includes a required `description` field: a short, user-visible sentence
 explaining why the agent is calling that tool. It feeds the live thinking line in the TUI.
 
 Each run writes session artifacts under the installation root, grouped by

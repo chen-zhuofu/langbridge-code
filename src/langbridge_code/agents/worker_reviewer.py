@@ -552,7 +552,7 @@ class WorkerSession(MemoryPhaseMixin):
             return StepOutcome.TIMEOUT, None
 
         control.checkpoint()
-        self.context.compact_to_budget(api_key=self.api_key, model=self.model)
+        self.context.compact_to_budget(model=self.model)
         budget = prepare_agent_messages(
             self.messages,
             self.model,
@@ -735,7 +735,7 @@ class ReviewerSession(MemoryPhaseMixin):
             return StepOutcome.TIMEOUT, None
 
         control.checkpoint()
-        self.context.compact_to_budget(api_key=self.api_key, model=self.model)
+        self.context.compact_to_budget(model=self.model)
         budget = prepare_agent_messages(
             self.messages,
             self.model,

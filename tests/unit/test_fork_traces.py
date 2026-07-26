@@ -81,7 +81,7 @@ def test_fork_one_pass_rejects_tool_calls_and_retries(tmp_path, monkeypatch):
                         "type": "function_call",
                         "name": "note_progress",
                         "call_id": "c1",
-                        "arguments": '{"purpose":"x"}',
+                        "arguments": '{"description":"x"}',
                     }
                 ]
             }

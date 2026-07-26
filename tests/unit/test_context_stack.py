@@ -37,7 +37,7 @@ def test_raw_rounds_accumulate_under_budget(stack):
     stack.start_turn("task")
     for index in range(6):
         stack.complete_step(_tool_step(f"c{index}", "grep", f"out-{index}"))
-    stats = stack.maybe_advance(api_key="k", model="test-model", budget_tokens=999_999)
+    stats = stack.maybe_advance(model="test-model", budget_tokens=999_999)
     assert stats["compacted"] is False
     assert len(stack.raw_rounds) == 6
     assert stack.dropped_round_count == 0
@@ -51,7 +51,7 @@ def test_compact_keeps_recent_rounds_and_drops_rest(stack, monkeypatch):
     stack.start_turn("task")
     for index in range(6):
         stack.complete_step(_tool_step(f"c{index}", "grep", "x" * 200))
-    stats = stack.maybe_advance(api_key="k", model="test-model", budget_tokens=40)
+    stats = stack.maybe_advance(model="test-model", budget_tokens=40)
 
     assert stats["compacted"] is True
     assert stack.dropped_round_count == 4
@@ -70,12 +70,12 @@ def test_second_compact_drops_again(stack, monkeypatch):
     stack.start_turn("task")
     for index in range(6):
         stack.complete_step(_tool_step(f"c{index}", "grep", "x" * 200))
-    stack.maybe_advance(api_key="k", model="test-model", budget_tokens=40)
+    stack.maybe_advance(model="test-model", budget_tokens=40)
     assert stack.dropped_round_count == 4
 
     for index in range(6, 10):
         stack.complete_step(_tool_step(f"c{index}", "grep", "y" * 200))
-    stack.maybe_advance(api_key="k", model="test-model", budget_tokens=40)
+    stack.maybe_advance(model="test-model", budget_tokens=40)
 
     assert stack.dropped_round_count == 8
     assert len(stack.raw_rounds) == 2
@@ -90,7 +90,7 @@ def test_no_compact_when_few_rounds_even_over_budget(stack, monkeypatch):
     stack.complete_step(_tool_step("c0", "grep", "x" * 500))
     stack.complete_step(_tool_step("c1", "grep", "x" * 500))
 
-    stats = stack.maybe_advance(api_key="k", model="test-model", budget_tokens=1)
+    stats = stack.maybe_advance(model="test-model", budget_tokens=1)
 
     assert stats["compacted"] is False
     assert len(stack.raw_rounds) == 2
@@ -161,7 +161,7 @@ def test_agent_context_manager_mutates_in_place():
     assert any(m.get("content") == "hello" for m in messages if m.get("role") == "user")
 
 
-def test_maybe_advance_works_without_api_key(stack, monkeypatch):
+def test_maybe_advance_compacts_over_budget(stack, monkeypatch):
     monkeypatch.setattr(
         "langbridge_code.context.common.stack.model_context_window",
         lambda _model: 100,
@@ -169,7 +169,7 @@ def test_maybe_advance_works_without_api_key(stack, monkeypatch):
     stack.start_turn("task")
     for index in range(6):
         stack.complete_step(_tool_step(f"c{index}", "grep", "x" * 200))
-    stats = stack.maybe_advance(api_key=None, model="test-model", budget_tokens=40)
+    stats = stack.maybe_advance(model="test-model", budget_tokens=40)
     assert stats["compacted"] is True
     assert len(stack.raw_rounds) == 2
 
@@ -199,7 +199,7 @@ def test_pinned_survives_compaction(stack, monkeypatch):
     stack.start_turn("step prompt")
     for index in range(6):
         stack.complete_step(_tool_step(f"c{index}", "grep", "x" * 200))
-    stack.maybe_advance(api_key="k", model="test-model", budget_tokens=40)
+    stack.maybe_advance(model="test-model", budget_tokens=40)
 
     messages = stack.to_messages()
     pinned = [m for m in messages if m.get("content", "").startswith(ASSIGNED_TASK_PREFIX)]
@@ -266,7 +266,7 @@ def test_blocks_survive_compaction_and_callback_fires(stack, monkeypatch):
     stack.start_turn("task")
     for index in range(6):
         stack.complete_step(_tool_step(f"c{index}", "grep", "x" * 200))
-    stats = stack.maybe_advance(api_key="k", model="test-model", budget_tokens=40)
+    stats = stack.maybe_advance(model="test-model", budget_tokens=40)
 
     assert stats["compacted"] is True
     assert fired.get("called") is True

@@ -444,7 +444,7 @@ class MainAgentSession:
                 deferred_background_results = []
                 self._deliver_background_results(completed)
                 with self._context_lock:
-                    self.context.compact_to_budget(api_key=self.api_key, model=self.model)
+                    self.context.compact_to_budget(model=self.model)
                 budget = prepare_agent_messages(
                     self.messages,
                     self.model,

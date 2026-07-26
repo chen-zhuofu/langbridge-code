@@ -189,8 +189,8 @@ into changes before replying wastes work if you guessed wrong.
   relevant to this task — load one with read_skill when it fits). Users may also
   invoke a skill directly with `/skill-name args`; that expands the playbook into
   the current turn (same content as read_skill, with $ARGUMENTS filled in). When older
-  rounds are compacted into a prose summary, only the most recent raw rounds are
-  kept and the <memory>/<progress> blocks are refreshed from disk — treat them as
+  rounds are dropped on compaction, only the most recent raw rounds are kept and
+  the <memory>/<progress> blocks are refreshed from disk — treat them as
   read-only history; prefer live chat and read_file todo_list.md for plan state.
 - Call note_progress whenever you finish something meaningful mid-turn (subtask
   verified, plan committed, key decision). It forks a note-writer on your live

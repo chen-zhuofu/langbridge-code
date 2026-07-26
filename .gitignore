@@ -15,15 +15,15 @@ tui/node_modules/
 tui/dist/
 
 # eval run artifacts (large/regenerable: cloned repos, grader logs, predictions)
-evals/swe-bench/out/
-evals/swe-bench/out_*/
-evals/swe-bench/logs/
-evals/swe-bench/*.log
+eval/swe-bench/out/
+eval/swe-bench/out_*/
+eval/swe-bench/logs/
+eval/swe-bench/*.log
 /langbridge-*.json
 
 # langbridge-bench pipeline scratch (instances/ + specs/ are committed)
-evals/langbridge-bench/out/
-evals/langbridge-bench/*.jsonl
+eval/langbridge-bench/out/
+eval/langbridge-bench/*.jsonl
 
 # imported/personal Cursor skills & rules (not project-specific)
 .cursor/rules/imported/

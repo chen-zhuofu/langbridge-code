@@ -218,16 +218,10 @@ class ContextStack:
     def maybe_advance(
         self,
         *,
-        api_key: str | None = None,
         model: str | None = None,
         budget_tokens: int | None = None,
     ) -> dict:
-        """Drop older rounds when over budget. Returns a stats dict.
-
-        ``api_key`` is accepted for call-site compatibility; drop compaction
-        does not call the model.
-        """
-        del api_key  # unused — kept for callers that still pass it
+        """Drop older rounds when over budget. Returns a stats dict."""
         stats = {
             "compacted": False,
             "tokens": self.token_count(),
