@@ -4,7 +4,6 @@ from langbridge_code.context.common.budget import (
     format_context_budget_line,
     messages_with_budget_notice,
     prepare_agent_messages,
-    strip_context_budget_notice,
 )
 from langbridge_code.llm.model_context import model_context_window
 
@@ -20,22 +19,18 @@ def test_context_budget_uses_fraction():
 def test_prepare_agent_messages_keeps_system_prompt_stable():
     """Prefix caching: the system prompt must stay byte-identical across steps."""
     messages = [{"role": "system", "content": "You are a test agent."}]
-    budget = prepare_agent_messages(messages, "kimi-k2.7-code")
+    budget = prepare_agent_messages(
+        messages, "kimi-k2.7-code", base_system_prompt="You are a test agent."
+    )
     assert budget == int(262_144 * 0.4)
     assert messages[0]["content"] == "You are a test agent."
 
     messages.append({"role": "user", "content": "hello"})
-    prepare_agent_messages(messages, "kimi-k2.7-code")
+    messages[0]["content"] = "You are a test agent.\n\ndrifted"
+    prepare_agent_messages(
+        messages, "kimi-k2.7-code", base_system_prompt="You are a test agent."
+    )
     assert messages[0]["content"] == "You are a test agent."
-
-
-def test_prepare_agent_messages_strips_legacy_notice():
-    messages = [{
-        "role": "system",
-        "content": "Base prompt.\n\n---\nContext status (updated each step):\nold stats",
-    }]
-    prepare_agent_messages(messages, "kimi-k2.7-code")
-    assert messages[0]["content"] == "Base prompt."
 
 
 def test_messages_with_budget_notice_appends_transient_tail():
@@ -55,11 +50,6 @@ def test_messages_with_budget_notice_appends_transient_tail():
     assert "Compact threshold" in tail
     assert "no hard context stop" in tail
     assert "262,144 tokens" in tail
-
-
-def test_strip_context_budget_notice():
-    content = "Base prompt.\n\n---\nContext status (updated each step):\nline"
-    assert strip_context_budget_notice(content) == "Base prompt."
 
 
 def test_context_budget_snapshot_tracks_usage():

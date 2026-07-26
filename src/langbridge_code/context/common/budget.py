@@ -5,7 +5,6 @@ import json
 
 from langbridge_code.prompt.context.context_budget_notice import (
     CONTEXT_BUDGET_BODY,
-    CONTEXT_BUDGET_MARKER,
     CONTEXT_BUDGET_NEAR_LIMIT,
     CONTEXT_BUDGET_NOTICE_PREFIX,
 )
@@ -59,27 +58,19 @@ def format_context_budget_line(messages, model: str) -> str:
     return " ".join(lines)
 
 
-def strip_context_budget_notice(content: str) -> str:
-    idx = content.find(CONTEXT_BUDGET_MARKER)
-    if idx == -1:
-        return content
-    return content[:idx].rstrip()
-
-
 def _ensure_stable_system_prompt(messages, *, base_system_prompt: str | None = None) -> None:
     """Keep the leading system message byte-identical across steps.
 
-    The budget stats used to be rewritten into the system prompt every step,
-    which changed the very first message and defeated provider prefix caching.
-    Now the system prompt stays static; any legacy notice (e.g. from a resumed
-    session) is stripped once.
+    Budget stats used to be rewritten into the system prompt every step, which
+    defeated provider prefix caching. Now stats ride on the request tail only;
+    when callers pass the canonical base prompt, reinstate it if it drifted.
     """
     if not messages or messages[0].get("role") != "system":
         return
-    current = str(messages[0].get("content", ""))
-    base = base_system_prompt if base_system_prompt is not None else strip_context_budget_notice(current)
-    base = base.rstrip()
-    if current != base:
+    if base_system_prompt is None:
+        return
+    base = base_system_prompt.rstrip()
+    if str(messages[0].get("content", "")) != base:
         messages[0]["content"] = base
 
 

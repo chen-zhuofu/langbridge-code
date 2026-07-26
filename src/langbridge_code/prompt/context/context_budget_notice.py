@@ -1,8 +1,4 @@
-# Legacy marker: budget stats used to be appended to the system prompt under
-# this heading. Kept so resumed sessions can strip it once (see
-# _ensure_stable_system_prompt); new code appends stats at the request tail.
-CONTEXT_BUDGET_MARKER = "\n\n---\nContext status (updated each step):"
-
+# Transient per-request budget notice (appended at the request tail only).
 CONTEXT_BUDGET_NOTICE_PREFIX = (
     "[CONTEXT_STATUS] Automated per-step status (not from the human):"
 )
