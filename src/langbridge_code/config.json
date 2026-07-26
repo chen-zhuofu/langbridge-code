@@ -31,8 +31,8 @@
   "agent": {
     "max_agent_steps": 1000000,
     "max_agent_seconds": 1000000,
-    "max_explorer_steps": 15,
-    "max_explorer_seconds": 300,
+    "max_explorer_steps": null,
+    "max_explorer_seconds": null,
     "max_worker_steps": 1000000,
     "max_worker_seconds": 1000000,
     "max_reviewer_steps": 1000000,
@@ -54,10 +54,8 @@
     "default_context_window_tokens": 128000,
     "model_context_windows": {},
     "max_session_choices": 10,
-    "max_session_summary_input_chars": 4000,
     "compact_raw_keep": 11,
-    "compact_fraction": 0.4,
-    "progress_max_fraction": 0.1,
+    "compact_threshold_tokens": 100000,
     "traces_resume_max_fraction": 0.3,
     "progress_note_reminder_rounds": 10
   },

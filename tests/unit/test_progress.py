@@ -1,122 +1,88 @@
+from langbridge_code.util.goal import SessionGoal
 from langbridge_code.util.progress import (
     PROGRESS_HEADER,
-    append_turn_progress,
-    append_turn_progress_stub,
-    build_main_agent_messages,
-    build_turn_user_content,
-    progress_path,
+    parse_goal_block,
     read_progress,
-    schedule_append_turn_progress,
+    remove_goal_block,
+    upsert_goal_block,
     write_progress,
+    write_progress_note,
 )
 
 
-def test_build_turn_user_content_without_progress():
-    assert build_turn_user_content(None, "hello") == "hello"
-
-
-def test_build_turn_user_content_never_inlines_progress(tmp_path):
+def test_write_progress_round_trip(tmp_path):
     run_log = tmp_path / "session-demo"
     run_log.mkdir()
-    write_progress(run_log, PROGRESS_HEADER + "## Turn 1\n- Planned auth\n")
-    content = build_turn_user_content(run_log, "continue the auth work")
-    assert content == "continue the auth work"
-    assert "Planned auth" not in content
+    write_progress(run_log, PROGRESS_HEADER + "#### Key discoveries\n- Planned auth\n")
+    assert "Planned auth" in read_progress(run_log)
 
 
-def test_create_artifact_session_layout(tmp_path, monkeypatch):
-    monkeypatch.setattr("langbridge_code.util.artifacts.ARTIFACTS_DIR", tmp_path)
-    from langbridge_code.util.artifacts import create_artifact_session
-
-    session_dir = create_artifact_session("Fix login API")
-    assert session_dir.is_dir()
-    assert session_dir.name.startswith("session-Fix-login-API-")
-    assert not (session_dir / "traces").exists()
-    assert not (session_dir / "debug").exists()
-    assert (session_dir / "progress.md").is_file()
-    assert (session_dir / "traces.md").is_file()
-    assert not (session_dir / "session.json").exists()
-
-
-def test_build_main_agent_messages(tmp_path):
+def test_write_progress_note_overrides_previous(tmp_path):
     run_log = tmp_path / "session-demo"
     run_log.mkdir()
-    messages = build_main_agent_messages(run_log, "hi")
-    assert messages[0]["role"] == "system"
-    assert messages[1] == {"role": "user", "content": "hi"}
+    write_progress_note(run_log, "#### Key discoveries\n- first")
+    write_progress_note(run_log, "#### Key discoveries\n- second")
+    text = read_progress(run_log)
+    assert "second" in text
+    assert "first" not in text
+    assert text.count("#### Key discoveries") == 1
 
 
-def test_append_turn_progress_writes_file(tmp_path, monkeypatch):
+def test_write_progress_note_preserves_goal(tmp_path):
     run_log = tmp_path / "session-demo"
     run_log.mkdir()
-
-    monkeypatch.setattr(
-        "langbridge_code.util.progress._summarize_turn_progress",
-        lambda *args, **kwargs: "## Turn 1\n- User asked for auth\n- Planner wrote todo",
+    upsert_goal_block(
+        run_log,
+        SessionGoal(condition="ship it", status="active", turn_count=1),
     )
-    append_turn_progress(
-        "key", "model", run_log, 1, user="build auth", assistant="Planned."
+    write_progress_note(run_log, "#### Next\n- keep going")
+    text = read_progress(run_log)
+    assert "## Goal" in text
+    assert "ship it" in text
+    assert "#### Next" in text
+    goal = parse_goal_block(text)
+    assert goal is not None
+    assert goal.condition == "ship it"
+
+
+def test_write_progress_note_sets_progress_boundary(tmp_path):
+    from langbridge_code.util.session_traces import read_traces
+
+    run_log = tmp_path / "session-demo"
+    run_log.mkdir()
+    write_progress_note(run_log, "#### Work done\n- did it", turn_id=3)
+    assert "## Progress boundary (turn 3)" in read_traces(run_log)
+
+
+def test_plain_text_note_survives_goal_upsert(tmp_path):
+    """A note without a #### heading must not be swallowed by goal rewrites."""
+    run_log = tmp_path / "session-demo"
+    run_log.mkdir()
+    write_progress_note(run_log, "just plain facts, no heading")
+    upsert_goal_block(
+        run_log,
+        SessionGoal(condition="ship it", status="active", turn_count=1),
     )
     text = read_progress(run_log)
-    assert text.startswith(PROGRESS_HEADER)
-    assert "Planner wrote todo" in text
-    assert progress_path(run_log).name == "progress.md"
+    assert "just plain facts, no heading" in text
+    assert "ship it" in text
+    # Second upsert (goal loop runs every round) must still keep the note.
+    upsert_goal_block(
+        run_log,
+        SessionGoal(condition="ship it", status="active", turn_count=2),
+    )
+    assert "just plain facts, no heading" in read_progress(run_log)
 
 
-def test_append_turn_progress_appends_second_turn(tmp_path, monkeypatch):
+def test_remove_goal_block_keeps_note(tmp_path):
     run_log = tmp_path / "session-demo"
     run_log.mkdir()
-    write_progress(run_log, PROGRESS_HEADER + "## Turn 1\n- First\n")
-    monkeypatch.setattr(
-        "langbridge_code.util.progress._summarize_turn_progress",
-        lambda *args, **kwargs: "## Turn 2\n- Continued work",
+    upsert_goal_block(
+        run_log,
+        SessionGoal(condition="ship it", status="active", turn_count=1),
     )
-    append_turn_progress(
-        "key", "model", run_log, 2, user="continue", assistant="Done."
-    )
+    write_progress_note(run_log, "#### Work done\n- shipped")
+    remove_goal_block(run_log)
     text = read_progress(run_log)
-    assert "First" in text
-    assert "Continued work" in text
-
-
-def test_append_turn_progress_stub_writes_immediately(tmp_path):
-    run_log = tmp_path / "session-demo"
-    run_log.mkdir()
-    append_turn_progress_stub(run_log, 3, user="2", assistant="Done.")
-    text = read_progress(run_log)
-    assert "## Turn 3" in text
-    assert "**In:** 2" in text
-    assert "**Out:** Done." in text
-
-
-def test_append_turn_progress_replace_turn(tmp_path, monkeypatch):
-    run_log = tmp_path / "session-demo"
-    run_log.mkdir()
-    write_progress(run_log, PROGRESS_HEADER + "## Turn 1\n**In:** stub\n")
-    monkeypatch.setattr(
-        "langbridge_code.util.progress._summarize_turn_progress",
-        lambda *args, **kwargs: "## Turn 1\n- enriched summary\n**In:** stub\n**Out:** done",
-    )
-    append_turn_progress("key", "model", run_log, 1, replace_turn=True)
-    text = read_progress(run_log)
-    assert "enriched summary" in text
-    assert text.count("## Turn 1") == 1
-
-
-def test_schedule_append_turn_progress_enriches_stub(tmp_path, monkeypatch):
-    import time
-
-    run_log = tmp_path / "session-demo"
-    run_log.mkdir()
-    append_turn_progress_stub(run_log, 1, user="hi", assistant="hello")
-    monkeypatch.setattr(
-        "langbridge_code.util.progress._summarize_turn_progress",
-        lambda *args, **kwargs: "## Turn 1\n- enriched\n**In:** hi\n**Out:** hello",
-    )
-    schedule_append_turn_progress("key", "model", run_log, 1, user="hi", assistant="hello")
-    deadline = time.time() + 2.0
-    while time.time() < deadline:
-        if "enriched" in read_progress(run_log):
-            break
-        time.sleep(0.02)
-    assert "enriched" in read_progress(run_log)
+    assert "## Goal" not in text
+    assert "shipped" in text

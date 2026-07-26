@@ -5,6 +5,7 @@ from langbridge_code.agents.common.workspace import workspace_scope
 from langbridge_code.agents.explorer import (
     EXPLORE_REPORT_MAX_CHARS,
     EXPLORE_REPORT_PREVIEW_CHARS,
+    ExploreSession,
     build_explore_prompt,
     collect_git_context,
     format_explore_output,
@@ -110,6 +111,100 @@ def test_format_explore_output_preview_cuts_at_newline(tmp_path):
     preview = output.split("chars):\n\n", 1)[1]
     assert len(preview) <= EXPLORE_REPORT_PREVIEW_CHARS
     assert preview.endswith("finding line")
+
+
+def test_explore_budget_stop_returns_partial_findings(monkeypatch, tmp_path):
+    """Hitting max steps must return reusable findings, not a one-line stub."""
+    calls = {"n": 0}
+    grep_schema = {
+        "type": "function",
+        "name": "grep",
+        "parameters": {"type": "object", "properties": {}, "additionalProperties": True},
+    }
+
+    def fake_response(api_key, model, messages, tool_schemas=None, label="agent", **kwargs):
+        calls["n"] += 1
+        # Loop passes a non-empty schema list; finalize passes None.
+        if tool_schemas:
+            return {
+                "output": [
+                    {
+                        "type": "function_call",
+                        "name": "grep",
+                        "call_id": f"c{calls['n']}",
+                        "arguments": '{"pattern":"x"}',
+                    }
+                ]
+            }
+        return {
+            "output": [
+                {
+                    "type": "message",
+                    "content": [
+                        {
+                            "type": "output_text",
+                            "text": "## Findings\n- auth.py:12\n\n## Answer\npartial\n\n## Open questions\nNone",
+                        }
+                    ],
+                }
+            ]
+        }
+
+    monkeypatch.setattr("langbridge_code.agents.explorer.create_model_response", fake_response)
+    monkeypatch.setattr("langbridge_code.agents.explorer.MAX_EXPLORER_STEPS", 2)
+    monkeypatch.setattr(
+        "langbridge_code.agents.common.parallel_tools.run_tool_calls",
+        lambda run_one, calls_: [
+            {"type": "function_call_output", "call_id": c["call_id"], "output": "hit"}
+            for c in calls_
+        ],
+    )
+    monkeypatch.setattr(
+        "langbridge_code.skills.ensure_skill_index_block",
+        lambda *a, **k: None,
+    )
+
+    session = ExploreSession(
+        "k",
+        "m",
+        [grep_schema],
+        {"grep": lambda **kw: "hit"},
+        run_log_path=tmp_path / "run.json",
+    )
+    report = session.send("find auth")
+    assert "stopped early (max steps)" in report
+    assert "## Findings" in report
+    assert "auth.py:12" in report
+    assert report.strip() != "Explore stopped: max steps."
+
+
+def test_explore_budget_stop_falls_back_to_progress_notes(monkeypatch, tmp_path):
+    session_dir = tmp_path / "session"
+    session_dir.mkdir()
+    from langbridge_code.util.progress import write_progress
+
+    write_progress(
+        session_dir,
+        "# Session progress\n\n#### Key discoveries\n- saw foo.py:9\n",
+        "explore-auth",
+    )
+
+    def boom(*a, **k):
+        raise RuntimeError("finalize failed")
+
+    monkeypatch.setattr("langbridge_code.agents.explorer.create_model_response", boom)
+    session = ExploreSession(
+        "k",
+        "m",
+        [],
+        {},
+        run_log_path=session_dir,
+        task_name="explore-auth",
+    )
+    report = session._budget_stop_report("out of time")
+    assert "stopped early (out of time)" in report
+    assert "foo.py:9" in report
+    assert "## Progress notes so far" in report
 
 
 def test_read_file_follows_registered_session_report(tmp_path):

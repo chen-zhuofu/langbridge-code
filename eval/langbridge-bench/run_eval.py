@@ -653,6 +653,12 @@ def run_one_spec(spec, artifacts_root, api_env, model, timeout, grade_timeout, p
         )
         if copy_eval.returncode != 0:
             raise RuntimeError(f"docker cp langbridge_eval failed: {copy_eval.stderr.strip()}")
+        # run_agent loads eval/prompt/task.py next to langbridge_eval.
+        copy_prompt = docker(
+            ["cp", f"{EVAL_PKG_PATH}/prompt", f"{container}:{CONTAINER_EVAL}/"]
+        )
+        if copy_prompt.returncode != 0:
+            raise RuntimeError(f"docker cp eval/prompt failed: {copy_prompt.stderr.strip()}")
 
         phase("setup", image)
         setup = prepare_task_workspace(container, spec)

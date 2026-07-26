@@ -100,8 +100,9 @@ def _bind(cfg):
         "MAX_AGENT_SECONDS": int(
             os.environ.get("LANGBRIDGE_MAX_AGENT_SECONDS", agent.get("max_agent_seconds", 3600))
         ),
-        "MAX_EXPLORER_STEPS": agent.get("max_explorer_steps", 15),
-        "MAX_EXPLORER_SECONDS": agent.get("max_explorer_seconds", 300),
+        # None = unlimited (Claude Code Explore style; rely on prompt to stay short).
+        "MAX_EXPLORER_STEPS": agent.get("max_explorer_steps"),
+        "MAX_EXPLORER_SECONDS": agent.get("max_explorer_seconds"),
         "MAX_WORKER_STEPS": agent.get("max_worker_steps", 30),
         "MAX_WORKER_SECONDS": agent.get("max_worker_seconds", 900),
         "MAX_REVIEWER_STEPS": agent.get("max_reviewer_steps", 30),
@@ -140,12 +141,16 @@ def _bind(cfg):
         ),
         "MODEL_CONTEXT_WINDOWS": context.get("model_context_windows", {}),
         "MAX_SESSION_CHOICES": context["max_session_choices"],
-        "MAX_SESSION_SUMMARY_INPUT_CHARS": context["max_session_summary_input_chars"],
         # Raw tail kept on compaction: one more than the forced progress-note
         # cadence (11 > 10) so dropped rounds are always covered by progress.md.
         "COMPACT_RAW_KEEP": int(context.get("compact_raw_keep", 11)),
-        "COMPACT_FRACTION": float(context.get("compact_fraction", 0.4)),
-        "PROGRESS_MAX_FRACTION": float(context.get("progress_max_fraction", 0.1)),
+        # Fixed compact/budget threshold — not a fraction of the model window.
+        "COMPACT_THRESHOLD_TOKENS": int(
+            os.environ.get(
+                "LANGBRIDGE_COMPACT_THRESHOLD_TOKENS",
+                context.get("compact_threshold_tokens", 100_000),
+            )
+        ),
         "TRACES_RESUME_MAX_FRACTION": float(context.get("traces_resume_max_fraction", 0.3)),
         "PROGRESS_NOTE_REMINDER_ROUNDS": int(context.get("progress_note_reminder_rounds", 10)),
         "MAX_FILE_BYTES": fs["max_file_bytes"],

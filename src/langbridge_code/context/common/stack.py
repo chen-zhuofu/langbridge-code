@@ -12,15 +12,15 @@ Hyperparameters (settings):
   COMPACT_RAW_KEEP — raw rounds kept verbatim in the tail (default 11 — one
                      more than the progress-note cadence, so dropped rounds
                      are always covered by progress.md)
-  COMPACT_FRACTION — when assembled context reaches this fraction of the
-                     model window, older rounds are dropped
+  COMPACT_THRESHOLD_TOKENS — when assembled context reaches this many tokens
+                     (fixed, model-independent), older rounds are dropped
 
 Flow after each agent step:
   1. Append one raw round (user message on first step of a send(), then assistant+tools).
-  2. When tokens >= window * FRACTION (or the caller's budget): drop every
-     round except the last COMPACT_RAW_KEEP. History lives in progress.md
-     and on-disk agent traces — no LLM prose summary. Then ``on_compacted``
-     fires so the owner can refresh <memory> / <progress>.
+  2. When tokens >= COMPACT_THRESHOLD_TOKENS (or the caller's tighter budget):
+     drop every round except the last COMPACT_RAW_KEEP. History lives in
+     progress.md and on-disk agent traces — no LLM prose summary. Then
+     ``on_compacted`` fires so the owner can refresh <memory> / <progress>.
   3. Rebuild flat messages[] for the next model call.
 """
 from __future__ import annotations
@@ -29,10 +29,9 @@ import copy
 
 from langbridge_code.context.common.budget import estimate_tokens
 from langbridge_code.context.message import iter_tool_rounds
-from langbridge_code.llm.model_context import model_context_window
 from langbridge_code.settings import (
-    COMPACT_FRACTION,
     COMPACT_RAW_KEEP,
+    COMPACT_THRESHOLD_TOKENS,
 )
 
 ASSIGNED_TASK_PREFIX = "[ASSIGNED_TASK]\n"
@@ -66,13 +65,15 @@ class ContextStack:
         system_content: str,
         label: str = "Worker",
         raw_keep: int | None = None,
-        compact_fraction: float | None = None,
+        compact_threshold_tokens: int | None = None,
     ):
         self.system_content = system_content
         self.label = label
         self.raw_keep = COMPACT_RAW_KEEP if raw_keep is None else raw_keep
-        self.compact_fraction = (
-            COMPACT_FRACTION if compact_fraction is None else compact_fraction
+        self.compact_threshold_tokens = (
+            COMPACT_THRESHOLD_TOKENS
+            if compact_threshold_tokens is None
+            else int(compact_threshold_tokens)
         )
 
         self.pinned_user_content: str | None = None
@@ -245,6 +246,8 @@ class ContextStack:
             messages.append({"role": "user", "content": wrap_block(MEMORY_TAG, self.memory_block)})
         if self.pinned_user_content:
             messages.append({"role": "user", "content": self.pinned_user_content})
+        # <progress> only at the head after resume / compaction — mid-turn
+        # note_progress overrides the file but does not rewrite this block.
         if self.progress_block:
             messages.append({"role": "user", "content": wrap_block(PROGRESS_TAG, self.progress_block)})
         if self.skill_index_block:
@@ -272,10 +275,10 @@ class ContextStack:
         }
 
     def _should_compact(self, model: str | None, budget_tokens: int | None) -> bool:
+        del model  # threshold is fixed; model window is not used
         if len(self.raw_rounds) <= self.raw_keep:
             return False
-        window = model_context_window(model or "")
-        threshold = int(window * self.compact_fraction)
+        threshold = self.compact_threshold_tokens
         if budget_tokens is not None:
             threshold = min(threshold, budget_tokens)
         return self.token_count() >= threshold

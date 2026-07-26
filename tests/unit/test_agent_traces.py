@@ -121,7 +121,7 @@ def test_context_compaction_drops_rounds_without_audit(tmp_path):
     messages = []
     manager.attach(messages)
     manager.stack.raw_keep = 1
-    manager.stack.compact_fraction = 0.000001
+    manager.stack.compact_threshold_tokens = 1
 
     manager.begin_turn("first prompt")
     manager.after_tool_step(

@@ -6,9 +6,6 @@ from langbridge_code.util.artifacts import (
     label_artifact_session,
     list_artifact_sessions,
 )
-from langbridge_code.util.progress import last_progress_turn_id
-
-
 def create_run_log_path(first_user_message: str | None = None):
     """Create artifact session directory. Requires first user message for naming."""
     if not first_user_message or not first_user_message.strip():
@@ -67,5 +64,7 @@ def label_session(path):
 
 
 def last_turn_id(run_log_path) -> int:
-    """Highest turn id recorded in progress.md for this session."""
-    return last_progress_turn_id(run_log_path)
+    """Highest turn id recorded in traces.md for this session."""
+    from langbridge_code.util.session_traces import last_traces_turn_id
+
+    return last_traces_turn_id(run_log_path)

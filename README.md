@@ -399,10 +399,8 @@ Cursor's stop. It cancels the in-flight model request (abandoned in the
 background) instead of waiting for it, so control returns almost immediately. The
 half-finished model round is discarded so the conversation history stays valid.
 Long-running shell and test tools are stop-aware: their process group is killed
-and the run unwinds immediately. Completed traces and progress notes remain
-available for resume. Turn finalization writes a progress stub and trace boundary
-immediately; the richer progress summary is queued in the background, while
-synchronous progress compaction is skipped after Stop.
+and the run unwinds immediately. Completed traces and progress notes (written by
+`note_progress` as a full override of `progress.md`) remain available for resume.
 
 **Approvals**: routine edits, commits, and ordinary shell commands run without a
 prompt. High-risk calls post an inline approval request; approve with `Ctrl+A` /

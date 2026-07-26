@@ -5,21 +5,28 @@ checkout:
 
   LANGBRIDGE_TASK='...' python -m langbridge_eval.run_agent
 """
+import importlib.util
 import json
 import os
 import sys
+from pathlib import Path
 
-_TASK_WRAPPER = """\
-You are working in a checked-out code repository (current working directory).
-Implement the minimal code changes needed to resolve the issue below.
-Do not only explain or answer questions — edit source files to fix the problem.
-Do not modify existing tests unless the issue explicitly requires it.
-Do not browse live GitHub/Jira for the answer; use this repo and the text below.
+_TASK_PROMPT = Path(__file__).resolve().parents[1] / "prompt" / "task.py"
 
-<issue>
-{issue}
-</issue>
-"""
+
+def _load_task_wrapper() -> str:
+    """Load ``eval/prompt/task.py`` (sibling of ``langbridge_eval``)."""
+    if not _TASK_PROMPT.is_file():
+        raise FileNotFoundError(
+            f"eval task prompt missing: {_TASK_PROMPT} "
+            "(docker runner must copy eval/prompt into the container)"
+        )
+    spec = importlib.util.spec_from_file_location("eval_prompt_task", _TASK_PROMPT)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"cannot load eval task prompt: {_TASK_PROMPT}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.TASK_WRAPPER
 
 
 def auto_approve(label, name, arguments):
@@ -31,7 +38,7 @@ def wrap_issue_as_task(issue: str) -> str:
     issue = (issue or "").strip()
     if not issue:
         return ""
-    return _TASK_WRAPPER.format(issue=issue).strip()
+    return _load_task_wrapper().format(issue=issue).strip()
 
 
 def main():
@@ -42,7 +49,11 @@ def main():
         print(json.dumps({"error": "no task"}))
         return 1
 
-    task = wrap_issue_as_task(issue)
+    try:
+        task = wrap_issue_as_task(issue)
+    except (FileNotFoundError, ImportError) as err:
+        print(json.dumps({"error": str(err)}))
+        return 1
 
     from langbridge_code import settings
     from langbridge_code.settings import load_api_key

@@ -73,19 +73,11 @@ def test_subagent_planner_returns_draft_without_committing(tmp_path, monkeypatch
     assert not (tmp_path / "todo_list.md").exists()
 
 
-def test_main_agent_send_does_not_finalize_locally(tmp_path, monkeypatch):
+def test_main_agent_send_appends_final_reply(tmp_path, monkeypatch):
     run_log = tmp_path / "run.json"
     messages = [{"role": "system", "content": "sys"}]
-    logged = {"finalize": False}
-
-    def fake_finalize(*args, **kwargs):
-        logged["finalize"] = True
 
     monkeypatch.setattr("langbridge_code.agents.main_agent.emit_phase", lambda *a, **k: None)
-    monkeypatch.setattr(
-        "langbridge_code.agents.main_agent.finalize_main_agent_turn",
-        fake_finalize,
-    )
     monkeypatch.setattr(
         "langbridge_code.agents.main_agent.create_model_response",
         lambda *args, **kwargs: {
@@ -103,7 +95,6 @@ def test_main_agent_send_does_not_finalize_locally(tmp_path, monkeypatch):
     session = MainAgentSession("key", "model", messages, run_log, 1, target="go")
     reply = session.send("go")
     assert reply == "Done."
-    assert not logged["finalize"]
     assert session.messages[-1] == {"role": "assistant", "content": "Done."}
 
 
@@ -524,7 +515,7 @@ def test_progress_note_forced_after_quiet_rounds(monkeypatch, tmp_path):
 
     def fake_force_note():
         forced["count"] += 1
-        return "noted"
+        return "Noted in progress.md: stub"
 
     session._write_progress_note_via_fork = fake_force_note
     assert session.send("go") == "Done."
@@ -617,6 +608,8 @@ def test_note_progress_tool_forks_note_writer(monkeypatch, tmp_path):
 
     progress = read_progress(run_log)
     assert "Fixed the parser; tests pass." in progress
+    # Mid-turn note overrides the file only — does not inject into <progress>.
+    assert not (session.context.stack.progress_block or "")
     # The fork got the live context plus one instruction.
     assert "note-writer" in fork_seen["instruction"]
     # Counter was reset by the note; only the post-step increment remains.

@@ -39,7 +39,11 @@ REVIEWER_CODING_SKILL_NAMES = (
     "woo-guard",
 )
 
-LANGBRIDGE_SKILL_NAMES = ("grilling", "writing-simple-plans")
+LANGBRIDGE_SKILL_NAMES = (
+    "grilling",
+    "writing-simple-plans",
+    "superpowers_systematic-debugging",
+)
 
 
 def langbridge_skill_catalog():

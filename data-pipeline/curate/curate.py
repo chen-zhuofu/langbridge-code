@@ -1,5 +1,8 @@
 """Stage 4 — curate: LLM keep / rewrite / drop, then kind + difficulty.
 
+Keep good statements. If unclear, rewrite by filling missing behavior from
+hidden tests without leaking the solution. Otherwise drop.
+
 Input: reference ``out/instances.jsonl``.
 Resume: skip if already in ``curate/out/<id>.json`` or ``curate/out/drop.json``.
 
@@ -40,6 +43,9 @@ from _lib.spec import (  # noqa: E402
     sync_curate_out_to_specs,
 )
 from classify import apply_classification, classify_instance  # noqa: E402
+from _lib.prompt_load import load_prompt  # noqa: E402
+
+CURATE_SYSTEM = load_prompt("curate").CURATE_SYSTEM
 
 _GITHUB_ISSUE_PR_URL = re.compile(
     r"https?://(?:www\.)?github\.com/[^/\s]+/[^/\s]+/(?:issues|pull)/\d+"
@@ -76,30 +82,9 @@ _JIRA_DENY_PREFIX = frozenset(
 )
 _MULTI_BLANK = re.compile(r"\n{3,}")
 
-CURATE_SYSTEM = """\
-You curate coding-agent eval tasks. Decide keep, rewrite, or drop for one task.
-
-DROP when the problem statement is:
-- too short to specify a coding task
-- a vague bug report without clear expected behavior
-- incomplete (questions the maintainers, asks “is this a bug?”, no implementable goal)
-- “fix things” / cleanup where the real expected behavior lives only in hidden tests
-
-REWRITE when the statement has enough signal but is noisy, poorly structured, or
-still reads like a GitHub issue. Produce a clear coding-task statement: what to
-implement or fix, and observable expected behavior. Do NOT invent requirements
-you cannot support from the statement. Do NOT mention hidden tests, patches,
-PR numbers, or solution steps.
-
-KEEP when the statement is already a clear coding task.
-
-Reply with ONLY a JSON object (no markdown fences):
-{
-  "action": "keep" | "rewrite" | "drop",
-  "reason": "short reason",
-  "problem_statement": "required iff action=rewrite; full replacement text"
-}
-"""
+# Hidden-test context for salvage rewrites (keep bounded for the judge prompt).
+_HIDDEN_TEST_PATCH_CHARS = 12_000
+_HIDDEN_F2P_NAME_LIMIT = 30
 
 
 def strip_tracker_refs(text: str) -> str:
@@ -172,20 +157,30 @@ def _parse_decision(text: str) -> dict:
     return {"action": action, "reason": reason, "problem_statement": statement}
 
 
+def _clip(text: str, limit: int) -> str:
+    text = text or ""
+    if len(text) <= limit:
+        return text
+    return text[: max(0, limit - 20)].rstrip() + "\n…[truncated]…\n"
+
+
 def _user_payload(task: dict) -> str:
-    # TODO: Rewrite low-quality statements using hidden tests (test_patch /
-    # fail_to_pass bodies) so vague “fix things” tasks can be salvaged.
-    # Concern: a rewrite that mirrors hidden-test assertions can leak the
-    # solution (exact APIs, edge cases, file paths) into the public statement.
-    # Until that is designed safely, only pass test *names* as weak context and
-    # DROP statements that need hidden tests to define expected behavior.
-    f2p = list(task.get("fail_to_pass") or task.get("FAIL_TO_PASS") or [])[:20]
+    """Judge payload: statement + hidden-test context for salvage rewrites."""
+    f2p = list(task.get("fail_to_pass") or task.get("FAIL_TO_PASS") or [])
+    test_patch = str(task.get("test_patch") or "")
     return json.dumps(
         {
             "task_id": task.get("task_id"),
             "repo": task.get("repo"),
             "problem_statement": task.get("problem_statement") or "",
-            "fail_to_pass_names": f2p,
+            "fail_to_pass_names": f2p[:_HIDDEN_F2P_NAME_LIMIT],
+            "test_patch": _clip(test_patch, _HIDDEN_TEST_PATCH_CHARS),
+            "notes": (
+                "test_patch and fail_to_pass_names are HIDDEN from the eval agent. "
+                "Use them only to decide drop vs salvage-rewrite, and to fill missing "
+                "behavior/scenario details. Never copy solution-shaped content into "
+                "a rewritten problem_statement."
+            ),
         },
         ensure_ascii=False,
         indent=2,
@@ -284,6 +279,7 @@ def curate(*, limit: int = 0) -> dict:
         if action == "rewrite":
             task["problem_statement"] = strip_tracker_refs(decision["problem_statement"])
             task["problem_statement_source"] = "rewritten"
+            task["rewrite_reason"] = reason or "llm_rewrite"
             rewritten.append(task_id)
             print(f"  rewrite {task_id}: {reason}")
         else:
@@ -291,6 +287,7 @@ def curate(*, limit: int = 0) -> dict:
             task["problem_statement"] = cleaned
             if cleaned != original:
                 task.setdefault("problem_statement_source", "sanitized")
+            task.pop("rewrite_reason", None)
             kept_llm.append(task_id)
             print(f"  keep {task_id}: {reason}")
 

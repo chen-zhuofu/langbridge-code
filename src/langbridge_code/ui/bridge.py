@@ -51,7 +51,7 @@ from langbridge_code.util.goal import (
     parse_goal_command,
     save_goal,
 )
-from langbridge_code.util.progress import build_main_agent_messages, finalize_main_agent_turn
+from langbridge_code.util.progress import build_main_agent_messages
 from langbridge_code.util.session import (
     create_run_log_path,
     ensure_run_log_path,
@@ -353,17 +353,6 @@ class BridgeServer:
         finally:
             end_trace()
             self._sync_main_messages()
-            try:
-                finalize_main_agent_turn(
-                    self.api_key,
-                    self.model,
-                    self.run_log_path,
-                    turn_id,
-                    user=text,
-                    assistant=outcome,
-                )
-            except Exception:  # noqa: BLE001
-                pass
             if stopped:
                 self.finish_stopped()
             elif errored:
@@ -650,17 +639,7 @@ class BridgeServer:
         content = read_progress(path).strip()
         if not content or content == PROGRESS_HEADER.strip():
             return ""
-        sections = []
-        current = []
-        for line in content.splitlines():
-            if line.startswith("## Turn ") and current:
-                sections.append("\n".join(current))
-                current = [line]
-            else:
-                current.append(line)
-        if current:
-            sections.append("\n".join(current))
-        preview = (sections[-1] if sections else content).strip()
+        preview = content.strip()
         if len(preview) > 1200:
             preview = preview[:1200].rstrip() + "\n…"
         return preview

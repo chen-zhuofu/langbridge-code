@@ -1,7 +1,9 @@
-"""Session progress.md — cross-turn memory for the main agent (includes goal state).
+"""Session / per-task progress.md — single overridable note (Claude Code style).
 
-Subagents (worker/explorer) reuse the exact same note/compaction machinery on
-per-task files: {session}/progress-{task-slug}.md (see task_progress_* below).
+Each ``note_progress`` fork rewrites the whole note from the live context.
+The in-memory ``<progress>`` block is loaded only on resume and after context
+compaction — mid-turn writes update the file only (raw messages already hold
+the full transcript).
 """
 from __future__ import annotations
 
@@ -11,14 +13,13 @@ from dataclasses import dataclass
 
 _progress_lock = threading.Lock()
 
-from langbridge_code.settings import MAX_SESSION_SUMMARY_INPUT_CHARS, PROGRESS_MAX_FRACTION
 from langbridge_code.util.artifacts import progress_path as artifact_progress_path
 from langbridge_code.util.artifacts import task_progress_path as artifact_task_progress_path
 
 PROGRESS_HEADER = "# Session progress\n"
 GOAL_HEADER = "## Goal\n"
-_TURN_HEADER_RE = re.compile(r"^## Turns? (\d+)(?:-(\d+))?\s*$", re.MULTILINE)
-_TURN_SECTION_SPLIT_RE = re.compile(r"^## Turns? \d+(?:-\d+)?\s*$", re.MULTILINE)
+# Note body starts at #### sections (or legacy ## Turn after a goal block).
+_NOTE_BODY_START_RE = re.compile(r"^(#### |## Turn\b)", re.MULTILINE)
 
 
 @dataclass
@@ -59,21 +60,21 @@ def parse_goal_block(content: str) -> GoalBlock | None:
         return None
     start = content.index(GOAL_HEADER)
     rest = content[start + len(GOAL_HEADER) :]
-    end = rest.find("\n## ")
-    section = rest if end < 0 else rest[:end]
+    match = _NOTE_BODY_START_RE.search(rest)
+    section = rest if match is None else rest[: match.start()]
     block = GoalBlock()
     for line in section.splitlines():
         stripped = line.strip()
-        if stripped.startswith("- **Condition:**"):
-            block.condition = stripped.split(":", 1)[1].strip()
-        elif stripped.startswith("- **Status:**"):
-            block.status = stripped.split(":", 1)[1].strip()
-        elif stripped.startswith("- **Turns:**"):
-            block.turns = stripped.split(":", 1)[1].strip()
-        elif stripped.startswith("- **Last check:**"):
-            block.last_check = stripped.split(":", 1)[1].strip()
-        elif stripped.startswith("- **Next:**"):
-            block.next_step = stripped.split(":", 1)[1].strip()
+        for key, attr in (
+            ("- **Condition:**", "condition"),
+            ("- **Status:**", "status"),
+            ("- **Turns:**", "turns"),
+            ("- **Last check:**", "last_check"),
+            ("- **Next:**", "next_step"),
+        ):
+            if stripped.startswith(key):
+                setattr(block, attr, stripped[len(key) :].strip())
+                break
     if not any((block.condition, block.status, block.turns, block.last_check, block.next_step)):
         return None
     return block
@@ -100,57 +101,96 @@ def render_goal_block(goal) -> str:
     return "\n".join(lines)
 
 
+def _strip_progress_header(content: str) -> str:
+    text = (content or "").strip()
+    header = PROGRESS_HEADER.strip()
+    if text.startswith(header):
+        return text[len(header) :].lstrip()
+    return text
+
+
+def _extract_goal_markdown(content: str) -> str:
+    body = _strip_progress_header(content)
+    if not body.startswith("## Goal"):
+        return ""
+    rest = body[len("## Goal") :].lstrip("\n")
+    match = _NOTE_BODY_START_RE.search(rest)
+    section = rest if match is None else rest[: match.start()]
+    return (GOAL_HEADER + section).rstrip()
+
+
+def _extract_note_body(content: str) -> str:
+    """Everything after the header/goal — the overridable progress note."""
+    body = _strip_progress_header(content)
+    if not body:
+        return ""
+    if body.startswith("## Goal"):
+        rest = body[len("## Goal") :].lstrip("\n")
+        match = _NOTE_BODY_START_RE.search(rest)
+        if match is None:
+            # Goal-only file (no note yet).
+            return ""
+        return rest[match.start() :].strip()
+    return body.strip()
+
+
 def upsert_goal_block(run_log_path, goal) -> None:
-    existing = read_progress(run_log_path).strip()
     goal_text = render_goal_block(goal)
     if not goal_text:
         return
-    if not existing or existing == PROGRESS_HEADER.strip():
-        write_progress(run_log_path, PROGRESS_HEADER + goal_text + "\n")
-        return
-    if GOAL_HEADER in existing:
-        start = existing.index(GOAL_HEADER)
-        rest = existing[start + len(GOAL_HEADER) :]
-        end = rest.find("\n## Turn")
-        if end < 0:
-            end = rest.find("\n## Turns")
-        if end >= 0:
-            tail = rest[end + 1 :]
-            body = existing[:start].rstrip() + "\n\n" + goal_text + "\n\n" + tail.lstrip()
-        else:
-            body = existing[:start].rstrip() + "\n\n" + goal_text
-    else:
-        header = existing if existing.startswith("#") else PROGRESS_HEADER + existing
-        body = header.rstrip() + "\n\n" + goal_text
-    write_progress(run_log_path, body)
+    with _progress_lock:
+        existing = read_progress(run_log_path).strip()
+        note = _extract_note_body(existing)
+        parts = [PROGRESS_HEADER.strip(), goal_text]
+        if note:
+            parts.append(note)
+        write_progress(run_log_path, "\n\n".join(parts) + "\n")
 
 
 def remove_goal_block(run_log_path) -> None:
-    existing = read_progress(run_log_path).strip()
-    if GOAL_HEADER not in existing:
-        return
-    start = existing.index(GOAL_HEADER)
-    rest = existing[start + len(GOAL_HEADER) :]
-    end = rest.find("\n## ")
-    if end >= 0:
-        body = existing[:start].rstrip() + "\n\n" + rest[end + 1 :].lstrip()
-    else:
-        body = existing[:start].rstrip()
-    if body.strip() in ("", PROGRESS_HEADER.strip()):
-        write_progress(run_log_path, PROGRESS_HEADER)
-    else:
-        write_progress(run_log_path, body)
+    with _progress_lock:
+        existing = read_progress(run_log_path).strip()
+        note = _extract_note_body(existing)
+        if not note:
+            write_progress(run_log_path, PROGRESS_HEADER)
+            return
+        write_progress(run_log_path, PROGRESS_HEADER + note + "\n")
 
 
-def last_progress_turn_id(run_log_path, task_name: str | None = None) -> int:
-    """Highest turn id covered in progress.md (0 if none)."""
-    content = read_progress(run_log_path, task_name)
-    ids = []
-    for match in _TURN_HEADER_RE.finditer(content):
-        start = int(match.group(1))
-        end = int(match.group(2)) if match.group(2) else start
-        ids.append(end)
-    return max(ids, default=0)
+def write_progress_note(
+    run_log_path,
+    text: str,
+    task_name: str | None = None,
+    *,
+    turn_id: int | None = None,
+) -> str:
+    """Override the progress note body (preserve ## Goal). File only — no context inject."""
+    note = (text or "").strip()
+    if not note:
+        return "Note was empty; nothing recorded."
+    if not run_log_path:
+        return "No session directory; note not recorded."
+    # The goal/note boundary is detected by heading; a note that starts with
+    # plain text would be swallowed into the goal section on the next goal
+    # upsert. Anchor it under a recognized heading.
+    if not _NOTE_BODY_START_RE.match(note):
+        note = "#### Note\n" + note
+    with _progress_lock:
+        existing = read_progress(run_log_path, task_name).strip()
+        goal = _extract_goal_markdown(existing)
+        parts = [PROGRESS_HEADER.strip()]
+        if goal:
+            parts.append(goal)
+        parts.append(note)
+        write_progress(run_log_path, "\n\n".join(parts) + "\n", task_name)
+    if task_name is None and turn_id is not None:
+        from langbridge_code.util.session_traces import append_progress_boundary
+
+        append_progress_boundary(run_log_path, turn_id)
+    summary = " ".join(note.split())
+    if len(summary) > 200:
+        summary = summary[:197] + "..."
+    return f"Noted in progress.md: {summary}"
 
 
 def build_turn_user_content(
@@ -176,405 +216,3 @@ def build_main_agent_messages(run_log_path, user_prompt: str) -> list[dict]:
         {"role": "system", "content": langbridge_system_prompt()},
         {"role": "user", "content": build_turn_user_content(run_log_path, user_prompt)},
     ]
-
-
-def _turn_progress_source(run_log_path, turn_id: int, *, user: str, assistant: str) -> str:
-    from langbridge_code.util.trace_log import read_latest_trace_for_turn
-
-    lines = [f"## Turn {turn_id}", "", f"**In:** {user.strip()}", ""]
-    trace_lines = read_latest_trace_for_turn(run_log_path, turn_id)
-    if trace_lines:
-        lines.append("Trace (concise):")
-        lines.extend(f"- {line}" for line in trace_lines[-40:])
-        lines.append("")
-    if assistant.strip():
-        lines.append(f"**Out:** {assistant.strip()}")
-    return "\n".join(lines)
-
-
-def turn_progress_stub(turn_id: int, *, user: str = "", assistant: str = "") -> str:
-    lines = [f"## Turn {turn_id}", "", f"**In:** {(user or '').strip()}", ""]
-    if (assistant or "").strip():
-        lines.append(f"**Out:** {assistant.strip()}")
-    return "\n".join(lines)
-
-
-NOTE_HEADING = "### Note"
-
-
-def _turn_section_span(content: str, turn_id: int) -> tuple[int, int] | None:
-    """(start, end) char span of the ``## Turn N`` section, or None."""
-    pattern = re.compile(
-        rf"^## Turn {turn_id}\s*$.*?(?=^## Turns? \d+(?:-\d+)?\s*$|\Z)",
-        re.MULTILINE | re.DOTALL,
-    )
-    match = pattern.search(content or "")
-    if not match:
-        return None
-    return match.start(), match.end()
-
-
-def _extract_turn_notes(content: str, turn_id: int) -> list[str]:
-    """Return whole ``### Note`` blocks (multi-line) inside the turn section."""
-    span = _turn_section_span(content or "", turn_id)
-    if span is None:
-        return []
-    section = content[span[0] : span[1]]
-    return [
-        block.strip()
-        for block in re.findall(
-            rf"^{NOTE_HEADING}\s*$.*?(?=^{NOTE_HEADING}\s*$|\Z)",
-            section,
-            re.MULTILINE | re.DOTALL,
-        )
-    ]
-
-
-def append_progress_note(run_log_path, turn_id: int, text: str, task_name: str | None = None) -> str:
-    """Append a mid-turn structure note under the current turn section.
-
-    The agent may record progress whenever it finishes something — it does
-    not have to wait for the turn to end. Note blocks survive the
-    end-of-turn stub/enrich rewrite of the same turn section. With
-    ``task_name`` the note goes to that task's progress-{slug}.md (subagents);
-    there a "turn" is one dispatch of the task.
-    """
-    note = (text or "").strip()
-    if not note:
-        return "Note was empty; nothing recorded."
-    if not run_log_path:
-        return "No session directory; note not recorded."
-    block = note if note.startswith(NOTE_HEADING) else f"{NOTE_HEADING}\n{note}"
-    heading = f"## Turn {int(turn_id or 0)}"
-    with _progress_lock:
-        existing = read_progress(run_log_path, task_name).strip()
-        span = _turn_section_span(existing, int(turn_id or 0))
-        if span is None:
-            base = existing if existing else PROGRESS_HEADER.strip()
-            body = base.rstrip() + "\n\n" + heading + "\n\n" + block + "\n"
-        else:
-            section = existing[span[0] : span[1]].rstrip()
-            body = existing[: span[0]] + section + "\n\n" + block + "\n" + existing[span[1] :]
-        write_progress(run_log_path, body, task_name)
-    summary = " ".join(note.split())
-    if len(summary) > 200:
-        summary = summary[:197] + "..."
-    return f"Noted in progress.md: {summary}"
-
-
-def _remove_turn_section(content: str, turn_id: int) -> str:
-    text = (content or "").strip()
-    if not text:
-        return ""
-    pattern = re.compile(
-        rf"^## Turn {turn_id}\s*$.*?(?=^## Turns? \d+(?:-\d+)?\s*$|\Z)",
-        re.MULTILINE | re.DOTALL,
-    )
-    cleaned = pattern.sub("", text).strip()
-    if cleaned in ("", PROGRESS_HEADER.strip()):
-        return PROGRESS_HEADER.strip()
-    return cleaned
-
-
-def _append_progress_body(run_log_path, existing: str, section: str) -> str:
-    section = section.strip()
-    if not existing:
-        return PROGRESS_HEADER + section + "\n"
-    return existing.rstrip() + "\n\n" + section + "\n"
-
-
-@dataclass
-class _ProgressTurnSection:
-    start: int
-    end: int
-    body: str
-
-    @property
-    def heading(self) -> str:
-        if self.start == self.end:
-            return f"## Turn {self.start}"
-        return f"## Turns {self.start}-{self.end}"
-
-
-def _split_progress_document(content: str) -> tuple[str, str, list[_ProgressTurnSection]]:
-    """Return (preamble_with_goal, leftover_non_turn, turn_sections)."""
-    text = (content or "").strip()
-    if not text:
-        return PROGRESS_HEADER.strip(), "", []
-
-    matches = list(_TURN_SECTION_SPLIT_RE.finditer(text))
-    if not matches:
-        return text, "", []
-
-    preamble = text[: matches[0].start()].rstrip()
-    if not preamble:
-        preamble = PROGRESS_HEADER.strip()
-
-    sections: list[_ProgressTurnSection] = []
-    for index, match in enumerate(matches):
-        header = match.group(0).strip()
-        parsed = _TURN_HEADER_RE.match(header)
-        if not parsed:
-            continue
-        start = int(parsed.group(1))
-        end = int(parsed.group(2)) if parsed.group(2) else start
-        body_start = match.end()
-        body_end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
-        body = text[body_start:body_end].strip()
-        sections.append(_ProgressTurnSection(start=start, end=end, body=body))
-    return preamble, "", sections
-
-
-def _render_progress_document(preamble: str, sections: list[_ProgressTurnSection]) -> str:
-    parts = [preamble.rstrip() or PROGRESS_HEADER.strip()]
-    for section in sections:
-        parts.append(section.heading + ("\n\n" + section.body if section.body else ""))
-    return "\n\n".join(parts) + "\n"
-
-
-def _merge_progress_sections_llm(api_key, model, sections: list[_ProgressTurnSection]) -> str:
-    from langbridge_code.llm.client import create_model_response
-    from langbridge_code.llm.parse import extract_output_text, truncate_text
-
-    if not sections:
-        return ""
-    start = sections[0].start
-    end = sections[-1].end
-    heading = f"## Turns {start}-{end}" if start != end else f"## Turn {start}"
-    source = "\n\n".join(f"{sec.heading}\n{sec.body}" for sec in sections)
-    prompt = (
-        "Merge these session progress turn sections into ONE concise section.\n"
-        f"Use this exact heading as the first line: {heading}\n"
-        "Keep factual bullets about work done, files, tests, and open items.\n"
-        "Drop redundancy. No preamble.\n\n"
-        f"{truncate_text(source, MAX_SESSION_SUMMARY_INPUT_CHARS)}"
-    )
-    response = create_model_response(
-        api_key,
-        model,
-        [
-            {"role": "system", "content": "You merge session progress notes."},
-            {"role": "user", "content": prompt},
-        ],
-        label="progress_merge",
-    )
-    text = extract_output_text(response.get("output", [])).strip()
-    if not text:
-        bullets = []
-        for sec in sections:
-            for line in sec.body.splitlines():
-                stripped = line.strip()
-                if stripped.startswith("- "):
-                    bullets.append(stripped)
-        body = "\n".join(bullets) if bullets else "- (merged turns)"
-        return f"{heading}\n{body}"
-    if not text.lstrip().startswith("##"):
-        text = f"{heading}\n{text}"
-    return text
-
-
-def maybe_compact_progress(api_key, model, run_log_path, task_name: str | None = None) -> bool:
-    """Merge middle progress turns when the file exceeds PROGRESS_MAX_FRACTION of the window."""
-    from langbridge_code.context.common.budget import estimate_tokens
-    from langbridge_code.llm.model_context import model_context_window
-
-    if not run_log_path or not api_key or not model:
-        return False
-    budget = max(1, int(model_context_window(model) * PROGRESS_MAX_FRACTION))
-    changed = False
-    while True:
-        with _progress_lock:
-            content = read_progress(run_log_path, task_name).strip()
-        if estimate_tokens(content) <= budget:
-            break
-        preamble, _, sections = _split_progress_document(content)
-        if len(sections) < 3:
-            break
-        middle = sections[1:-1]
-        merged_text = _merge_progress_sections_llm(api_key, model, middle)
-        merged_sections = _split_progress_document(merged_text)[2]
-        if not merged_sections:
-            start = middle[0].start
-            end = middle[-1].end
-            body = "\n".join(
-                line
-                for sec in middle
-                for line in sec.body.splitlines()
-                if line.strip().startswith("- ")
-            ) or "- (merged turns)"
-            merged_sections = [_ProgressTurnSection(start=start, end=end, body=body)]
-        new_sections = [sections[0], merged_sections[0], sections[-1]]
-        body = _render_progress_document(preamble, new_sections)
-        with _progress_lock:
-            write_progress(run_log_path, body, task_name)
-        from langbridge_code.util.agent_traces import append_compaction_event
-
-        append_compaction_event(
-            run_log_path,
-            {
-                "type": "progress_compaction",
-                "role": "TaskProgress" if task_name else "LangBridge",
-                "task_name": task_name,
-                "instance_id": None,
-                "model": model,
-                "before": {
-                    "tokens": estimate_tokens(content),
-                    "turn_section_count": len(sections),
-                },
-                "input": {
-                    "progress_markdown": content,
-                    "merged_middle_sections": [
-                        {"heading": section.heading, "body": section.body}
-                        for section in middle
-                    ],
-                },
-                "output": {
-                    "merged_middle_markdown": merged_text,
-                    "progress_markdown": body,
-                },
-                "after": {
-                    "tokens": estimate_tokens(body),
-                    "turn_section_count": len(new_sections),
-                },
-            },
-        )
-        changed = True
-        if estimate_tokens(body) <= budget:
-            break
-        # Avoid infinite loops if merge did not shrink enough.
-        if len(new_sections) >= len(sections):
-            break
-    return changed
-
-
-def append_turn_progress_stub(
-    run_log_path,
-    turn_id: int,
-    *,
-    user: str = "",
-    assistant: str = "",
-    task_name: str | None = None,
-) -> None:
-    with _progress_lock:
-        existing = read_progress(run_log_path, task_name).strip()
-        notes = _extract_turn_notes(existing, turn_id)
-        existing = _remove_turn_section(existing, turn_id)
-        section = turn_progress_stub(turn_id, user=user, assistant=assistant)
-        if notes:
-            section = section + "\n\n" + "\n\n".join(notes)
-        body = _append_progress_body(run_log_path, existing, section)
-        write_progress(run_log_path, body, task_name)
-
-
-def schedule_append_turn_progress(
-    api_key,
-    model,
-    run_log_path,
-    turn_id: int,
-    *,
-    user: str = "",
-    assistant: str = "",
-) -> None:
-    """Write a stub immediately; enrich with an LLM summary in the background."""
-
-    def worker() -> None:
-        try:
-            append_turn_progress(
-                api_key,
-                model,
-                run_log_path,
-                turn_id,
-                user=user,
-                assistant=assistant,
-                replace_turn=True,
-            )
-        except Exception:
-            pass
-
-    threading.Thread(target=worker, daemon=True).start()
-
-
-def finalize_main_agent_turn(
-    api_key,
-    model,
-    run_log_path,
-    turn_id: int,
-    *,
-    user: str,
-    assistant: str,
-) -> None:
-    """Persist progress when a main-agent turn ends (any outcome)."""
-    from langbridge_code.util.session_traces import append_progress_boundary
-
-    from langbridge_code.agents.common import control
-
-    outcome = (assistant or "").strip() or "(turn ended without a reply)"
-    append_turn_progress_stub(run_log_path, turn_id, user=user, assistant=outcome)
-    append_progress_boundary(run_log_path, turn_id)
-    # Skip the synchronous LLM compaction after a user stop — the user wants
-    # the prompt back now, and the next turn's finalize will compact instead.
-    if not control.stop_requested():
-        maybe_compact_progress(api_key, model, run_log_path)
-    schedule_append_turn_progress(
-        api_key,
-        model,
-        run_log_path,
-        turn_id,
-        user=user,
-        assistant=outcome,
-    )
-
-
-def _summarize_turn_progress(api_key, model, source: str) -> str:
-    if not source.strip():
-        return "- (no activity recorded)"
-    from langbridge_code.llm.client import create_model_response
-    from langbridge_code.llm.parse import extract_output_text, truncate_text
-
-    prompt = (
-        "Write concise progress bullets for the main coding agent's session log.\n"
-        "Audience: the same agent on the next user turn. Be factual and specific.\n"
-        "Keep **In:** and **Out:** lines exactly as provided. Only add bullet lines "
-        "between them summarizing delegated work, files/tests, outcomes, open items.\n"
-        "Format under the ## Turn N heading. No preamble.\n\n"
-        f"{truncate_text(source, MAX_SESSION_SUMMARY_INPUT_CHARS)}"
-    )
-    response = create_model_response(
-        api_key,
-        model,
-        [
-            {"role": "system", "content": "You write terse session progress notes."},
-            {"role": "user", "content": prompt},
-        ],
-        label="progress",
-    )
-    text = extract_output_text(response.get("output", [])).strip()
-    return text or "- Turn completed (summary unavailable)."
-
-
-def append_turn_progress(
-    api_key,
-    model,
-    run_log_path,
-    turn_id: int,
-    *,
-    user: str = "",
-    assistant: str = "",
-    replace_turn: bool = False,
-) -> str:
-    user_text = user or ""
-    assistant_text = assistant or ""
-    source = _turn_progress_source(run_log_path, turn_id, user=user_text, assistant=assistant_text)
-    section = _summarize_turn_progress(api_key, model, source)
-    with _progress_lock:
-        existing = read_progress(run_log_path).strip()
-        if replace_turn:
-            notes = _extract_turn_notes(existing, turn_id)
-            existing = _remove_turn_section(existing, turn_id)
-            missing = [note for note in notes if note.strip() not in section]
-            if missing:
-                section = section.rstrip() + "\n\n" + "\n\n".join(missing)
-        body = _append_progress_body(run_log_path, existing, section)
-        write_progress(run_log_path, body)
-    maybe_compact_progress(api_key, model, run_log_path)
-    return read_progress(run_log_path)

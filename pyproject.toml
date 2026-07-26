@@ -18,6 +18,7 @@ package-dir = {"" = "src", "langbridge_eval" = "eval/langbridge_eval"}
 
 [tool.setuptools.packages.find]
 where = ["src", "eval"]
+include = ["langbridge_code*", "langbridge_eval*"]
 
 [build-system]
 requires = ["setuptools>=69"]

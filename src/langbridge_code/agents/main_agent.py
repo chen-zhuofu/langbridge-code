@@ -26,7 +26,6 @@ from langbridge_code.context.foreground import ForegroundTracker
 from langbridge_code.util.progress import (
     PROGRESS_HEADER,
     build_turn_user_content,
-    finalize_main_agent_turn,
     read_progress,
 )
 from langbridge_code.util.artifacts import format_trace_timestamp
@@ -265,14 +264,12 @@ class MainAgentSession:
         return last_reply, goal
 
     def _refresh_memory_and_progress_blocks(self, task="", *, include_traces=False):
-        """Prefetch <memory> (one LLM pass over memory.md) and re-read <progress>.
+        """Prefetch <memory> and load progress.md into head ``<progress>``.
 
-        Runs on the first send and again after every compaction — the head of
-        the context is dropped and rebuilt from possibly-updated memory, and
-        progress.md is re-concatenated. On the first send (cold start / resume)
-        the block is the raw traces when they fully fit the resume budget,
-        otherwise the progress notes plus the traces after the last progress
-        boundary (rounds not yet summarized into progress.md).
+        Only on first send (resume) and after context compaction — mid-turn
+        ``note_progress`` overrides the file without rewriting this block.
+        On resume, prefer full raw traces when they fit; otherwise progress
+        plus traces after the last progress boundary.
         """
         from langbridge_code.memory import prefetch_memory
 
@@ -502,15 +499,23 @@ class MainAgentSession:
         self._rounds_since_progress_note += 1
         if self._rounds_since_progress_note <= PROGRESS_NOTE_REMINDER_ROUNDS:
             return
-        self._rounds_since_progress_note = 0
-        self._write_progress_note_via_fork()
+        # Reset only on success; a failed fork retries next round so compaction
+        # never drops rounds that no note covers.
+        if self._note_write_succeeded(self._write_progress_note_via_fork()):
+            self._rounds_since_progress_note = 0
+
+    @staticmethod
+    def _note_write_succeeded(result) -> bool:
+        return str(result or "").startswith("Noted")
 
     def _write_progress_note_via_fork(self):
-        """Fork a one-pass note-writer on the live context (prefix cache) and
-        append its summary to progress.md. Compress progress.md if it outgrows
-        its share of the context window."""
+        """Fork a note-writer on the live context; override progress.md on disk.
+
+        Does not inject into ``<progress>`` — that block is loaded only on
+        resume / compaction. Raw messages already carry the full transcript.
+        """
         from langbridge_code.agents.common.fork import fork_one_pass
-        from langbridge_code.util.progress import append_progress_note, maybe_compact_progress
+        from langbridge_code.util.progress import write_progress_note
 
         try:
             note = fork_one_pass(
@@ -525,9 +530,7 @@ class MainAgentSession:
             return f"Progress note fork failed: {error}"
         if not note.strip():
             return "Progress note fork returned nothing; no note recorded."
-        result = append_progress_note(self.run_log_path, self.turn_id, note)
-        maybe_compact_progress(self.api_key, self.model, self.run_log_path)
-        return result
+        return write_progress_note(self.run_log_path, note, turn_id=self.turn_id)
 
     def _run_tool(self, call):
         name = call.get("name")
@@ -538,7 +541,8 @@ class MainAgentSession:
                 output = resolve_ask_user(arguments, self.question_callback)
             elif name == "note_progress":
                 output = self._write_progress_note_via_fork()
-                self._rounds_since_progress_note = 0
+                if self._note_write_succeeded(output):
+                    self._rounds_since_progress_note = 0
             elif name == "memory_writer":
                 from langbridge_code.tools.memory_writer import schedule_memory_writer
 
@@ -577,8 +581,8 @@ class MainAgentSession:
         write_worklog_finish(self.run_log_path, self.label, self.worklog_id, self.turn_id, report)
         # Catch progress omitted since the last note (same idea as Memory Writer).
         if self._rounds_since_progress_note > 0:
-            self._write_progress_note_via_fork()
-            self._rounds_since_progress_note = 0
+            if self._note_write_succeeded(self._write_progress_note_via_fork()):
+                self._rounds_since_progress_note = 0
         # A mid-turn Memory Writer already reconciled this context. Otherwise
         # fork the same tool-using writer in the background to catch omissions.
         if not self._memory_writer_ran_this_send:
@@ -634,12 +638,4 @@ def run_agent_turn(
         outcome = format_api_error(error)
     finally:
         end_trace()
-        finalize_main_agent_turn(
-            api_key,
-            model,
-            run_log_path,
-            turn_id,
-            user=target,
-            assistant=outcome,
-        )
     return outcome

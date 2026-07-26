@@ -103,6 +103,8 @@ def test_instance_to_task_keeps_llm_difficulty():
             "difficulty": "easy",
             "task_type_reason": "restores broken behavior",
             "difficulty_reason": "localized",
+            "problem_statement_source": "rewritten",
+            "rewrite_reason": "salvage noisy but usable statement",
         }
     )
     assert task["task_type"] == "bug_fix"
@@ -110,6 +112,8 @@ def test_instance_to_task_keeps_llm_difficulty():
     assert task["hard"] is False
     assert task["task_type_reason"] == "restores broken behavior"
     assert task["difficulty_reason"] == "localized"
+    assert task["problem_statement_source"] == "rewritten"
+    assert task["rewrite_reason"] == "salvage noisy but usable statement"
 
 
 def test_user_payload_includes_f2p():

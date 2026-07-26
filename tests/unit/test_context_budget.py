@@ -12,8 +12,12 @@ def test_model_context_window_for_default_kimi():
     assert model_context_window("kimi-k2.7-code") == 262_144
 
 
-def test_context_budget_uses_fraction():
-    assert context_budget_tokens("kimi-k2.7-code") == int(262_144 * 0.4)
+def test_context_budget_is_fixed_threshold():
+    from langbridge_code.settings import COMPACT_THRESHOLD_TOKENS
+
+    assert COMPACT_THRESHOLD_TOKENS == 100_000
+    assert context_budget_tokens("kimi-k2.7-code") == 100_000
+    assert context_budget_tokens("deepseek-v4-pro") == 100_000
 
 
 def test_prepare_agent_messages_keeps_system_prompt_stable():
@@ -22,7 +26,7 @@ def test_prepare_agent_messages_keeps_system_prompt_stable():
     budget = prepare_agent_messages(
         messages, "kimi-k2.7-code", base_system_prompt="You are a test agent."
     )
-    assert budget == int(262_144 * 0.4)
+    assert budget == 100_000
     assert messages[0]["content"] == "You are a test agent."
 
     messages.append({"role": "user", "content": "hello"})
@@ -59,6 +63,8 @@ def test_context_budget_snapshot_tracks_usage():
     ]
     snap = context_budget_snapshot(messages, "kimi-k2.7-code")
     assert snap["window_tokens"] == 262_144
-    assert snap["budget_tokens"] == int(262_144 * 0.4)
+    assert snap["budget_tokens"] == 100_000
     assert snap["used_tokens"] > 0
-    assert "Current transcript size:" in format_context_budget_line(messages, "kimi-k2.7-code")
+    line = format_context_budget_line(messages, "kimi-k2.7-code")
+    assert "Current transcript size:" in line
+    assert "Compact threshold: 100,000 tokens (fixed)" in line

@@ -1,4 +1,4 @@
-"""Per-subagent raw markdown traces and progress-merge audit records.
+"""Per-subagent raw markdown traces and compaction audit records.
 
 Each subagent dispatch writes {session}/{task-slug}/{role}-{n}.md — the same
 "## Round N" + ```json block format as the main agent's traces.md, so every

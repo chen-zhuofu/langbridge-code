@@ -6,11 +6,18 @@ from pathlib import Path
 
 import pytest
 
-_CURATE = Path(__file__).resolve().parents[2] / "data-pipeline" / "curate"
-if str(_CURATE) not in sys.path:
-    sys.path.insert(0, str(_CURATE))
+_PIPELINE = Path(__file__).resolve().parents[2] / "data-pipeline"
+_CURATE = _PIPELINE / "curate"
+for _path in (_PIPELINE, _CURATE):
+    if str(_path) not in sys.path:
+        sys.path.insert(0, str(_path))
 
-from curate import strip_tracker_refs  # noqa: E402
+from curate import (  # noqa: E402
+    CURATE_SYSTEM,
+    _clip,
+    _user_payload,
+    strip_tracker_refs,
+)
 
 
 def test_strips_possibly_related_issue_line():
@@ -72,3 +79,36 @@ def test_keeps_iso8601_and_utf8_lookalikes():
 )
 def test_strips_prose_issue_phrases(text):
     assert "#" not in strip_tracker_refs(f"Bug. {text}. Done.\n")
+
+
+def test_curate_policy_keep_salvage_rewrite_or_drop():
+    assert "KEEP when the problem statement is already a usable coding task" in CURATE_SYSTEM
+    assert "REWRITE only in this salvage case" in CURATE_SYSTEM
+    assert "Do NOT leak the solution" in CURATE_SYSTEM
+    assert "DROP in every other bad case" in CURATE_SYSTEM
+    assert "requiring another repository" in CURATE_SYSTEM
+    assert "do not rewrite around it" in CURATE_SYSTEM
+
+
+def test_user_payload_includes_clipped_test_patch():
+    import json
+
+    payload = json.loads(
+        _user_payload(
+            {
+                "task_id": "repo__1",
+                "repo": "org/repo",
+                "problem_statement": "Fix caching.",
+                "fail_to_pass": ["tests/test_a.py::test_one"],
+                "test_patch": "x" * 20_000,
+            }
+        )
+    )
+    assert payload["fail_to_pass_names"] == ["tests/test_a.py::test_one"]
+    assert len(payload["test_patch"]) < 20_000
+    assert "truncated" in payload["test_patch"]
+    assert "HIDDEN" in payload["notes"]
+
+
+def test_clip_short_unchanged():
+    assert _clip("hello", 100) == "hello"

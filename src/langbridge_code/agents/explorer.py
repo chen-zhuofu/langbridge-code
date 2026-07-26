@@ -329,10 +329,14 @@ class ExploreSession:
         foreground.activate()
         start_time = now()
         try:
-            for _ in range(MAX_EXPLORER_STEPS):
+            # None steps/seconds = unlimited (default). Optional caps still use
+            # _budget_stop_report so a configured limit is not a wasted call.
+            while True:
+                if MAX_EXPLORER_STEPS is not None and self.step >= MAX_EXPLORER_STEPS:
+                    return self._finish(self._budget_stop_report("max steps"))
                 control.checkpoint()
                 if over_time_budget(start_time, MAX_EXPLORER_SECONDS):
-                    return self._finish(f"{self.label} stopped: out of time.")
+                    return self._finish(self._budget_stop_report("out of time"))
                 self.context.compact_to_budget(model=self.model)
                 budget = prepare_agent_messages(
                     self.messages,
@@ -372,7 +376,6 @@ class ExploreSession:
                 finish_step(self.context, step_items, self, budget)
                 self.task_progress.maybe_force_write(self.context)
                 foreground.publish()
-            return self._finish(f"{self.label} stopped: max steps.")
         finally:
             foreground.deactivate()
 
@@ -387,6 +390,64 @@ class ExploreSession:
         except Exception as error:
             output = f"Tool error: {error}"
         return {"type": "function_call_output", "call_id": call_id, "output": output}
+
+    def _budget_stop_report(self, reason: str) -> str:
+        """Return partial findings when the explore budget ends — not a stub.
+
+        One no-tool finalize call asks for the normal report shape from what is
+        already in context. If that fails, fall back to task progress notes so
+        the parent still gets something reusable.
+        """
+        header = (
+            f"{self.label} stopped early ({reason}). Partial findings below — "
+            "the search did not finish; verify before relying on them.\n\n"
+        )
+        finalized = self._finalize_partial_report(reason)
+        if finalized:
+            return header + finalized
+        notes = self._progress_notes_fallback()
+        if notes:
+            return header + "## Progress notes so far\n\n" + notes
+        return header + "(No findings were recorded before the budget ended.)"
+
+    def _finalize_partial_report(self, reason: str) -> str:
+        instruction = (
+            f"Your search budget ended ({reason}). Using ONLY evidence already "
+            "gathered in this conversation, write the final report now with "
+            "## Findings, ## Answer, and ## Open questions. Do not call tools. "
+            "Mark gaps under Open questions."
+        )
+        try:
+            self.messages.append({"role": "user", "content": instruction})
+            response = control.run_interruptible(
+                lambda: create_model_response(
+                    self.api_key,
+                    self.model,
+                    messages_with_budget_notice(self.messages, self.model),
+                    tool_schemas=None,
+                    reasoning={"summary": "auto"},
+                    label=f"{self.label} finalize",
+                    stream_sink=self.trace_sink,
+                )
+            )
+            output = response.get("output", [])
+            print_step_trace(output, include_message=True, label=f"{self.label} finalize", sink=self.trace_sink)
+            text = (extract_output_text(output) or "").strip()
+            return text
+        except control.TurnAborted:
+            raise
+        except Exception:
+            return ""
+
+    def _progress_notes_fallback(self) -> str:
+        if not self.task_progress.enabled:
+            return ""
+        from langbridge_code.util.progress import PROGRESS_HEADER, read_progress
+
+        content = read_progress(self.run_log_path, self.task_progress.task_name).strip()
+        if not content or content == PROGRESS_HEADER.strip():
+            return ""
+        return content
 
     def _finish(self, report):
         write_worklog_finish(self.run_log_path, self.label, self.worklog_id, self.turn_id, report)

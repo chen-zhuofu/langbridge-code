@@ -23,7 +23,7 @@ def stack():
     return ContextStack(
         system_content="system prompt",
         raw_keep=2,
-        compact_fraction=0.4,
+        compact_threshold_tokens=100_000,
     )
 
 
@@ -43,15 +43,12 @@ def test_raw_rounds_accumulate_under_budget(stack):
     assert stack.dropped_round_count == 0
 
 
-def test_compact_keeps_recent_rounds_and_drops_rest(stack, monkeypatch):
-    monkeypatch.setattr(
-        "langbridge_code.context.common.stack.model_context_window",
-        lambda _model: 100,
-    )
+def test_compact_keeps_recent_rounds_and_drops_rest(stack):
+    stack.compact_threshold_tokens = 40
     stack.start_turn("task")
     for index in range(6):
         stack.complete_step(_tool_step(f"c{index}", "grep", "x" * 200))
-    stats = stack.maybe_advance(model="test-model", budget_tokens=40)
+    stats = stack.maybe_advance(model="test-model", budget_tokens=None)
 
     assert stats["compacted"] is True
     assert stack.dropped_round_count == 4
@@ -62,35 +59,29 @@ def test_compact_keeps_recent_rounds_and_drops_rest(stack, monkeypatch):
     )
 
 
-def test_second_compact_drops_again(stack, monkeypatch):
-    monkeypatch.setattr(
-        "langbridge_code.context.common.stack.model_context_window",
-        lambda _model: 100,
-    )
+def test_second_compact_drops_again(stack):
+    stack.compact_threshold_tokens = 40
     stack.start_turn("task")
     for index in range(6):
         stack.complete_step(_tool_step(f"c{index}", "grep", "x" * 200))
-    stack.maybe_advance(model="test-model", budget_tokens=40)
+    stack.maybe_advance(model="test-model", budget_tokens=None)
     assert stack.dropped_round_count == 4
 
     for index in range(6, 10):
         stack.complete_step(_tool_step(f"c{index}", "grep", "y" * 200))
-    stack.maybe_advance(model="test-model", budget_tokens=40)
+    stack.maybe_advance(model="test-model", budget_tokens=None)
 
     assert stack.dropped_round_count == 8
     assert len(stack.raw_rounds) == 2
 
 
-def test_no_compact_when_few_rounds_even_over_budget(stack, monkeypatch):
-    monkeypatch.setattr(
-        "langbridge_code.context.common.stack.model_context_window",
-        lambda _model: 10,
-    )
+def test_no_compact_when_few_rounds_even_over_budget(stack):
+    stack.compact_threshold_tokens = 1
     stack.start_turn("task")
     stack.complete_step(_tool_step("c0", "grep", "x" * 500))
     stack.complete_step(_tool_step("c1", "grep", "x" * 500))
 
-    stats = stack.maybe_advance(model="test-model", budget_tokens=1)
+    stats = stack.maybe_advance(model="test-model", budget_tokens=None)
 
     assert stats["compacted"] is False
     assert len(stack.raw_rounds) == 2
@@ -161,15 +152,12 @@ def test_agent_context_manager_mutates_in_place():
     assert any(m.get("content") == "hello" for m in messages if m.get("role") == "user")
 
 
-def test_maybe_advance_compacts_over_budget(stack, monkeypatch):
-    monkeypatch.setattr(
-        "langbridge_code.context.common.stack.model_context_window",
-        lambda _model: 100,
-    )
+def test_maybe_advance_compacts_over_budget(stack):
+    stack.compact_threshold_tokens = 40
     stack.start_turn("task")
     for index in range(6):
         stack.complete_step(_tool_step(f"c{index}", "grep", "x" * 200))
-    stats = stack.maybe_advance(model="test-model", budget_tokens=40)
+    stats = stack.maybe_advance(model="test-model", budget_tokens=None)
     assert stats["compacted"] is True
     assert len(stack.raw_rounds) == 2
 
@@ -190,16 +178,13 @@ def test_pinned_assigned_task_in_every_to_messages(stack):
     )
 
 
-def test_pinned_survives_compaction(stack, monkeypatch):
-    monkeypatch.setattr(
-        "langbridge_code.context.common.stack.model_context_window",
-        lambda _model: 100,
-    )
+def test_pinned_survives_compaction(stack):
+    stack.compact_threshold_tokens = 40
     stack.set_pinned_assigned_task("Add retry logic")
     stack.start_turn("step prompt")
     for index in range(6):
         stack.complete_step(_tool_step(f"c{index}", "grep", "x" * 200))
-    stack.maybe_advance(model="test-model", budget_tokens=40)
+    stack.maybe_advance(model="test-model", budget_tokens=None)
 
     messages = stack.to_messages()
     pinned = [m for m in messages if m.get("content", "").startswith(ASSIGNED_TASK_PREFIX)]
@@ -224,7 +209,7 @@ def test_bootstrap_restores_pinned_assigned_task(stack):
 
 def test_blocks_emitted_in_order_and_wrapped(stack):
     stack.set_memory_block("user prefers short replies")
-    stack.set_progress_block("## Turn 1\n- built webpage")
+    stack.set_progress_block("#### Key discoveries\n- built webpage")
     stack.set_skill_index_block("- grill-me: challenge assumptions")
     stack.start_turn("next task")
     stack.complete_step(_tool_step("c0", "grep", "one"))
@@ -234,9 +219,11 @@ def test_blocks_emitted_in_order_and_wrapped(stack):
     progress_at = next(i for i, c in enumerate(contents) if c.startswith("<progress>"))
     skill_at = next(i for i, c in enumerate(contents) if c.startswith("<skill_index>"))
     task_at = contents.index("next task")
+    # Head <progress> (resume/compaction only), then rounds.
     assert memory_at < progress_at < skill_at < task_at
     assert contents[memory_at].rstrip().endswith("</memory>")
     assert "built webpage" in contents[progress_at]
+    assert contents[progress_at].rstrip().endswith("</progress>")
 
 
 def test_set_block_none_or_blank_removes_it(stack):
@@ -248,11 +235,8 @@ def test_set_block_none_or_blank_removes_it(stack):
     assert not any(c.startswith("<progress>") for c in contents)
 
 
-def test_blocks_survive_compaction_and_callback_fires(stack, monkeypatch):
-    monkeypatch.setattr(
-        "langbridge_code.context.common.stack.model_context_window",
-        lambda _model: 100,
-    )
+def test_blocks_survive_compaction_and_callback_fires(stack):
+    stack.compact_threshold_tokens = 40
     stack.set_memory_block("stale memory")
     stack.set_skill_index_block("- grill-me: x")
     fired = {}
@@ -266,7 +250,7 @@ def test_blocks_survive_compaction_and_callback_fires(stack, monkeypatch):
     stack.start_turn("task")
     for index in range(6):
         stack.complete_step(_tool_step(f"c{index}", "grep", "x" * 200))
-    stats = stack.maybe_advance(model="test-model", budget_tokens=40)
+    stats = stack.maybe_advance(model="test-model", budget_tokens=None)
 
     assert stats["compacted"] is True
     assert fired.get("called") is True

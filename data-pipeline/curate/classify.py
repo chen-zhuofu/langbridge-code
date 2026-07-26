@@ -9,7 +9,17 @@ from __future__ import annotations
 
 import json
 import re
+import sys
+from pathlib import Path
 from typing import Any
+
+_PIPELINE = Path(__file__).resolve().parents[1]
+if str(_PIPELINE) not in sys.path:
+    sys.path.insert(0, str(_PIPELINE))
+
+from _lib.prompt_load import load_prompt  # noqa: E402
+
+CLASSIFY_SYSTEM = load_prompt("classify").CLASSIFY_SYSTEM
 
 TASK_TYPES = ("bug_fix", "feature", "refactor", "unknown")
 DIFFICULTIES = ("easy", "medium", "hard", "unknown")
@@ -17,50 +27,6 @@ DIFFICULTIES = ("easy", "medium", "hard", "unknown")
 DEFAULT_TASK_TYPE = "unknown"
 DEFAULT_DIFFICULTY = "unknown"
 DEFAULT_UNKNOWN_REASON = "could not decide"
-
-CLASSIFY_SYSTEM = """\
-You classify one coding-agent eval task for a benchmark dataset.
-
-You see the final problem statement (after curation), changed-file count when
-known, and FAIL_TO_PASS / PASS_TO_PASS test names from the reference harness.
-Assign:
-
-1. task_type — exactly one of:
-   - bug_fix: restore broken/incorrect behavior
-   - feature: add new capability or API
-   - refactor: restructure/cleanup with behavior intended to stay the same
-     (includes renames, extract helpers, type cleanups without new user-facing
-     behavior)
-   - unknown: cannot tell from the statement and tests
-     (explain why in task_type_reason)
-
-2. difficulty — exactly one of:
-   - easy: localized change, clear expected behavior, few files; typically
-     1 FAIL_TO_PASS test
-   - medium: moderate scope or non-obvious diagnosis, still one coherent task;
-     often a small handful of FAIL_TO_PASS tests
-   - hard: multi-file / subtle interaction / ambiguous edge cases / broad
-     behavioral change; often several FAIL_TO_PASS tests or tightly coupled
-     suites
-   - unknown: cannot place difficulty confidently
-     (explain why in difficulty_reason)
-
-You may mark task_type and difficulty independently (e.g. type known,
-difficulty unknown). Prefer a concrete label when evidence is clear; use
-unknown rather than guessing.
-
-Weigh both the statement and FAIL_TO_PASS: more failing tests and cross-cutting
-names push difficulty up, but a single deep/subtle test can still be hard.
-Do not ignore a clearly hard statement just because only one test failed.
-
-Reply with ONLY a JSON object (no markdown fences):
-{
-  "task_type": "bug_fix" | "feature" | "refactor" | "unknown",
-  "task_type_reason": "one short sentence explaining the task_type label",
-  "difficulty": "easy" | "medium" | "hard" | "unknown",
-  "difficulty_reason": "one short sentence explaining the difficulty label"
-}
-"""
 
 _JSON_RE = re.compile(r"\{.*\}", re.DOTALL)
 

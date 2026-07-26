@@ -1,5 +1,8 @@
 # Dataset pipeline
 
+LLM prompts live in `data-pipeline/prompt/` (curate keep/rewrite/drop,
+classify). Eval/bench prompts live in `eval/prompt/`.
+
 Flow:
 
 `collect` → `env` → `reference` → `curate` → `eval`
@@ -12,7 +15,12 @@ Flow:
 | **1 collect** | `collect/collect.py` | `collect/in/repos.md` | `collect/out/instances.jsonl` | — (resume = own out only) |
 | **2 env** | `env/build_env.py` | collect jsonl | `env/out/instances.jsonl` + `docker-images/` + `lb-task:<id>` | `env/out/drop.json` |
 | **3 reference** | `reference/reference_test.py` | env jsonl | `reference/out/instances.jsonl` (incl. F2P/P2P) | `reference/out/drop.json` |
-| **4 curate** | `curate/curate.py` | reference jsonl | keep/rewrite/drop → LLM `task_type`/`difficulty` (+ reasons, uses F2P) → `curate/out/`; sync **copy** → `data/eval/specs/`; prune docker-images | `curate/out/drop.json` (LLM) |
+| **4 curate** | `curate/curate.py` | reference jsonl | keep / salvage-rewrite / drop → LLM `task_type`/`difficulty` (+ reasons, uses F2P) → `curate/out/`; sync **copy** → `data/eval/specs/`; prune docker-images | `curate/out/drop.json` (LLM) |
+
+Curate: **keep** good statements; **rewrite** only to salvage unclear ones by
+filling behavior from hidden tests (no solution leak); otherwise **drop**.
+Also **drop** when the statement says repro needs another repo/checkout outside
+the task repo (e.g. clone Home Assistant) — do not rewrite around that.
 
 **Drop broken problem manually:**
 ```bash

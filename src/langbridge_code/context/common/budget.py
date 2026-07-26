@@ -1,4 +1,4 @@
-"""Context budget: model window × fraction, surfaced to every agent."""
+"""Context budget: fixed compact threshold, surfaced to every agent."""
 from __future__ import annotations
 
 import json
@@ -9,7 +9,7 @@ from langbridge_code.prompt.context.context_budget_notice import (
     CONTEXT_BUDGET_NOTICE_PREFIX,
 )
 from langbridge_code.llm.model_context import format_token_count, model_context_window
-from langbridge_code.settings import CONTEXT_WINDOW_MAX_FRACTION
+from langbridge_code.settings import COMPACT_THRESHOLD_TOKENS
 
 
 def estimate_tokens(value):
@@ -17,9 +17,13 @@ def estimate_tokens(value):
 
 
 def context_budget_tokens(model: str, *, fraction: float | None = None) -> int:
-    window = model_context_window(model)
-    pct = CONTEXT_WINDOW_MAX_FRACTION if fraction is None else fraction
-    return max(1, int(window * pct))
+    """Return the compact/budget threshold in tokens.
+
+    Threshold is fixed via COMPACT_THRESHOLD_TOKENS (default 100k), independent
+    of the model window. ``fraction`` is ignored (kept for call-site compat).
+    """
+    del model, fraction
+    return max(1, int(COMPACT_THRESHOLD_TOKENS))
 
 
 def context_usage(messages) -> int:
@@ -30,13 +34,12 @@ def context_budget_snapshot(messages, model: str, *, fraction: float | None = No
     window = model_context_window(model)
     budget = context_budget_tokens(model, fraction=fraction)
     used = context_usage(messages)
-    pct = CONTEXT_WINDOW_MAX_FRACTION if fraction is None else fraction
     return {
         "model": model,
         "window_tokens": window,
         "budget_tokens": budget,
         "used_tokens": used,
-        "budget_fraction": pct,
+        "budget_fraction": None,
         "used_pct_of_budget": round(100 * used / budget, 1) if budget else 0.0,
         "used_pct_of_window": round(100 * used / window, 1) if window else 0.0,
     }
@@ -44,12 +47,11 @@ def context_budget_snapshot(messages, model: str, *, fraction: float | None = No
 
 def format_context_budget_line(messages, model: str) -> str:
     snap = context_budget_snapshot(messages, model)
-    pct = int(snap["budget_fraction"] * 100)
     lines = [
         f"Model context window: {snap['window_tokens']:,} tokens.",
         f"Current transcript size: {snap['used_tokens']:,} tokens "
         f"({snap['used_pct_of_window']}% of model window).",
-        f"Compact threshold: {snap['budget_tokens']:,} tokens ({pct}% of model window) "
+        f"Compact threshold: {snap['budget_tokens']:,} tokens (fixed) "
         f"— currently {snap['used_pct_of_budget']}% of that threshold.",
         CONTEXT_BUDGET_BODY,
     ]

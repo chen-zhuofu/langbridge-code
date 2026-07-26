@@ -16,6 +16,7 @@ PROGRESS_BOUNDARY_RE = re.compile(
     re.MULTILINE,
 )
 _TURN_SECTION_RE = re.compile(r"^## Turn \d+\s*$", re.MULTILINE)
+_TURN_ID_RE = re.compile(r"^## Turn (\d+)\s*$", re.MULTILINE)
 _JSON_BLOCK_RE = re.compile(r"^```json\s*$(.*?)^```\s*$", re.MULTILINE | re.DOTALL)
 
 _traces_lock = threading.Lock()
@@ -151,6 +152,14 @@ def append_progress_boundary(run_log_path, turn_id: int) -> None:
         if existing.rstrip().endswith(marker):
             return
         write_traces(run_log_path, existing.rstrip() + "\n\n" + marker + "\n")
+
+
+def last_traces_turn_id(run_log_path) -> int:
+    """Highest turn id recorded in traces.md (0 if none)."""
+    content = read_traces(run_log_path)
+    ids = [int(match.group(1)) for match in _TURN_ID_RE.finditer(content)]
+    ids.extend(int(match.group(1)) for match in PROGRESS_BOUNDARY_RE.finditer(content))
+    return max(ids, default=0)
 
 
 def _content_after_last_boundary(content: str) -> str:

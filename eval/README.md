@@ -1,4 +1,8 @@
 # Cheat sheet
+
+LLM prompts for bench agent runs: `eval/prompt/` (e.g. task wrapper).
+Dataset-pipeline prompts: `data-pipeline/prompt/`.
+
 ## Crawl task 
 uv run python data-pipeline/run_pipeline.py --limit 1
 

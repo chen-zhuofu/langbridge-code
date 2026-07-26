@@ -23,11 +23,16 @@ _NO_TOOLS_TRAILER = (
 
 _SESSION_NOTE_BODY = """You are a forked progress note-writer for this session.
 
-Write a structure note covering the work since the last progress note (see the
-<progress> block and any earlier notes above — do not repeat them).
+Write one COMPLETE progress note for the whole session based on the active
+context above. This replaces any previous progress note on disk.
+
+If a <progress> block is present (loaded after resume or compaction), treat it
+as the previous note and fold its durable facts into your replacement — do not
+drop blockers or key discoveries. Prefer concrete facts from the raw messages
+when they are more complete than <progress>.
 
 Output markdown only — no preamble, no code fences. Use these #### sections and
-omit any section with nothing new in this batch:
+omit any section with nothing to report:
 
 #### Delegation
 - Subagent and key tool outcomes: kind (planner | worker | explorer | direct),
@@ -49,11 +54,16 @@ Be concrete and past-tense. Keep path:line pointers and exact verify commands.""
 
 _TASK_NOTE_BODY = """You are a forked progress note-writer for this task.
 
-Write a structure note covering the work since the last progress note (see the
-<progress> block and any earlier notes above — do not repeat them).
+Write one COMPLETE progress note for this task based on the active context
+above. This replaces any previous progress note on disk.
+
+If a <progress> block is present (loaded after resume or compaction), treat it
+as the previous note and fold its durable facts into your replacement — do not
+drop blockers or key discoveries. Prefer concrete facts from the raw messages
+when they are more complete than <progress>.
 
 Output markdown only — no preamble, no code fences. Use these #### sections and
-omit any section with nothing new in this batch:
+omit any section with nothing to report:
 
 #### Work done
 - Steps completed, files created/edited, commands run, with outcomes.

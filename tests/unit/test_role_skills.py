@@ -58,6 +58,8 @@ def test_role_system_prompts_do_not_inline_playbooks():
 def test_langbridge_catalog_scoped_to_main_agent_skills():
     catalog = langbridge_skill_catalog()
     assert "grilling" in catalog
+    assert "writing-simple-plans" in catalog
+    assert "superpowers_systematic-debugging" in catalog
     assert "superpowers_test-driven-development" not in catalog
     assert "clean-code-guard" not in catalog
 

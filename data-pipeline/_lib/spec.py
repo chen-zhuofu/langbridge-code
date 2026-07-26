@@ -104,6 +104,7 @@ def instance_to_task(inst: dict) -> dict:
         "difficulty",
         "difficulty_reason",
         "problem_statement_source",
+        "rewrite_reason",
         "required_tool_calls",
         "docker_image",
     ):
