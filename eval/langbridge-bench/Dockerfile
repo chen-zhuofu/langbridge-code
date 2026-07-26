@@ -6,12 +6,14 @@ FROM python:3.12-bookworm
 ENV DEBIAN_FRONTEND=noninteractive \
     PATH="/usr/local/bin:/root/.local/bin:${PATH}"
 
-RUN apt-get update -qq \
+# Check-Valid-Until=false: some hosts have mild clock skew vs Debian mirrors.
+RUN apt-get -o Acquire::Check-Valid-Until=false -o Acquire::Check-Date=false update -qq \
     && apt-get install -y -qq --no-install-recommends \
         git \
         curl \
         ca-certificates \
         build-essential \
+        ripgrep \
     && rm -rf /var/lib/apt/lists/*
 
 # PyPI install — do not use astral.sh install.sh at container start.

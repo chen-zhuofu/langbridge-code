@@ -1,4 +1,4 @@
-# Auto-generated task env for openclaw/openclaw@56816020698b
+# Auto-generated task env for NousResearch/hermes-agent@8c3c52b00856
 # Base image already has git/curl/ca-certificates/build-essential/uv.
 FROM langbridge-bench:py312
 
@@ -15,8 +15,8 @@ RUN git config --global user.email "agent@langbridge.local" \
 # image.
 WORKDIR /work/repo
 RUN git init -q \
-    && git remote add origin https://github.com/openclaw/openclaw.git \
-    && git fetch -q origin 56816020698b9e805f19e6e512272b22945ec926 \
+    && git remote add origin https://github.com/NousResearch/hermes-agent.git \
+    && git fetch -q origin 8c3c52b00856f10d7b33eebf6a93d3ac1da25454 \
     && git checkout -q FETCH_HEAD \
     && uv venv .refvenv \
     && (uv pip install --python .refvenv/bin/python -e ".[dev,test,tests,testing]" pytest \

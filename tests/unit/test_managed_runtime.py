@@ -60,13 +60,29 @@ def test_managed_binary_prefers_frontend_bundled_ripgrep(tmp_path, monkeypatch):
     bundled_rg.write_text("#!/bin/sh\n", encoding="utf-8")
     bundled_rg.chmod(0o755)
     monkeypatch.setenv("LANGBRIDGE_RG_PATH", str(bundled_rg))
+
+    assert runtime.managed_binary("rg") == str(bundled_rg.resolve())
+
+
+def test_managed_binary_does_not_install(monkeypatch):
+    monkeypatch.setattr(runtime, "_configured_binary", lambda _name: None)
+    monkeypatch.setattr(runtime, "inject_runtime_env", lambda env: env)
+    monkeypatch.setattr(
+        "langbridge_code.tools.common.runtime.shutil.which",
+        lambda *_args, **_kwargs: None,
+    )
     monkeypatch.setattr(
         runtime,
         "ensure_native_tools",
-        lambda: (_ for _ in ()).throw(AssertionError("must not bootstrap")),
+        lambda: (_ for _ in ()).throw(AssertionError("must not install from tools")),
     )
 
-    assert runtime.managed_binary("rg") == str(bundled_rg.resolve())
+    try:
+        runtime.managed_binary("rg")
+    except runtime.RuntimeBootstrapError as error:
+        assert "unavailable" in str(error)
+    else:
+        raise AssertionError("expected RuntimeBootstrapError")
 
 
 def test_bootstrap_prepares_every_advertised_runtime_dependency(monkeypatch):

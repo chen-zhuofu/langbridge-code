@@ -46,10 +46,17 @@ def main():
 
     from langbridge_code import settings
     from langbridge_code.settings import load_api_key
+    from langbridge_code.tools.common.runtime import RuntimeBootstrapError, bootstrap_runtime
     from langbridge_code.util.session import create_run_log_path
     from langbridge_code.util import optimizer_trace
     from langbridge_code.agents.main_agent import run_agent_turn
     from langbridge_eval.telemetry import start_telemetry
+
+    try:
+        bootstrap_runtime()
+    except RuntimeBootstrapError as error:
+        print(json.dumps({"error": f"runtime bootstrap failed: {error}"}))
+        return 1
 
     api_key = load_api_key()
     model = os.environ.get("LANGBRIDGE_MODEL") or settings.DEFAULT_MODEL

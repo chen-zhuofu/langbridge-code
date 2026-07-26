@@ -7,6 +7,7 @@ Success → ``reference/out/instances.jsonl`` (with FAIL_TO_PASS / PASS_TO_PASS)
 Failure → append ``reference/out/drop.json`` only (no deletes).
 
 Does **not** write ``data/eval/specs/`` (curate owns that).
+Sets provisional ``hard`` from F2P≥2; curate overwrites with LLM ``difficulty``.
 """
 from __future__ import annotations
 

@@ -9,6 +9,8 @@ Does not read any drop.json.
 Metadata (alongside patches):
   ``_pr_url``, ``_linked_issues``, ``_github_issue_urls``,
   ``_jira_url`` / ``_jira_key`` (extracted from PR/issue bodies).
+
+``task_type`` / ``difficulty`` are labeled later in curate (with F2P).
 """
 from __future__ import annotations
 
@@ -343,6 +345,7 @@ def main():
                 if instance is None:
                     rejected[reason] = rejected.get(reason, 0) + 1
                     continue
+
                 instances.append(instance)
                 known.add(instance["instance_id"])
                 with out_path.open("a", encoding="utf-8") as handle:
@@ -350,7 +353,8 @@ def main():
                 kept += 1
                 jira = instance.get("_jira_key") or "-"
                 print(
-                    f"  + {instance['instance_id']}  files={instance['_num_files']} "
+                    f"  + {instance['instance_id']}  "
+                    f"files={instance['_num_files']} "
                     f"issues={instance['_linked_issues']} jira={jira}"
                 )
             if args.limit and len(instances) >= args.limit:

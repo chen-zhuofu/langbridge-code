@@ -798,7 +798,7 @@
     "tests/plugins/test_kanban_dashboard_plugin.py::test_ws_events_rejects_when_token_required",
     "tests/plugins/test_kanban_dashboard_plugin.py::test_ws_events_swallows_cancellation_on_shutdown"
   ],
-  "hard": true,
+  "hard": false,
   "metadata": {
     "pr_url": "https://github.com/NousResearch/hermes-agent/pull/72029",
     "linked_issues": [
@@ -811,5 +811,9 @@
     "created_at": "2026-07-26T14:56:02Z"
   },
   "docker_image": "lb-task:NousResearch__hermes-agent-72029",
-  "problem_statement_source": "rewritten"
+  "problem_statement_source": "rewritten",
+  "difficulty": "medium",
+  "task_type": "bug_fix",
+  "task_type_reason": "The code incorrectly uses the machine-level default profile instead of the selected profile, causing incorrect gateway status indicators; this is restoring intended behavior.",
+  "difficulty_reason": "The fix spans several endpoints and a dispatcher, with 10 targeted tests covering multiple probe scenarios and profile scoping; it is a coherent but non-trivial change."
 }

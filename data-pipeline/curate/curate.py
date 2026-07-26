@@ -1,9 +1,10 @@
-"""Stage 4 — curate: LLM keep / rewrite / drop of problem statements.
+"""Stage 4 — curate: LLM keep / rewrite / drop, then kind + difficulty.
 
 Input: reference ``out/instances.jsonl``.
 Resume: skip if already in ``curate/out/<id>.json`` or ``curate/out/drop.json``.
 
-- **keep / rewrite** → write ``curate/out/<id>.json``
+- **keep / rewrite** → label ``task_type`` / ``difficulty`` (with F2P) →
+  write ``curate/out/<id>.json``
 - **LLM drop** → append ``curate/out/drop.json`` (no task json)
 - Then **sync** copy → ``data/eval/specs/``:
   skip if specs already has the file; skip if id is in human ``data/eval/drop/drop.json``
@@ -23,8 +24,10 @@ import sys
 from pathlib import Path
 
 _PIPELINE = Path(__file__).resolve().parents[1]
-if str(_PIPELINE) not in sys.path:
-    sys.path.insert(0, str(_PIPELINE))
+_CURATE = Path(__file__).resolve().parent
+for _path in (_PIPELINE, _CURATE):
+    if str(_path) not in sys.path:
+        sys.path.insert(0, str(_path))
 
 from _lib import paths  # noqa: E402
 from _lib.io import load_drop_entries, load_jsonl, save_drop_file, write_json  # noqa: E402
@@ -36,6 +39,7 @@ from _lib.spec import (  # noqa: E402
     save_task,
     sync_curate_out_to_specs,
 )
+from classify import apply_classification, classify_instance  # noqa: E402
 
 _GITHUB_ISSUE_PR_URL = re.compile(
     r"https?://(?:www\.)?github\.com/[^/\s]+/[^/\s]+/(?:issues|pull)/\d+"
@@ -289,6 +293,26 @@ def curate(*, limit: int = 0) -> dict:
                 task.setdefault("problem_statement_source", "sanitized")
             kept_llm.append(task_id)
             print(f"  keep {task_id}: {reason}")
+
+        classification = None
+        try:
+            classification = classify_instance(
+                task, api_key=api_key, model=model_name
+            )
+            print(
+                f"  classify: {classification.get('task_type')}/"
+                f"{classification.get('difficulty')}"
+            )
+        except Exception as err:  # noqa: BLE001
+            print(f"  ! classify failed: {err}", file=sys.stderr)
+            classification = {
+                "task_type": "unknown",
+                "difficulty": "unknown",
+                "task_type_reason": f"classify failed: {err}",
+                "difficulty_reason": f"classify failed: {err}",
+            }
+        apply_classification(task, classification)
+
         task["status"] = "ok"
         save_task(task)
         out_ids.add(task_id)

@@ -1,10 +1,11 @@
 """Repo-local managed runtime for agent tool dependencies.
 
 LangBridge tools must not be advertised and then fail because an executable is
-missing.  This module installs native command-line dependencies into
-``<workspace>/.langbridge/runtime`` and prepends that prefix to tool subprocess
-environments.  There is deliberately no feature fallback: bootstrap either
-produces a working toolchain or fails before the agent starts.
+missing.  ``bootstrap_runtime()`` installs native dependencies into
+``<workspace>/.langbridge/runtime`` once at process start.  Tool calls only
+resolve binaries via ``managed_binary()`` — they never download or install.
+There is deliberately no feature fallback: bootstrap either produces a working
+toolchain or fails before the agent starts.
 """
 
 from __future__ import annotations
@@ -246,18 +247,22 @@ def ensure_native_tools() -> None:
 
 
 def managed_binary(name: str) -> str:
-    """Resolve a required native tool, installing the managed runtime if needed."""
+    """Resolve a required native tool from PATH / configured env.
+
+    Installation happens only in ``bootstrap_runtime()`` at process start.
+    Tools must not download or create the managed runtime on each call.
+    """
     if name not in NATIVE_PACKAGES:
         raise ValueError(f"Unknown managed native tool: {name}")
     configured = _configured_binary(name)
     if configured:
         return configured
-    ensure_native_tools()
     env = inject_runtime_env(dict(os.environ))
     found = shutil.which(name, path=env.get("PATH"))
     if not found:
         raise RuntimeBootstrapError(
-            f"Managed tool {name!r} is unavailable after runtime bootstrap."
+            f"Managed tool {name!r} is unavailable. "
+            "Runtime bootstrap must succeed before tools run."
         )
     return found
 
@@ -266,19 +271,38 @@ def _venv_python(directory: Path) -> Path:
     return directory / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
 
 
+def _python_with_pytest(candidate: str | None) -> str | None:
+    if not candidate:
+        return None
+    check = subprocess.run(
+        [candidate, "-c", "import pytest"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if check.returncode == 0:
+        return candidate
+    return None
+
+
 def ensure_managed_test_python() -> str:
-    """Return a repo-local Python that always has pytest installed."""
+    """Return a Python that has pytest, preferring local/system before download."""
     directory = test_venv_dir()
     python = _venv_python(directory)
-    if python.exists():
-        check = subprocess.run(
-            [str(python), "-c", "import pytest"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if check.returncode == 0:
-            return str(python)
+    existing = _python_with_pytest(str(python) if python.exists() else None)
+    if existing:
+        return existing
+
+    # Eval / preinstalled images often already ship pytest — use that instead of
+    # downloading micromamba (which is blocked on the eval egress proxy).
+    for candidate in (
+        sys.executable,
+        shutil.which("python3"),
+        shutil.which("python"),
+    ):
+        found = _python_with_pytest(candidate)
+        if found:
+            return found
 
     # Do not rely on the host's python3-venv/ensurepip packages. Micromamba
     # provides a complete Python + pytest prefix under the repository.

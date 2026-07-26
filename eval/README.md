@@ -15,3 +15,7 @@ Agent containers run on an internal Docker network with no direct internet.
 Sole egress: the auto-started lb-eval-proxy container, which only tunnels
 the LLM API host. `docker logs lb-eval-proxy` shows denied hosts.
 Bypass for debugging: --open-network (results not benchmark-valid).
+
+## Live session artifacts
+While a task runs, host `artifacts/evals/<run>/<task_id>/session/` is bind-mounted
+to `/root/lb_session_artifacts` in the container — progress/traces stream live.

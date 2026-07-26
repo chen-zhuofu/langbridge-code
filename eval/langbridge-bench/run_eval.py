@@ -446,18 +446,6 @@ def _docker_cp_out(container, remote_path, local_path: Path) -> None:
         )
 
 
-def _copy_tree_from_container(container, remote_dir, local_dir: Path) -> bool:
-    """Copy a directory tree from the container. Returns True if anything was copied."""
-    probe = container_exec(container, f"test -d {remote_dir} && ls -A {remote_dir} | head -1")
-    if probe.returncode != 0 or not (probe.stdout or "").strip():
-        return False
-    if local_dir.exists():
-        shutil.rmtree(local_dir)
-    local_dir.mkdir(parents=True, exist_ok=True)
-    result = docker(["cp", f"{container}:{remote_dir}/.", str(local_dir)])
-    return result.returncode == 0
-
-
 def grade_in_container(container, spec, candidate_diff, grade_timeout):
     """Reset to base, grade inside the container, return parsed grade dict."""
     base = spec["base_commit"]
@@ -607,6 +595,10 @@ def run_one_spec(spec, artifacts_root, api_env, model, timeout, grade_timeout, p
     if artifacts_dir.exists():
         shutil.rmtree(artifacts_dir)
     artifacts_dir.mkdir(parents=True, exist_ok=True)
+    # Live-bind session artifacts so progress/traces appear on the host while
+    # the agent runs (and survive mid-run interrupts).
+    session_dir = artifacts_dir / "session"
+    session_dir.mkdir(parents=True, exist_ok=True)
     started = time.time()
     error = ""
     timed_out = False
@@ -626,7 +618,18 @@ def run_one_spec(spec, artifacts_root, api_env, model, timeout, grade_timeout, p
             image = ensure_task_image(spec, rebuild=False)
 
         started_container = docker(
-            ["run", "-d", "--name", container, *net_args, image, "sleep", "infinity"]
+            [
+                "run",
+                "-d",
+                "--name",
+                container,
+                "-v",
+                f"{session_dir.resolve()}:{CONTAINER_SESSION_ARTIFACTS}",
+                *net_args,
+                image,
+                "sleep",
+                "infinity",
+            ]
         )
         if started_container.returncode != 0:
             raise RuntimeError(f"docker run failed: {started_container.stderr.strip()}")
@@ -677,10 +680,8 @@ def run_one_spec(spec, artifacts_root, api_env, model, timeout, grade_timeout, p
         diff = capture_diff(container, spec)
         (artifacts_dir / "candidate.diff").write_text(diff, encoding="utf-8")
 
-        # Session notes (progress.md, traces/session.md, …) — not agent stdout dumps.
-        _copy_tree_from_container(
-            container, CONTAINER_SESSION_ARTIFACTS, artifacts_dir / "session"
-        )
+        # Session notes are bind-mounted to session_dir for the whole run — no
+        # post-agent docker cp needed.
 
         phase("grade")
         graded = grade_in_container(container, spec, diff, grade_timeout)

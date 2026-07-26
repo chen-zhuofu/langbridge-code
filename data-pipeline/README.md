@@ -12,7 +12,7 @@ Flow:
 | **1 collect** | `collect/collect.py` | `collect/in/repos.md` | `collect/out/instances.jsonl` | — (resume = own out only) |
 | **2 env** | `env/build_env.py` | collect jsonl | `env/out/instances.jsonl` + `docker-images/` + `lb-task:<id>` | `env/out/drop.json` |
 | **3 reference** | `reference/reference_test.py` | env jsonl | `reference/out/instances.jsonl` (incl. F2P/P2P) | `reference/out/drop.json` |
-| **4 curate** | `curate/curate.py` | reference jsonl | write `curate/out/`; sync **copy** → `data/eval/specs/` (skip if specs already has it, or id in human `drop/drop.json`); prune docker-images to match specs | `curate/out/drop.json` (LLM) |
+| **4 curate** | `curate/curate.py` | reference jsonl | keep/rewrite/drop → LLM `task_type`/`difficulty` (+ reasons, uses F2P) → `curate/out/`; sync **copy** → `data/eval/specs/`; prune docker-images | `curate/out/drop.json` (LLM) |
 
 **Drop broken problem manually:**
 ```bash

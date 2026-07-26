@@ -51,7 +51,22 @@ def instance_metadata(inst: dict) -> dict:
         meta["created_at"] = inst["metadata"]["created_at"]
     for key, value in (inst.get("metadata") or {}).items():
         meta.setdefault(key, value)
+    meta.pop("classify_reason", None)
     return meta
+
+
+def _difficulty_of(inst: dict) -> str | None:
+    value = inst.get("difficulty")
+    if value is None and inst.get("metadata"):
+        value = inst["metadata"].get("difficulty")
+    if isinstance(value, str) and value.lower() in {
+        "easy",
+        "medium",
+        "hard",
+        "unknown",
+    }:
+        return value.lower()
+    return None
 
 
 def instance_to_task(inst: dict) -> dict:
@@ -60,6 +75,11 @@ def instance_to_task(inst: dict) -> dict:
     p2p = inst.get("PASS_TO_PASS") or inst.get("pass_to_pass") or []
     test_patch = inst.get("test_patch", "")
     task_id = inst.get("task_id") or inst["instance_id"]
+    difficulty = _difficulty_of(inst)
+    if difficulty is not None:
+        hard = difficulty == "hard"
+    else:
+        hard = bool(inst.get("hard")) or len(f2p) >= 2
     task = {
         "task_id": task_id,
         "status": inst.get("status") or ("ok" if f2p else "pending"),
@@ -71,14 +91,27 @@ def instance_to_task(inst: dict) -> dict:
         "gold_code_patch": inst.get("gold_code_patch") or inst.get("patch", ""),
         "fail_to_pass": list(f2p),
         "pass_to_pass": list(p2p),
-        "hard": bool(inst.get("hard")) or len(f2p) >= 2,
+        "hard": hard,
     }
+    if difficulty is not None:
+        task["difficulty"] = difficulty
     meta = instance_metadata(inst)
     if meta:
         task["metadata"] = meta
-    for key in ("task_kind", "problem_statement_source", "required_tool_calls", "docker_image"):
-        if key in inst:
+    for key in (
+        "task_type",
+        "task_type_reason",
+        "difficulty",
+        "difficulty_reason",
+        "problem_statement_source",
+        "required_tool_calls",
+        "docker_image",
+    ):
+        if key in inst and key not in task:
             task[key] = inst[key]
+    # Legacy alias from older pipeline stages / specs.
+    if "task_type" not in task and inst.get("task_kind"):
+        task["task_type"] = inst["task_kind"]
     if "docker_image" not in task:
         task["docker_image"] = paths.task_image(task_id)
     return task
