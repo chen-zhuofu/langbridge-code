@@ -1,3 +1,4 @@
+import threading
 import time
 
 import pytest
@@ -320,24 +321,27 @@ def test_memory_writer_fork_uses_common_file_tools_for_add_update_delete(monkeyp
 
 
 def test_schedule_memory_writer_runs_tool_agent_in_background(monkeypatch):
-    monkeypatch.setattr(
-        memory_mod,
-        "run_memory_writer_agent",
-        lambda *args, **kwargs: write_memory(
+    import langbridge_code.tools.memory_writer as mw
+
+    started = threading.Event()
+
+    def tracking_run(api_key, model, messages):
+        write_memory(
             "feedback",
             "response-style",
             "回复风格",
             "使用中文短句。",
-        ),
-    )
-    memory_mod.schedule_memory_writer(
+        )
+        started.set()
+        return "ok"
+
+    monkeypatch.setattr(mw, "run_memory_writer_agent", tracking_run)
+    ack = mw.schedule_memory_writer(
         "key", "model", [{"role": "user", "content": "hi"}]
     )
-    deadline = time.time() + 2.0
-    while time.time() < deadline:
-        if "中文短句" in read_memory_entry("user", "response-style.md"):
-            break
-        time.sleep(0.02)
+    assert "scheduled" in ack.lower()
+    assert started.wait(2.0)
+    mw.drain_pending_memory_writers(timeout=2.0)
     assert "中文短句" in read_memory_entry("user", "response-style.md")
 
 

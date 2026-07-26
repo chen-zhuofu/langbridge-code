@@ -540,9 +540,9 @@ class MainAgentSession:
                 output = self._write_progress_note_via_fork()
                 self._rounds_since_progress_note = 0
             elif name == "memory_writer":
-                from langbridge_code.tools.memory_writer import run_memory_writer_agent
+                from langbridge_code.tools.memory_writer import schedule_memory_writer
 
-                output = run_memory_writer_agent(
+                output = schedule_memory_writer(
                     self.api_key,
                     self.model,
                     list(self.messages),

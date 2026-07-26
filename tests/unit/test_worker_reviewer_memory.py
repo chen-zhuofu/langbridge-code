@@ -44,7 +44,7 @@ def test_worker_begin_send_prefetches_memory(monkeypatch):
 
 
 def test_worker_memory_writer_skips_end_schedule(monkeypatch):
-    calls = {"writer": 0, "scheduled": 0, "model": 0}
+    calls = {"tool_scheduled": 0, "end_scheduled": 0, "model": 0}
 
     def fake_response(*args, **kwargs):
         calls["model"] += 1
@@ -77,13 +77,17 @@ def test_worker_memory_writer_skips_end_schedule(monkeypatch):
         "langbridge_code.agents.worker_reviewer.create_model_response",
         fake_response,
     )
+
+    def fake_schedule(*a, **k):
+        if calls["tool_scheduled"] == 0:
+            calls["tool_scheduled"] += 1
+        else:
+            calls["end_scheduled"] += 1
+        return "Memory Writer scheduled."
+
     monkeypatch.setattr(
-        "langbridge_code.memory.run_memory_writer_agent",
-        lambda *a, **k: calls.__setitem__("writer", calls["writer"] + 1) or "ok",
-    )
-    monkeypatch.setattr(
-        "langbridge_code.memory.schedule_memory_writer",
-        lambda *a, **k: calls.__setitem__("scheduled", calls["scheduled"] + 1),
+        "langbridge_code.tools.memory_writer.schedule_memory_writer",
+        fake_schedule,
     )
     monkeypatch.setattr("langbridge_code.memory.prefetch_memory", lambda *a, **k: "")
     monkeypatch.setattr(
@@ -102,8 +106,8 @@ def test_worker_memory_writer_skips_end_schedule(monkeypatch):
     session = new_worker_session("key", "model")
     reply = session.send("do it", assigned_task="task")
     assert "READY_FOR_REVIEW" in reply
-    assert calls["writer"] == 1
-    assert calls["scheduled"] == 0
+    assert calls["tool_scheduled"] == 1
+    assert calls["end_scheduled"] == 0
 
 
 def test_worker_phase_end_schedules_when_unused(monkeypatch):
@@ -126,8 +130,9 @@ def test_worker_phase_end_schedules_when_unused(monkeypatch):
         },
     )
     monkeypatch.setattr(
-        "langbridge_code.memory.schedule_memory_writer",
-        lambda *a, **k: calls.__setitem__("scheduled", calls["scheduled"] + 1),
+        "langbridge_code.tools.memory_writer.schedule_memory_writer",
+        lambda *a, **k: calls.__setitem__("scheduled", calls["scheduled"] + 1)
+        or "Memory Writer scheduled.",
     )
     monkeypatch.setattr("langbridge_code.memory.prefetch_memory", lambda *a, **k: "")
     monkeypatch.setattr(
@@ -164,8 +169,9 @@ def test_reviewer_phase_end_schedules_when_unused(monkeypatch):
         },
     )
     monkeypatch.setattr(
-        "langbridge_code.memory.schedule_memory_writer",
-        lambda *a, **k: calls.__setitem__("scheduled", calls["scheduled"] + 1),
+        "langbridge_code.tools.memory_writer.schedule_memory_writer",
+        lambda *a, **k: calls.__setitem__("scheduled", calls["scheduled"] + 1)
+        or "Memory Writer scheduled.",
     )
     monkeypatch.setattr("langbridge_code.memory.prefetch_memory", lambda *a, **k: "")
     monkeypatch.setattr(

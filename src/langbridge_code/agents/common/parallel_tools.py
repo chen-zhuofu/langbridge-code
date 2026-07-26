@@ -65,7 +65,10 @@ def _with_eval_tool_timing(run_fn):
     """Record tool latency into eval telemetry when a collector is active."""
 
     def runner(call):
-        from langbridge_eval import telemetry
+        try:
+            from langbridge_eval import telemetry
+        except ImportError:
+            return run_fn(call)
 
         if telemetry.get_telemetry() is None:
             return run_fn(call)

@@ -1,7 +1,13 @@
-"""memory_writer tool: fork a tool-using agent on the live conversation context."""
+"""memory_writer tool: fork a tool-using agent on the live conversation context.
+
+The writer always runs in a background thread. Mid-turn tool calls and turn-end
+hooks both schedule; callers get an immediate acknowledgement. Pending writers
+are drained on process exit so eval/REPL shutdown does not truncate a write.
+"""
 
 from __future__ import annotations
 
+import atexit
 import tempfile
 import threading
 from pathlib import Path
@@ -13,12 +19,14 @@ MEMORY_WRITER_TOOL_SCHEMA = {
     "type": "function",
     "name": "memory_writer",
     "description": (
-        "Fork a Memory Writer agent on the live conversation prefix. Use it as "
-        "soon as durable identity, preferences, working feedback, references, or "
-        "project context appears or is corrected. The fork reads both Memory "
-        "indexes and uses ordinary file tools in a restricted Memory workspace "
-        "to add, update, or delete entries, then exits. If nothing durable is "
-        "worth saving, it makes no file changes."
+        "Schedule a Memory Writer fork on the live conversation prefix. Use it "
+        "as soon as durable identity, preferences, working feedback, references, "
+        "or project context appears or is corrected. The fork runs in the "
+        "background: it reads both Memory indexes and uses ordinary file tools "
+        "in a restricted Memory workspace to add, update, or delete entries. "
+        "Results are not available in this turn — they appear on the next "
+        "memory prefetch. If nothing durable is worth saving, it makes no file "
+        "changes."
     ),
     "parameters": {
         "type": "object",
@@ -30,9 +38,18 @@ MEMORY_WRITER_TOOL_SCHEMA = {
     },
 }
 
+_SCHEDULED_MESSAGE = (
+    "Memory Writer scheduled. It runs in the background; durable entries will "
+    "be available on the next memory prefetch."
+)
+
+_pending_lock = threading.Lock()
+_pending_threads: list[threading.Thread] = []
+_atexit_registered = False
+
 
 def run_memory_writer_agent(api_key, model, messages) -> str:
-    """Run a prefix-cache-friendly, tool-using Memory Writer fork."""
+    """Run a prefix-cache-friendly, tool-using Memory Writer fork (blocking)."""
     from langbridge_code.agents.common.fork import fork_agent
     from langbridge_code.agents.common.workspace import workspace_scope
     from langbridge_code import memory as memory_mod
@@ -66,10 +83,10 @@ def run_memory_writer_agent(api_key, model, messages) -> str:
     return report or "Memory Writer finished."
 
 
-def schedule_memory_writer(api_key, model, messages) -> None:
-    """Run the tool-using Memory Writer fork in a background thread."""
+def schedule_memory_writer(api_key, model, messages) -> str:
+    """Run the Memory Writer fork in a background thread; return immediately."""
     if not (api_key and model and messages):
-        return
+        return _SCHEDULED_MESSAGE
     snapshot = list(messages)
     # threading.local TraceContext does not follow ThreadPool/daemon threads.
     from langbridge_code.util.trace_log import get_trace_context, set_trace_context
@@ -87,4 +104,26 @@ def schedule_memory_writer(api_key, model, messages) -> None:
         finally:
             set_trace_context(previous)
 
-    threading.Thread(target=worker, daemon=True, name="memory-writer").start()
+    thread = threading.Thread(target=worker, daemon=True, name="memory-writer")
+    with _pending_lock:
+        _pending_threads.append(thread)
+        _ensure_atexit()
+    thread.start()
+    return _SCHEDULED_MESSAGE
+
+
+def drain_pending_memory_writers(timeout: float | None = 30.0) -> None:
+    """Wait for in-flight Memory Writer forks (process exit / eval shutdown)."""
+    with _pending_lock:
+        pending = list(_pending_threads)
+        _pending_threads.clear()
+    for thread in pending:
+        thread.join(timeout=timeout)
+
+
+def _ensure_atexit() -> None:
+    global _atexit_registered
+    if _atexit_registered:
+        return
+    atexit.register(drain_pending_memory_writers)
+    _atexit_registered = True

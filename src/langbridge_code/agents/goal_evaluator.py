@@ -130,9 +130,9 @@ class GoalEvaluatorAgent:
         try:
             arguments = without_description(json.loads(call.get("arguments") or "{}"), name)
             if name == "memory_writer":
-                from langbridge_code.tools.memory_writer import run_memory_writer_agent
+                from langbridge_code.tools.memory_writer import schedule_memory_writer
 
-                output = run_memory_writer_agent(self.api_key, self.model, list(messages))
+                output = schedule_memory_writer(self.api_key, self.model, list(messages))
             elif name not in GOAL_VERIFICATION_TOOLS:
                 raise ValueError(f"Unknown evaluator tool: {name}")
             else:

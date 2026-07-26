@@ -39,7 +39,6 @@ import re
 import threading
 import json
 import shutil
-import tempfile
 from difflib import SequenceMatcher
 from dataclasses import dataclass
 from pathlib import Path
@@ -527,47 +526,14 @@ def _sync_staged_memories(root: Path) -> None:
 
 
 def run_memory_writer_agent(api_key, model, messages) -> str:
-    """Run a prefix-cache-friendly, tool-using Memory Writer fork."""
-    from langbridge_code.agents.common.fork import fork_agent
-    from langbridge_code.agents.common.workspace import workspace_scope
-    from langbridge_code.tools import execution, filesystem
+    """Run a prefix-cache-friendly, tool-using Memory Writer fork (blocking)."""
+    from langbridge_code.tools.memory_writer import run_memory_writer_agent as _run
 
-    available_schemas = filesystem.TOOL_SCHEMAS + execution.TOOL_SCHEMAS
-    available_tools = filesystem.TOOLS | execution.TOOLS
-    schemas = [
-        schema
-        for schema in available_schemas
-        if schema["name"] in MEMORY_FILE_TOOL_NAMES
-    ]
-    tools = {name: available_tools[name] for name in MEMORY_FILE_TOOL_NAMES}
-    with _memory_writer_lock:
-        with tempfile.TemporaryDirectory(prefix="langbridge-memory-") as temporary:
-            root = Path(temporary)
-            _stage_memory_workspace(root)
-            with workspace_scope(root):
-                report = fork_agent(
-                    api_key,
-                    model,
-                    list(messages),
-                    MEMORY_WRITER_INSTRUCTION,
-                    tool_schemas=schemas,
-                    tools=tools,
-                    label="Memory Writer",
-                )
-            _sync_staged_memories(root)
-    return report or "Memory Writer finished."
+    return _run(api_key, model, messages)
 
 
-def schedule_memory_writer(api_key, model, messages) -> None:
-    """Run the tool-using Memory Writer fork in a background thread."""
-    if not (api_key and model and messages):
-        return
-    snapshot = list(messages)
+def schedule_memory_writer(api_key, model, messages) -> str:
+    """Schedule the Memory Writer fork in a background thread."""
+    from langbridge_code.tools.memory_writer import schedule_memory_writer as _schedule
 
-    def worker() -> None:
-        try:
-            run_memory_writer_agent(api_key, model, snapshot)
-        except Exception:
-            pass
-
-    threading.Thread(target=worker, daemon=True, name="memory-writer").start()
+    return _schedule(api_key, model, messages)

@@ -417,9 +417,9 @@ class MemoryPhaseMixin:
         self._ensure_memory_hooks()
 
     def _invoke_memory_writer(self, **_kwargs):
-        from langbridge_code.tools.memory_writer import run_memory_writer_agent
+        from langbridge_code.tools.memory_writer import schedule_memory_writer
 
-        report = run_memory_writer_agent(self.api_key, self.model, list(self.messages))
+        report = schedule_memory_writer(self.api_key, self.model, list(self.messages))
         self._memory_writer_ran_this_send = True
         return report
 

@@ -107,9 +107,9 @@ def test_main_agent_run_turn_does_not_finalize_locally(tmp_path, monkeypatch):
     assert session.messages[-1] == {"role": "assistant", "content": "Done."}
 
 
-def test_memory_writer_tool_forks_live_context_and_skips_end_hook(tmp_path, monkeypatch):
+def test_memory_writer_tool_schedules_and_skips_end_hook(tmp_path, monkeypatch):
     run_log = tmp_path / "run.json"
-    calls = {"model": 0, "writer": 0, "scheduled": 0}
+    calls = {"model": 0, "tool_scheduled": 0, "end_scheduled": 0}
 
     monkeypatch.setattr("langbridge_code.agents.main_agent.emit_phase", lambda *a, **k: None)
     monkeypatch.setattr("langbridge_code.agents.main_agent.write_worklog_received", lambda *a, **k: None)
@@ -139,16 +139,22 @@ def test_memory_writer_tool_forks_live_context_and_skips_end_hook(tmp_path, monk
             ]
         }
 
-    def fake_writer(api_key, model, messages):
-        calls["writer"] += 1
+    def fake_schedule(api_key, model, messages):
+        calls["tool_scheduled"] += 1
         assert any("不清楚就问我" in str(message) for message in messages)
-        return "Updated feedback memory."
+        return "Memory Writer scheduled."
+
+    def counting_schedule(api_key, model, messages):
+        # Distinguish mid-turn tool schedule from end-of-turn catch-up.
+        if calls["tool_scheduled"] == 0:
+            return fake_schedule(api_key, model, messages)
+        calls["end_scheduled"] += 1
+        return "Memory Writer scheduled."
 
     monkeypatch.setattr("langbridge_code.agents.main_agent.create_model_response", fake_response)
-    monkeypatch.setattr("langbridge_code.memory.run_memory_writer_agent", fake_writer)
     monkeypatch.setattr(
-        "langbridge_code.memory.schedule_memory_writer",
-        lambda *args, **kwargs: calls.__setitem__("scheduled", calls["scheduled"] + 1),
+        "langbridge_code.tools.memory_writer.schedule_memory_writer",
+        counting_schedule,
     )
     session = MainAgentSession(
         "key",
@@ -160,8 +166,8 @@ def test_memory_writer_tool_forks_live_context_and_skips_end_hook(tmp_path, monk
     )
     session._context_blocks_ready = True
 
-    assert session.run_turn("不清楚就问我") == "Done."
-    assert calls == {"model": 2, "writer": 1, "scheduled": 0}
+    assert session.send("不清楚就问我") == "Done."
+    assert calls == {"model": 2, "tool_scheduled": 1, "end_scheduled": 0}
 
 
 def test_plan_file_lives_only_in_session_artifacts(tmp_path, monkeypatch):
