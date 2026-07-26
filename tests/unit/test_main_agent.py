@@ -73,7 +73,7 @@ def test_subagent_planner_returns_draft_without_committing(tmp_path, monkeypatch
     assert not (tmp_path / "todo_list.md").exists()
 
 
-def test_main_agent_run_turn_does_not_finalize_locally(tmp_path, monkeypatch):
+def test_main_agent_send_does_not_finalize_locally(tmp_path, monkeypatch):
     run_log = tmp_path / "run.json"
     messages = [{"role": "system", "content": "sys"}]
     logged = {"finalize": False}
@@ -101,7 +101,7 @@ def test_main_agent_run_turn_does_not_finalize_locally(tmp_path, monkeypatch):
     monkeypatch.setattr("langbridge_code.agents.main_agent.write_worklog_finish", lambda *a, **k: None)
 
     session = MainAgentSession("key", "model", messages, run_log, 1, target="go")
-    reply = session.run_turn("go")
+    reply = session.send("go")
     assert reply == "Done."
     assert not logged["finalize"]
     assert session.messages[-1] == {"role": "assistant", "content": "Done."}
@@ -312,7 +312,7 @@ def test_main_agent_handles_first_worker_result_while_another_runs(tmp_path, mon
         }
 
     session._run_tool = fake_run_tool
-    reply = session.run_turn("go")
+    reply = session.send("go")
 
     assert reply == "All workers handled."
     assert model_round == 3
@@ -355,7 +355,7 @@ def test_main_agent_session_injects_session_context(monkeypatch, tmp_path):
         2,
         target="continue",
     )
-    reply = session.run_turn("continue")
+    reply = session.send("continue")
 
     assert reply == "Continuing."
     user_messages = [m["content"] for m in captured["messages"] if m.get("role") == "user"]
@@ -405,7 +405,7 @@ def test_main_agent_first_send_uses_full_traces_when_they_fit(monkeypatch, tmp_p
         3,
         target="continue",
     )
-    assert session.run_turn("continue") == "Resumed."
+    assert session.send("continue") == "Resumed."
 
     user_messages = [m["content"] for m in captured["messages"] if m.get("role") == "user"]
     progress_blocks = [c for c in user_messages if c.startswith("<progress>")]
@@ -454,9 +454,9 @@ def test_main_agent_reuses_messages_across_turns(monkeypatch, tmp_path):
         target="first",
         history_briefing_pending=False,
     )
-    assert session.run_turn("first") == "Reply 1"
+    assert session.send("first") == "Reply 1"
     session.bind_turn(2, target="second")
-    assert session.run_turn("second") == "Reply 2"
+    assert session.send("second") == "Reply 2"
 
     assert len(captured) == 2
     # Second turn still sees the first turn's user+assistant messages.
@@ -470,12 +470,13 @@ def test_main_agent_reuses_messages_across_turns(monkeypatch, tmp_path):
     assert len(progress_blocks) <= 1
 
 
-def test_progress_note_reminder_injected_after_quiet_rounds(monkeypatch, tmp_path):
+def test_progress_note_forced_after_quiet_rounds(monkeypatch, tmp_path):
     run_log = tmp_path / "session-demo"
     run_log.mkdir()
     monkeypatch.setattr("langbridge_code.agents.main_agent.PROGRESS_NOTE_REMINDER_ROUNDS", 2)
 
     captured = []
+    forced = {"count": 0}
 
     def fake_response(*args, **kwargs):
         messages = kwargs.get("messages") or args[2]
@@ -520,13 +521,17 @@ def test_progress_note_reminder_injected_after_quiet_rounds(monkeypatch, tmp_pat
         target="go",
         history_briefing_pending=False,
     )
-    assert session.run_turn("go") == "Done."
 
-    # Rounds 1-2 stay quiet; after round 3 (> 2) the hook lands before call 4.
-    third_call_users = [m.get("content", "") for m in captured[2] if m.get("role") == "user"]
-    assert not any("[HOOK]" in str(c) for c in third_call_users)
-    fourth_call_users = [m.get("content", "") for m in captured[3] if m.get("role") == "user"]
-    assert any("[HOOK]" in str(c) and "note_progress" in str(c) for c in fourth_call_users)
+    def fake_force_note():
+        forced["count"] += 1
+        return "noted"
+
+    session._write_progress_note_via_fork = fake_force_note
+    assert session.send("go") == "Done."
+
+    # Rounds 1-2 stay quiet; after round 3 (> 2) code force-writes progress.md.
+    assert forced["count"] == 1
+    assert len(captured) == 4
 
 
 def test_main_agent_first_send_sets_memory_and_skill_blocks(monkeypatch, tmp_path):

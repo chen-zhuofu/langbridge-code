@@ -8,7 +8,7 @@ class _FakeMainSession:
         self.messages = messages
         self.reply = reply
 
-    def run_turn(self, prompt, **kwargs):
+    def send(self, prompt, **kwargs):
         return self.reply
 
 
@@ -38,7 +38,7 @@ def test_workflow_delegation_run_coding(tmp_path, monkeypatch):
     )
 
     class CodingSession(_FakeMainSession):
-        def run_turn(self, prompt, **kwargs):
+        def send(self, prompt, **kwargs):
             from langbridge_code.agents.worker_reviewer import build_agent_worker_tool
 
             agent_worker = build_agent_worker_tool(
@@ -84,7 +84,7 @@ def test_workflow_delegation_plan_then_execute(tmp_path, monkeypatch):
     )
 
     class PlanThenRunSession(_FakeMainSession):
-        def run_turn(self, prompt, **kwargs):
+        def send(self, prompt, **kwargs):
             from langbridge_code.agents.worker_reviewer import build_agent_worker_tool
             from langbridge_code.agents.planner import build_agent_planner_tool
 

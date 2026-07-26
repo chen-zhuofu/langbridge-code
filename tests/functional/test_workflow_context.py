@@ -15,7 +15,7 @@ class _FakeMainSession:
         self.reply = reply
         self.prompts = []
 
-    def run_turn(self, prompt, **kwargs):
+    def send(self, prompt, **kwargs):
         self.prompts.append(prompt)
         return self.reply
 
@@ -59,7 +59,7 @@ def test_workflow_resume_can_execute_existing_todo(tmp_path, monkeypatch):
     )
 
     class ResumeSession(_FakeMainSession):
-        def run_turn(self, prompt, **kwargs):
+        def send(self, prompt, **kwargs):
             from langbridge_code.agents.worker_reviewer import build_agent_worker_tool
 
             agent_worker = build_agent_worker_tool(

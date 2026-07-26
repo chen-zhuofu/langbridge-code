@@ -334,7 +334,7 @@ class BridgeServer:
                 save_goal(self.run_log_path, goal)
                 outcome = reply or ""
             else:
-                reply = session.run_turn(text)
+                reply = session.send(text)
                 outcome = reply or ""
         except control.StopRequested:
             stopped = True
