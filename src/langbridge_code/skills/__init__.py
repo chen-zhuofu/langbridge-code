@@ -16,7 +16,7 @@ AGENT_ROLES = (
 )
 
 # Expertise playbooks only — general guidance lives in each agent's system prompt.
-# Explorer debugging guidance is inlined in EXPLORER_PROMPT (no role playbooks).
+# Explorer stays a narrow searcher (no debugging playbooks; no role skills).
 # Karpathy think-before-coding / surgical-changes are inlined in WORKER_CODING_GENERAL.
 EXPLORER_SKILL_NAMES: tuple[str, ...] = ()
 

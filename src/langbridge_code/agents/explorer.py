@@ -61,12 +61,6 @@ EXPLORE_TOOLS = {
 }
 EXPLORE_TOOLS["bash"] = read_only_bash
 
-THOROUGHNESS_HINTS = {
-    "quick": "Thoroughness: quick — minimal searches, answer if obvious.",
-    "medium": "Thoroughness: medium — check likely locations and key files.",
-    "thorough": "Thoroughness: thorough — broad search across naming variants and related modules.",
-}
-
 
 def _run_git(args, *, cwd):
     try:
@@ -113,13 +107,18 @@ def collect_git_context(cwd=None) -> str:
     return "\n".join(lines)
 
 
-def build_explore_prompt(task: str, *, thoroughness="medium", cwd=None) -> str:
+def build_explore_prompt(task: str, *, thoroughness="", cwd=None) -> str:
+    """Assemble the explorer user message: git context, caller depth, task."""
     parts = []
     git_context = collect_git_context(cwd)
     if git_context:
         parts.append(git_context)
-    hint = THOROUGHNESS_HINTS.get((thoroughness or "medium").strip().lower(), THOROUGHNESS_HINTS["medium"])
-    parts.append(hint)
+    depth = (thoroughness or "").strip()
+    if depth:
+        # Forward the caller's own instructions as-is (no canned enum expansion).
+        if not depth.lower().startswith("thoroughness"):
+            depth = f"Thoroughness: {depth}"
+        parts.append(depth)
     parts.append(task.strip())
     return "\n\n".join(part for part in parts if part)
 
@@ -160,15 +159,22 @@ AGENT_EXPLORER_TOOL_SCHEMA = {
             },
             "thoroughness": {
                 "type": "string",
-                "enum": ["quick", "medium", "thorough"],
                 "description": (
-                    "Search depth (default medium). Must be a JSON string with "
-                    "double quotes, e.g. \"thorough\" — never a bare word like "
-                    "thorough without quotes."
+                    "Your instructions for how deep to search and when to stop. "
+                    "Write concrete guidance (free text, forwarded as-is). Common "
+                    "templates you can copy or adapt: "
+                    "quick: one targeted grep/glob; stop at first confirmed hit; "
+                    "a few lines with path:line. "
+                    "medium: 2-3 strategies (symbol, callers, registration); "
+                    "stop when the answer is confirmed; short findings + one "
+                    "paragraph. "
+                    "thorough: naming variants including tests/docs; note misses; "
+                    "stop when searches only return already-seen locations; map "
+                    "files/symbols with path:line."
                 ),
             },
         },
-        "required": ["prompt", "description", "task_name"],
+        "required": ["prompt", "description", "task_name", "thoroughness"],
         "additionalProperties": False,
     },
 }
@@ -236,7 +242,7 @@ def run_explore(
     model,
     prompt: str,
     *,
-    thoroughness="medium",
+    thoroughness="",
     trace_sink=None,
     run_log_path=None,
     turn_id=None,
@@ -398,7 +404,7 @@ def dispatch_explore(
     prompt,
     *,
     description="",
-    thoroughness="medium",
+    thoroughness="",
     trace_sink=None,
     run_log_path=None,
     turn_id=None,
@@ -431,7 +437,7 @@ def build_agent_explorer_tool(
     trace_sink=None,
     phase_sink=None,
 ):
-    def agent_explorer(prompt, description="", thoroughness="medium", task_name=""):
+    def agent_explorer(prompt, description="", thoroughness="", task_name=""):
         return dispatch_explore(
             api_key,
             model,

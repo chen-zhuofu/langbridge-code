@@ -192,10 +192,11 @@ def test_explorer_skill_catalog_is_empty():
     assert skill_catalog_text_for(EXPLORER_SKILL_NAMES) == ""
 
 
-def test_explorer_prompt_inlines_debugging_guidance():
+def test_explorer_prompt_stays_a_narrow_searcher():
     prompt = explorer_system_prompt()
-    assert "Systematic debugging" in prompt
-    assert "NO FIXES WITHOUT ROOT CAUSE" in prompt
+    assert "Systematic debugging" not in prompt
+    assert "NO FIXES WITHOUT ROOT CAUSE" not in prompt
+    assert "searcher, not a debugger" in prompt
     assert "Role playbooks" not in prompt
     assert "superpowers_subagent-driven-development" not in prompt
     # Explorer shares the main agent's skill mechanism: <skill_index> + read_skill.

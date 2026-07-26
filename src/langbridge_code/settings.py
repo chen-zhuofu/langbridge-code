@@ -100,8 +100,8 @@ def _bind(cfg):
         "MAX_AGENT_SECONDS": int(
             os.environ.get("LANGBRIDGE_MAX_AGENT_SECONDS", agent.get("max_agent_seconds", 3600))
         ),
-        "MAX_EXPLORER_STEPS": agent.get("max_explorer_steps", 30),
-        "MAX_EXPLORER_SECONDS": agent.get("max_explorer_seconds", 900),
+        "MAX_EXPLORER_STEPS": agent.get("max_explorer_steps", 15),
+        "MAX_EXPLORER_SECONDS": agent.get("max_explorer_seconds", 300),
         "MAX_WORKER_STEPS": agent.get("max_worker_steps", 30),
         "MAX_WORKER_SECONDS": agent.get("max_worker_seconds", 900),
         "MAX_REVIEWER_STEPS": agent.get("max_reviewer_steps", 30),

@@ -29,13 +29,14 @@ def test_read_only_bash_rejects_write_commands(monkeypatch):
 
 
 def test_explorer_prompt_requires_structured_report_sections():
-    assert "## Searches run" in EXPLORER_PROMPT
-    assert "## Current state" in EXPLORER_PROMPT
+    assert "## Findings" in EXPLORER_PROMPT
+    assert "## Answer" in EXPLORER_PROMPT
     assert "## Open questions" in EXPLORER_PROMPT
     assert "path:line" in EXPLORER_PROMPT
     assert "READ-ONLY MODE" in EXPLORER_PROMPT
     assert "read_webpage" in EXPLORER_PROMPT
     assert "read-only" in EXPLORER_PROMPT.lower()
+    assert "Systematic debugging" not in EXPLORER_PROMPT
 
 
 def test_build_explore_prompt_includes_git_context(monkeypatch, tmp_path):
@@ -43,10 +44,23 @@ def test_build_explore_prompt_includes_git_context(monkeypatch, tmp_path):
         "langbridge_code.agents.explorer.collect_git_context",
         lambda cwd=None: "<git-context>\nbranch: main\n</git-context>",
     )
-    prompt = build_explore_prompt("find auth handlers", thoroughness="medium")
+    prompt = build_explore_prompt(
+        "find auth handlers",
+        thoroughness="one targeted grep; stop at first hit",
+    )
     assert "<git-context>" in prompt
     assert "find auth handlers" in prompt
-    assert "Thoroughness: medium" in prompt
+    assert "Thoroughness: one targeted grep; stop at first hit" in prompt
+
+
+def test_build_explore_prompt_omits_empty_thoroughness(monkeypatch):
+    monkeypatch.setattr(
+        "langbridge_code.agents.explorer.collect_git_context",
+        lambda cwd=None: "",
+    )
+    prompt = build_explore_prompt("find auth handlers", thoroughness="")
+    assert prompt == "find auth handlers"
+    assert "Thoroughness:" not in prompt
 
 
 def test_collect_git_context_empty_when_not_a_repo(tmp_path, monkeypatch):
