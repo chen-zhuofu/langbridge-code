@@ -1,6 +1,6 @@
 """langbridge_bench.py — load the self-built langbridge-bench dataset.
 
-Eval-ready specs live under ``data/eval/specs/`` (symlink → ``curate/out``).
+Eval-ready specs live under ``data/langbridge-bench/specs/`` (symlink → ``curate/out``).
 """
 import os
 import re
@@ -14,7 +14,7 @@ _TEST_PATH_RE = re.compile(
 )
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
-_DEFAULT_SPECS = _REPO_ROOT / "data" / "eval" / "specs"
+_DEFAULT_SPECS = _REPO_ROOT / "data" / "langbridge-bench" / "specs"
 SPECS_DIR = os.environ.get("LANGBRIDGE_SPECS_DIR", str(_DEFAULT_SPECS))
 
 

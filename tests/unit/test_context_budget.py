@@ -10,6 +10,8 @@ from langbridge_code.llm.model_context import model_context_window
 
 def test_model_context_window_for_default_kimi():
     assert model_context_window("kimi-k2.7-code") == 262_144
+    assert model_context_window("kimi-k3") == 1_048_576
+    assert model_context_window("moonshot/kimi-k3") == 1_048_576
 
 
 def test_context_budget_is_fixed_threshold():

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 # Built-in defaults; config.json context.model_context_windows overrides/extends these.
 _BUILTIN_MODEL_CONTEXT_WINDOWS: dict[str, int] = {
+    "kimi-k3": 1_048_576,
     "kimi-k2.7-code": 262_144,
     "kimi-k2.7": 262_144,
     "kimi-k2.5": 262_144,
@@ -25,6 +26,7 @@ _BUILTIN_MODEL_CONTEXT_WINDOWS: dict[str, int] = {
 }
 
 _PREFIX_WINDOWS: list[tuple[str, int]] = [
+    ("kimi-k3", 1_048_576),
     ("kimi-k2.7", 262_144),
     ("kimi-k2", 262_144),
     ("kimi", 131_072),

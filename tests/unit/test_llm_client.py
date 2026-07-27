@@ -235,6 +235,17 @@ def test_create_model_response_enables_moonshot_thinking(monkeypatch):
     assert data["output"][0]["type"] == "reasoning"
 
 
+def test_create_model_response_uses_kimi_k3_reasoning_effort(monkeypatch):
+    captured = {}
+    _patch_chat_provider(monkeypatch, _fake_chat_client(captured), "moonshot")
+
+    data = create_model_response("key", "kimi-k3", [{"role": "user", "content": "hi"}])
+
+    assert captured["extra_body"] == {"reasoning_effort": "max"}
+    assert "thinking" not in captured["extra_body"]
+    assert data["output"][0]["type"] == "reasoning"
+
+
 def test_create_model_response_enables_deepseek_thinking(monkeypatch):
     captured = {}
     _patch_chat_provider(monkeypatch, _fake_chat_client(captured), "deepseek")

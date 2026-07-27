@@ -12,12 +12,11 @@ session.md under the fork label (same channel as agent traces).
 """
 from __future__ import annotations
 
-import json
 import re
 
 from langbridge_code.agents.common import control
 from langbridge_code.settings import MAX_AGENT_STEPS
-from langbridge_code.tools.common.description import without_description
+from langbridge_code.tools.common.arguments import load_tool_arguments
 
 # One-pass forks may pass the parent's tool_schemas for prompt-cache key match
 # (Claude Code compact path). Never execute tools — reject and retry.
@@ -159,7 +158,7 @@ def fork_agent(
             call_id = call.get("call_id")
             name = call.get("name") or "tool"
             try:
-                arguments = without_description(json.loads(call.get("arguments") or "{}"), name)
+                arguments = load_tool_arguments(call, name)
                 if name not in tools:
                     raise ValueError(f"Unknown {label} tool: {name}")
                 result = tools[name](**arguments)

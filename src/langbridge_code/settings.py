@@ -7,6 +7,7 @@ Environment variables still override secrets, model, and runtime paths.
 import getpass
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -95,6 +96,11 @@ def _bind(cfg):
         "API_STREAMING_ENABLED": _env_bool(
             "LANGBRIDGE_API_STREAMING_ENABLED",
             api.get("streaming_enabled", True),
+        ),
+        # Claude Code-style output cap: default 8k, one silent retry at 64k on hit.
+        "DEFAULT_MAX_OUTPUT_TOKENS": int(api.get("max_output_tokens", 8000)),
+        "ESCALATED_MAX_OUTPUT_TOKENS": int(
+            api.get("escalated_max_output_tokens", 64000)
         ),
         "MAX_AGENT_STEPS": agent["max_agent_steps"],
         "MAX_AGENT_SECONDS": int(
@@ -267,21 +273,100 @@ def model_for_agent(role, default=None):
     return AGENT_MODELS.get(role) or default or DEFAULT_MODEL
 
 
+# Terminal paste can inject CSI/OSC sequences (e.g. mouse-mode ``\x1b[<…M``)
+# into the key string; strip them before use or persist.
+_ANSI_ESCAPE_RE = re.compile(
+    r"\x1b(?:[@-Z\\-_]|\][^\x07]*(?:\x07|\x1b\\)|\[[0-?]*[ -/]*[@-~])"
+)
+
+
+def sanitize_api_key(api_key: str | None) -> str | None:
+    """Strip ANSI escapes / control junk; return None if nothing usable remains."""
+    if not api_key:
+        return None
+    cleaned = _ANSI_ESCAPE_RE.sub("", str(api_key))
+    cleaned = "".join(ch for ch in cleaned if 32 <= ord(ch) < 127).strip()
+    return cleaned or None
+
+
 def _api_keys_from_config(cfg=None):
     cfg = cfg or load_config()
-    return {k: v for k, v in (cfg.get("api_keys") or {}).items() if v}
+    cleaned = {}
+    for name, value in (cfg.get("api_keys") or {}).items():
+        key = sanitize_api_key(value)
+        if key:
+            cleaned[name] = key
+    return cleaned
 
 
 def save_api_key(api_key, provider=None):
     provider = provider or active_api_provider()
-    save_user_config({"api_keys": {provider: api_key}})
+    cleaned = sanitize_api_key(api_key)
+    if not cleaned:
+        raise ValueError(f"empty or invalid {provider} API key after sanitizing paste junk")
+    save_user_config({"api_keys": {provider: cleaned}})
+
+
+def validate_api_key(api_key, *, provider=None) -> tuple[bool, str]:
+    """Check the key against the provider (GET /models). Returns ``(ok, detail)``."""
+    from openai import OpenAI
+
+    provider = provider or active_api_provider()
+    cleaned = sanitize_api_key(api_key)
+    if not cleaned:
+        return False, "empty API key"
+    # Ensure DEFAULT_MODEL / API_BASE_URL match the provider we are checking.
+    if provider != API_PROVIDER:
+        os.environ["LANGBRIDGE_API_PROVIDER"] = provider
+        _bind(load_config())
+    kwargs = {
+        "api_key": cleaned,
+        "timeout": 20.0,
+        "max_retries": 0,
+    }
+    if API_BASE_URL:
+        kwargs["base_url"] = API_BASE_URL
+    try:
+        OpenAI(**kwargs).models.list()
+    except Exception as error:  # noqa: BLE001 — surface any auth/network failure
+        return False, str(error).strip() or error.__class__.__name__
+    return True, "ok"
+
+
+def _prompt_and_save_api_key(provider: str) -> str:
+    """Ask on a TTY until a key validates; save it, then return it."""
+    label = PROVIDER_LABELS.get(provider, provider)
+    if not sys.stdin.isatty():
+        raise ValueError(
+            f"No {label} API key found. Set one in ~/.langbridge-code/config.json "
+            f"or via {_PROVIDER_ENV.get(provider, ('<PROVIDER>_API_KEY',))[0]}."
+        )
+    print(f"No {label} API key found for provider '{provider}'.")
+    print("Paste a key from the provider console (input is hidden).")
+    while True:
+        try:
+            raw = getpass.getpass(f"Enter {label} API key: ")
+        except (EOFError, KeyboardInterrupt) as error:
+            raise ValueError(f"{label} API key required to start.") from error
+        api_key = sanitize_api_key(raw)
+        if not api_key:
+            print("Empty or invalid paste (terminal junk stripped). Try again.", file=sys.stderr)
+            continue
+        print("Checking API key…", flush=True)
+        ok, detail = validate_api_key(api_key, provider=provider)
+        if ok:
+            save_api_key(api_key, provider)
+            print(f"Saved {label} API key to {USER_CONFIG_PATH}.", flush=True)
+            return api_key
+        print(f"API key rejected: {detail}", file=sys.stderr)
+        print("Try again, or Ctrl+C to abort.", file=sys.stderr)
 
 
 def load_api_key(provider=None):
     provider = provider or choose_api_provider()
 
     for env_name in _PROVIDER_ENV.get(provider, ()):
-        api_key = os.environ.get(env_name)
+        api_key = sanitize_api_key(os.environ.get(env_name))
         if api_key:
             return api_key
 
@@ -289,7 +374,10 @@ def load_api_key(provider=None):
     if api_key:
         return api_key
 
-    label = PROVIDER_LABELS.get(provider, provider)
-    api_key = getpass.getpass(f"Enter {label} API key: ")
-    save_api_key(api_key, provider)
-    return api_key
+    return _prompt_and_save_api_key(provider)
+
+
+def ensure_api_credentials():
+    """Resolve provider + API key before the TUI starts (prompt + validate if needed)."""
+    provider = choose_api_provider()
+    return load_api_key(provider)

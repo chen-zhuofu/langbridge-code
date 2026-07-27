@@ -376,6 +376,7 @@ export function App() {
           bridge.send({ type: "user_message", text });
           break;
         }
+      }
     },
     [append, bridge, copyLastAssistant, exit, openPicker, sessionAt, writeSystem],
   );

@@ -85,10 +85,12 @@ function explodeAll(lines: ChatLine[], width: number): RenderRow[] {
 }
 
 const SCROLLBAR_COLS = 1;
+/** Horizontal padding on the chat text panel (each side). */
+const CONTENT_PAD_X = 2;
 
-/** Content columns inside ChatLog (outer width minus the scrollbar gutter). */
+/** Columns available for wrapped chat text (outer width − scrollbar − padding). */
 export function chatContentWidth(width: number): number {
-  return Math.max(20, width - SCROLLBAR_COLS);
+  return Math.max(20, width - SCROLLBAR_COLS - CONTENT_PAD_X * 2);
 }
 
 /** Total rendered rows for the chat content; used to clamp scrolling. */
@@ -125,8 +127,9 @@ function scrollbarGlyphs(height: number, total: number, view: number, offset: nu
 }
 
 export function ChatLog({ lines, height, width, scrollOffset }: Props) {
-  const contentWidth = chatContentWidth(width);
-  const rows = explodeAll(lines, contentWidth);
+  const wrapWidth = chatContentWidth(width);
+  const panelWidth = Math.max(1, width - SCROLLBAR_COLS);
+  const rows = explodeAll(lines, wrapWidth);
   const end = Math.max(0, rows.length - Math.max(0, scrollOffset));
   const start = Math.max(0, end - height);
   const visible = rows.slice(start, end);
@@ -138,8 +141,8 @@ export function ChatLog({ lines, height, width, scrollOffset }: Props) {
       <Box
         flexDirection="column-reverse"
         height={height}
-        width={contentWidth}
-        paddingX={2}
+        width={panelWidth}
+        paddingX={CONTENT_PAD_X}
         overflow="hidden"
         flexGrow={1}
       >

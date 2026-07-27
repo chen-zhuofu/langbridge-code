@@ -4,9 +4,9 @@
 Removes rows/files from:
   collect / env / reference jsonl + stage drop.json
   curate/out/<id>.json + curate drop.json
-  data/eval/specs/<id>.json
-  data/eval/docker-images/<id>/
-  data/eval/drop/ (drop.json entry + archived spec/docker-images)
+  data/langbridge-bench/specs/<id>.json
+  data/langbridge-bench/docker-images/<id>/
+  data/langbridge-bench/drop/ (drop.json entry + archived spec/docker-images)
   local docker tag ``lb-task:<id>``
 
 Does **not** touch eval run artifacts under ``artifacts/``.
@@ -42,8 +42,8 @@ _DROP_DESCRIPTIONS = {
     ),
     paths.DEFAULT_CURATE_DROP: (
         "LLM/pipeline curate drops. Code reads this for resume. "
-        "Human error-analysis drops go in data/eval/drop/ instead. "
-        "Not synced to data/eval/specs/."
+        "Human error-analysis drops go in data/langbridge-bench/drop/ instead. "
+        "Not synced to data/langbridge-bench/specs/."
     ),
     paths.DEFAULT_HUMAN_DROP: (
         "HUMAN error-analysis drops. Archived under drop/specs/ and "

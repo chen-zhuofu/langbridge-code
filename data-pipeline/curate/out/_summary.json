@@ -1,28 +1,33 @@
 {
-  "curate_out": 7,
-  "eval_specs": 7,
+  "curate_out": 11,
+  "eval_specs": 10,
   "pipeline_dropped": 0,
-  "llm_kept": [],
-  "llm_rewritten": [
-    "NousResearch__hermes-agent-72234"
+  "llm_kept": [
+    "NousResearch__hermes-agent-71924"
   ],
+  "llm_rewritten": [],
   "llm_dropped": [],
-  "skipped_kept": 6,
+  "skipped_kept": 10,
   "skipped_drop": 0,
   "attempted": 1,
   "sync": {
     "copied": [
-      "NousResearch__hermes-agent-72234"
+      "NousResearch__hermes-agent-71924"
     ],
     "skipped_exists": [
-      "NousResearch__hermes-agent-72029",
+      "NousResearch__hermes-agent-67192",
+      "NousResearch__hermes-agent-71104",
+      "NousResearch__hermes-agent-71782",
       "NousResearch__hermes-agent-72183",
-      "pytest-dev__pytest-13745",
-      "pytest-dev__pytest-14645",
-      "pytest-dev__pytest-14694",
-      "pytest-dev__pytest-14730"
+      "NousResearch__hermes-agent-72354",
+      "NousResearch__hermes-agent-72360",
+      "NousResearch__hermes-agent-72366",
+      "NousResearch__hermes-agent-72403",
+      "pytest-dev__pytest-14694"
     ],
-    "skipped_human_drop": []
+    "skipped_human_drop": [
+      "pytest-dev__pytest-14645"
+    ]
   },
   "errors": [],
   "curate_out_dir": "/home/seanlinux/langbridge-code/data-pipeline/curate/out",

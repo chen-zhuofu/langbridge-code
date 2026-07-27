@@ -44,7 +44,7 @@ def pipeline_tree(tmp_path, monkeypatch):
     env = root / "env" / "out"
     ref = root / "reference" / "out"
     curate = root / "curate" / "out"
-    specs = root / "eval" / "specs"
+    specs = root / "langbridge-bench" / "specs"
     for d in (collect, env, ref, curate, specs):
         d.mkdir(parents=True)
 

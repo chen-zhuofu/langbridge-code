@@ -32,10 +32,10 @@ override the runtime location.
 ## Eval (langbridge-bench)
 
 Public e2e runs the full main agent in Docker — one container per task
-(agent + in-container grade) over specs in `data/eval/specs/`:
+(agent + in-container grade) over specs in `data/langbridge-bench/specs/`:
 
 ```bash
-uv run python eval/langbridge-bench/run_eval.py --workers 4 --limit 5
+uv run python eval/run_eval.py --workers 4 --limit 5
 ```
 
 Outputs land under `artifacts/evals/<run_id>/`. Dataset pipeline: `data/README.md`.
@@ -217,7 +217,7 @@ todo only when the contract itself is blocked or needs to change.
 
 The `eval/` tree measures LangBridge Code on real issues and builds new task data.
 
-### SWE-bench e2e (`eval/swe-bench/`)
+### SWE-bench e2e (`eval/`)
 
 End-to-end benchmark on published SWE-bench instances: run headless LangBridge
 Code inside each instance's official Docker image (repo already at
@@ -229,10 +229,10 @@ grade with the official harness.
 uv sync --group eval
 
 # Stage 1 — generate predictions (agent inside the official SWE-bench image)
-sg docker -c "uv run python eval/swe-bench/run_eval_docker.py --difficulty lite --count 10"
+sg docker -c "uv run python eval/run_swe_docker.py --difficulty lite --count 10"
 
-# Stage 2 — grade (from eval/swe-bench/)
-cd eval/swe-bench && uv run python -m swebench.harness.run_evaluation \
+# Stage 2 — grade (from eval/ so grader logs land under eval/)
+cd eval && uv run python -m swebench.harness.run_evaluation \
   --dataset_name princeton-nlp/SWE-bench_Lite \
   --predictions_path out/predictions.jsonl \
   --max_workers 4 --run_id langbridge-l4-lite
@@ -240,17 +240,17 @@ cd eval/swe-bench && uv run python -m swebench.harness.run_evaluation \
 
 Datasets: `lite` (~300), `verified` (500), and `pro` (731 public, hard).
 The two-stage command above is for Lite/Verified. Pro uses the host prediction
-runner and Scale's grading harness; see `eval/swe-bench/README.md`.
+runner and Scale's grading harness; see `eval/README.md`.
 
-### langbridge-bench (`data-pipeline/` + `data/eval/` + `eval/langbridge-bench/`)
+### langbridge-bench (`data-pipeline/` + `data/langbridge-bench/` + `eval/`)
 
 Self-built benchmark from GitHub PRs. Pipeline under `data-pipeline/`;
-eval-ready specs under `data/eval/specs/` (Dockerfiles under
-`data/eval/docker-images/`).
+eval-ready specs under `data/langbridge-bench/specs/` (Dockerfiles under
+`data/langbridge-bench/docker-images/`).
 
 ```bash
 uv run python data-pipeline/run_pipeline.py
-uv run python eval/langbridge-bench/run_eval.py --workers 4 --limit 5
+uv run python eval/run_eval.py --workers 4 --limit 5
 ```
 
 See `data-pipeline/README.md` and `eval/README.md`.

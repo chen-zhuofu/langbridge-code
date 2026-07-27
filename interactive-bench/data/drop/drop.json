@@ -1,0 +1,36 @@
+{
+  "dropped": [
+    {
+      "task_id": "cyyeh__duckdb-data-agent__43d7effc",
+      "reason": "human: instruction is sidecar/make-dev hang; F2P only covers generate_chart tools"
+    },
+    {
+      "task_id": "wanshicheng__duckdb-data-agent__f934ead5",
+      "reason": "human: instruction is Docker permission/fallback; F2P only generate_chart (same base→gold as 43d7effc)"
+    },
+    {
+      "task_id": "wanshicheng__duckdb-data-agent__be99a6a1",
+      "reason": "human: identical F2P/base/gold to cyyeh__3d7ddc1a (fork near-duplicate)"
+    },
+    {
+      "task_id": "cyyeh__duckdb-data-agent__ff5ad24b",
+      "reason": "human: chart_spec instruction weakly matched; F2P is mostly mcp_sse/pending_questions and overlaps bf8e8c7b"
+    },
+    {
+      "task_id": "cyyeh__duckdb-data-agent__a350f4c6",
+      "reason": "human: instruction is 'test the pr: …' — not an implementable coding ask"
+    },
+    {
+      "task_id": "oddessentials__ado-git-repo-insights__0e716b84",
+      "reason": "human: sprawling gate-audit dump; intents include meta 'criticize/bench the agent'"
+    },
+    {
+      "task_id": "oddessentials__ado-git-repo-insights__64ad5f4e",
+      "reason": "human: instruction is 'catch up and tell me when ready'; heavy TS extension work on py312-only harness"
+    },
+    {
+      "task_id": "oddessentials__ado-git-repo-insights__a19c0e3e",
+      "reason": "human: vague cross-platform DX mega-task; intents are process chatter ('proceed', 'check if okay')"
+    }
+  ]
+}

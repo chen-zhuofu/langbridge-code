@@ -8,7 +8,7 @@ uv run python data-pipeline/run_pipeline.py --only curate
 ```
 
 ``--limit N`` (full / ``--from`` runs) = keep going until **N new** tasks land
-in ``data/eval/specs/`` (or the pipeline is stuck: no backlog and collect finds
+in ``data/langbridge-bench/specs/`` (or the pipeline is stuck: no backlog and collect finds
 nothing). Drops and failed attempts do not count; the runner drains pending
 work stage-by-stage and only collects when upstream is empty.
 
@@ -188,7 +188,7 @@ def main(argv: list[str] | None = None) -> int:
         type=int,
         default=0,
         help=(
-            "produce N new data/eval/specs benches (0 = one pass, no target). "
+            "produce N new data/langbridge-bench/specs benches (0 = one pass, no target). "
             "With --only, N is that stage's attempt cap."
         ),
     )

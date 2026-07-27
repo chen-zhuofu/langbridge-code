@@ -1,6 +1,6 @@
 """bench.py — spec loading + candidate-diff helpers for Docker eval.
 
-Specs are JSON under ``data/eval/specs/`` (symlink to ``data-pipeline/curate/out/``).
+Specs are JSON under ``data/langbridge-bench/specs/`` (symlink to ``data-pipeline/curate/out/``).
 Grading for public e2e runs in-container via ``grade_checkout``.
 """
 import json
@@ -65,7 +65,7 @@ def split_diff(patch_text, test_prefix=None):
 
 def specs_dir() -> str:
     return SPECS_DIR or str(
-        Path(__file__).resolve().parents[2] / "data" / "eval" / "specs"
+        Path(__file__).resolve().parents[2] / "data" / "langbridge-bench" / "specs"
     )
 
 

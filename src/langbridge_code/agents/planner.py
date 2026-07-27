@@ -1,11 +1,9 @@
 """Planner subagent loop and agent_planner tool implementation."""
-import json
-
 from langbridge_code.agents.common import control
 from langbridge_code.agents.common.limits import now, over_time_budget
 from langbridge_code.llm.client import create_model_response
 from langbridge_code.llm.parse import extract_output_text, print_step_trace
-from langbridge_code.tools.common.description import without_description
+from langbridge_code.tools.common.arguments import load_tool_arguments
 from langbridge_code.util.agent_worklog import (
     write_worklog_finish,
     write_worklog_observation,
@@ -267,7 +265,7 @@ class PlannerSession:
         name = call.get("name")
         call_id = call.get("call_id")
         try:
-            arguments = without_description(json.loads(call.get("arguments") or "{}"), name)
+            arguments = load_tool_arguments(call, name)
             if name not in self.tools:
                 raise ValueError(f"Unknown planner tool: {name}")
             output = self.tools[name](**arguments)

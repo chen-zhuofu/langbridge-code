@@ -7,7 +7,7 @@ from pathlib import Path
 if __package__ in (None, ""):
     sys.path.append(str(Path(__file__).resolve().parents[1]))
 
-from langbridge_code.settings import INSTALL_ROOT
+from langbridge_code.settings import INSTALL_ROOT, ensure_api_credentials
 
 TUI_DIST = INSTALL_ROOT / "tui" / "dist" / "cli.js"
 
@@ -39,6 +39,12 @@ def main():
             file=sys.stderr,
         )
         raise SystemExit(1)
+    # Ask / validate API credentials on a plain TTY before Ink takes over stdin.
+    try:
+        ensure_api_credentials()
+    except ValueError as error:
+        print(str(error), file=sys.stderr)
+        raise SystemExit(1) from error
     raise SystemExit(subprocess.run([node, str(TUI_DIST)], cwd=os.getcwd()).returncode)
 
 

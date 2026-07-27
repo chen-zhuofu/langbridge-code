@@ -1,6 +1,6 @@
 """Instance ↔ eval-spec helpers.
 
-Curate writes ``curate/out/``; sync copies into ``data/eval/specs/``.
+Curate writes ``curate/out/``; sync copies into ``data/langbridge-bench/specs/``.
 """
 from __future__ import annotations
 
@@ -136,19 +136,19 @@ def curate_out_ids() -> set[str]:
 
 
 def eval_spec_ids() -> set[str]:
-    """Ids present in eval-facing ``data/eval/specs``."""
+    """Ids present in eval-facing ``data/langbridge-bench/specs``."""
     return _task_json_ids(paths.SPECS_DIR)
 
 
 def human_dropped_ids() -> set[str]:
-    """Ids listed in human ``data/eval/drop/drop.json`` (for sync skip only)."""
+    """Ids listed in human ``data/langbridge-bench/drop/drop.json`` (for sync skip only)."""
     from .io import dropped_task_ids_from_json
 
     return dropped_task_ids_from_json(paths.DEFAULT_HUMAN_DROP)
 
 
 def load_task(task_id: str) -> dict | None:
-    """Load eval spec from ``data/eval/specs`` (preferred) or curate out."""
+    """Load eval spec from ``data/langbridge-bench/specs`` (preferred) or curate out."""
     for directory in (paths.SPECS_DIR, paths.CURATE_OUT):
         path = directory / f"{task_id}.json"
         if path.exists():
@@ -168,7 +168,7 @@ def save_task(task: dict, *, sync_spec: bool = True) -> Path:
 
 
 def sync_curate_out_to_specs() -> dict[str, list[str]]:
-    """Copy ``curate/out/*.json`` → ``data/eval/specs/``.
+    """Copy ``curate/out/*.json`` → ``data/langbridge-bench/specs/``.
 
     Skip if already present in specs, or listed in human drop.json.
     Does not overwrite existing specs files.

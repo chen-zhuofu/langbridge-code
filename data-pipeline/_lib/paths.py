@@ -3,13 +3,13 @@
 Invariant per stage: ``own_output ∪ own_drop == previous_stage_output``
 (for ids that stage has decided). Each stage only reads its own out + drop
 (+ the previous stage's out as input). Never reads another stage's drop
-(except curate sync reads human ``data/eval/drop/drop.json`` to skip copy).
+(except curate sync reads human ``data/langbridge-bench/drop/drop.json`` to skip copy).
 
 - Curate writes ``data-pipeline/curate/out/``
-- Then syncs copies into ``data/eval/specs/`` (real dir, not a symlink):
+- Then syncs copies into ``data/langbridge-bench/specs/`` (real dir, not a symlink):
   skip if already in specs, skip if listed in human drop.json
 - LLM curate drops: ``data-pipeline/curate/out/drop.json``
-- Human drops: ``data/eval/drop/``
+- Human drops: ``data/langbridge-bench/drop/``
 """
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DATA_DIR = REPO_ROOT / "data"
 PIPELINE_DIR = REPO_ROOT / "data-pipeline"
-EVAL_DIR = DATA_DIR / "eval"
+EVAL_DIR = DATA_DIR / "langbridge-bench"
 
 COLLECT_DIR = PIPELINE_DIR / "collect"
 ENV_DIR = PIPELINE_DIR / "env"
@@ -33,7 +33,7 @@ CURATE_OUT = CURATE_DIR / "out"
 
 SPECS_DIR = EVAL_DIR / "specs"
 DOCKER_IMAGES_DIR = EVAL_DIR / "docker-images"
-LEGACY_DIR = EVAL_DIR / "legacy"
+LEGACY_DIR = EVAL_DIR / "_legacy"
 HUMAN_DROP_DIR = EVAL_DIR / "drop"
 
 DEFAULT_REPOS_MD = COLLECT_IN / "repos.md"

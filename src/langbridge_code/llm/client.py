@@ -6,6 +6,10 @@ import uuid
 from openai import OpenAI, OpenAIError, RateLimitError
 
 from langbridge_code.llm.debug import print_llm_request, print_llm_response
+from langbridge_code.tools.common.arguments import (
+    append_tool_argument_delta,
+    sanitize_model_output,
+)
 
 
 class ApiQuotaExceeded(RuntimeError):
@@ -94,7 +98,7 @@ def to_chat_messages(agent_input):
     """Convert internal agent items to OpenAI-compatible chat messages.
 
     Preserves Kimi/Moonshot ``reasoning_content`` on assistant turns so
-    thinking models (kimi-k2.7-code, kimi-k2.6 with keep=all) keep continuity
+    thinking models (kimi-k3, kimi-k2.7-code with keep=all) keep continuity
     across multi-step tool calls.
     """
     messages = []
@@ -238,7 +242,9 @@ def _stream_chat_completion(client, kwargs, *, label, stream_sink):
                 if function.name:
                     entry["name"] += function.name
                 if function.arguments:
-                    entry["arguments"] += function.arguments
+                    entry["arguments"] = append_tool_argument_delta(
+                        entry["arguments"], function.arguments
+                    )
             hint = entry["name"] or "tool"
             if entry["arguments"]:
                 hint = f"{hint}({entry['arguments'][:72]})"
@@ -286,15 +292,25 @@ def _stream_chat_completion(client, kwargs, *, label, stream_sink):
 
 
 DEFAULT_OPENAI_REASONING = {"summary": "auto"}
-# Moonshot/Kimi: keep=all is required so prior reasoning survives multi-step tools.
+# Moonshot K2.x: keep=all is required so prior reasoning survives multi-step tools.
 DEFAULT_MOONSHOT_THINKING = {"type": "enabled", "keep": "all"}
+# Moonshot K3: always thinks; configure effort via top-level reasoning_effort
+# (low|high|max). Do not send the K2.x thinking/keep body — K3 rejects it (400).
+DEFAULT_KIMI_K3_REASONING_EFFORT = "max"
 # DeepSeek V4: same thinking switch, but "keep" is not part of its API.
 DEFAULT_DEEPSEEK_THINKING = {"type": "enabled"}
 
 
-def _chat_extra_body():
+def _is_kimi_k3(model: str | None) -> bool:
+    name = (model or "").strip().lower().rsplit("/", 1)[-1]
+    return name == "kimi-k3" or name.startswith("kimi-k3-")
+
+
+def _chat_extra_body(model: str | None = None):
     provider = settings.API_PROVIDER
     if provider == "moonshot":
+        if _is_kimi_k3(model):
+            return {"reasoning_effort": DEFAULT_KIMI_K3_REASONING_EFFORT}
         return {"thinking": DEFAULT_MOONSHOT_THINKING}
     if provider == "deepseek":
         return {"thinking": DEFAULT_DEEPSEEK_THINKING}
@@ -332,7 +348,7 @@ def create_model_response(
                     "model": model,
                     "messages": to_chat_messages(agent_input),
                 }
-                extra_body = _chat_extra_body()
+                extra_body = _chat_extra_body(model)
                 if extra_body:
                     kwargs["extra_body"] = extra_body
                 if tool_schemas:
@@ -348,6 +364,7 @@ def create_model_response(
                     response = client.chat.completions.create(**kwargs)
                     message = response.choices[0].message
                     data = {"output": from_chat_message(message)}
+            data = sanitize_model_output(data)
             print_llm_response(label, data)
             return data
         except RateLimitError as error:

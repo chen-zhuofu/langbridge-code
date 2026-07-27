@@ -44,7 +44,7 @@ from langbridge_code.tools import (
     filesystem,
     skills,
 )
-from langbridge_code.tools.common.description import without_description
+from langbridge_code.tools.common.arguments import load_tool_arguments
 from langbridge_code.tools.common.runtime import managed_binary
 from langbridge_code.skills import (
     ensure_skill_index_block,
@@ -795,7 +795,7 @@ class ReviewerSession(MemoryPhaseMixin):
         name = call.get("name")
         call_id = call.get("call_id")
         try:
-            arguments = without_description(json.loads(call.get("arguments") or "{}"), name)
+            arguments = load_tool_arguments(call, name)
             if name not in self.tools:
                 raise ValueError(f"Unknown Reviewer tool: {name}")
             output = self.tools[name](**arguments)
@@ -815,7 +815,7 @@ def run_worker_tool_call(call, tools, approval_callback=None, write_guard=None, 
     call_id = call.get("call_id")
 
     try:
-        arguments = without_description(json.loads(call.get("arguments") or "{}"), name)
+        arguments = load_tool_arguments(call, name)
         if name not in tools:
             raise ValueError(f"Unknown Worker tool: {name}")
         if write_guard is not None and name in WORKER_WRITE_TOOLS:

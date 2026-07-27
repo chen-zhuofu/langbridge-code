@@ -25,6 +25,21 @@
       "task_id": "NousResearch__hermes-agent-72217",
       "reason": "no FAIL_TO_PASS",
       "stage": "reference"
+    },
+    {
+      "task_id": "NousResearch__hermes-agent-72406",
+      "reason": "no FAIL_TO_PASS",
+      "stage": "reference"
+    },
+    {
+      "task_id": "NousResearch__hermes-agent-72362",
+      "reason": "no FAIL_TO_PASS",
+      "stage": "reference"
+    },
+    {
+      "task_id": "NousResearch__hermes-agent-72361",
+      "reason": "no FAIL_TO_PASS",
+      "stage": "reference"
     }
   ]
 }

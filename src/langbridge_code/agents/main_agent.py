@@ -1,5 +1,4 @@
 """Main LangBridge agent: persistent session with full tools and subagent delegation."""
-import json
 import threading
 
 from langbridge_code.agents.common import control
@@ -14,7 +13,7 @@ from langbridge_code.agents.common.limits import now, over_time_budget
 from langbridge_code.llm.client import create_model_response
 from langbridge_code.prompt.system import langbridge_system_prompt
 from langbridge_code.llm.parse import extract_output_text, print_step_trace
-from langbridge_code.tools.common.description import without_description
+from langbridge_code.tools.common.arguments import load_tool_arguments
 from langbridge_code.util.agent_worklog import (
     write_worklog_finish,
     write_worklog_observation,
@@ -316,9 +315,7 @@ class MainAgentSession:
         for completed in completed_calls:
             call = completed.call
             try:
-                arguments = without_description(
-                    json.loads(call.get("arguments") or "{}"), call.get("name") or ""
-                )
+                arguments = load_tool_arguments(call, call.get("name") or "")
             except (TypeError, ValueError):
                 arguments = {}
             identity = ", ".join(
@@ -536,7 +533,7 @@ class MainAgentSession:
         name = call.get("name")
         call_id = call.get("call_id")
         try:
-            arguments = without_description(json.loads(call.get("arguments") or "{}"), name)
+            arguments = load_tool_arguments(call, name)
             if name == "ask_user":
                 output = resolve_ask_user(arguments, self.question_callback)
             elif name == "note_progress":

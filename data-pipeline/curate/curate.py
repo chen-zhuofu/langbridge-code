@@ -9,8 +9,8 @@ Resume: skip if already in ``curate/out/<id>.json`` or ``curate/out/drop.json``.
 - **keep / rewrite** → label ``task_type`` / ``difficulty`` (with F2P) →
   write ``curate/out/<id>.json``
 - **LLM drop** → append ``curate/out/drop.json`` (no task json)
-- Then **sync** copy → ``data/eval/specs/``:
-  skip if specs already has the file; skip if id is in human ``data/eval/drop/drop.json``
+- Then **sync** copy → ``data/langbridge-bench/specs/``:
+  skip if specs already has the file; skip if id is in human ``data/langbridge-bench/drop/drop.json``
 - Prune ``docker-images/`` + tags to match **eval specs**
 
 ```bash
@@ -127,8 +127,8 @@ def _save_pipeline_drop(dropped: list[dict]) -> None:
         dropped,
         description=(
             "LLM/pipeline curate drops. Code reads this for resume. "
-            "Human error-analysis drops go in data/eval/drop/ instead. "
-            "Not synced to data/eval/specs/."
+            "Human error-analysis drops go in data/langbridge-bench/drop/ instead. "
+            "Not synced to data/langbridge-bench/specs/."
         ),
     )
 

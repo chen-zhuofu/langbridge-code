@@ -6,7 +6,7 @@ Resume: skip if already in **this** stage's ``out/`` or ``drop.json``.
 On success → ``env/out/instances.jsonl``.
 On failure → append ``env/out/drop.json`` only (no deletes).
 
-Does **not** write ``data/eval/specs/`` (curate owns that).
+Does **not** write ``data/langbridge-bench/specs/`` (curate owns that).
 
 ```bash
 uv run python data-pipeline/env/build_env.py

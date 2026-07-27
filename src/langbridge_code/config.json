@@ -21,7 +21,9 @@
     },
     "timeout_seconds": 120,
     "max_retries": 2,
-    "streaming_enabled": true
+    "streaming_enabled": true,
+    "max_output_tokens": 8000,
+    "escalated_max_output_tokens": 64000
   },
   "api_keys": {
     "moonshot": null,

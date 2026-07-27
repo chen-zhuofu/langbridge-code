@@ -44,6 +44,78 @@ def test_load_api_key_uses_deepseek_env(monkeypatch, tmp_path):
     assert settings.load_api_key("deepseek") == "sk-env-deepseek"
 
 
+def test_sanitize_api_key_strips_terminal_escape_junk():
+    junk = "\x1b[<0;21;23M\x1b[<0;21;23Msk-real-key"
+    assert settings.sanitize_api_key(junk) == "sk-real-key"
+    assert settings.sanitize_api_key("  sk-clean  ") == "sk-clean"
+    assert settings.sanitize_api_key("\x1b[<0;1;2M") is None
+    assert settings.sanitize_api_key("") is None
+    assert settings.sanitize_api_key(None) is None
+
+
+def test_load_api_key_strips_escape_junk_from_config(monkeypatch, tmp_path):
+    user_cfg = tmp_path / "config.json"
+    user_cfg.write_text(
+        json.dumps({
+            "api_keys": {
+                "moonshot": "\x1b[<0;21;23Msk-clean-moon",
+            }
+        }),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(settings, "USER_CONFIG_PATH", user_cfg)
+    monkeypatch.delenv("MOONSHOT_API_KEY", raising=False)
+    monkeypatch.delenv("KIMI_API_KEY", raising=False)
+
+    assert settings.load_api_key("moonshot") == "sk-clean-moon"
+
+
+def test_save_api_key_persists_sanitized_value(monkeypatch, tmp_path):
+    user_cfg = tmp_path / "config.json"
+    user_cfg.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(settings, "USER_CONFIG_PATH", user_cfg)
+
+    settings.save_api_key("\x1b[<0;21;23Msk-saved", "moonshot")
+    saved = json.loads(user_cfg.read_text(encoding="utf-8"))
+    assert saved["api_keys"]["moonshot"] == "sk-saved"
+
+
+def test_prompt_and_save_api_key_retries_until_valid(monkeypatch, tmp_path):
+    user_cfg = tmp_path / "config.json"
+    user_cfg.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(settings, "USER_CONFIG_PATH", user_cfg)
+    monkeypatch.setattr(settings.sys.stdin, "isatty", lambda: True)
+    answers = iter(["bad-key", "sk-good"])
+    monkeypatch.setattr(settings.getpass, "getpass", lambda _prompt: next(answers))
+    attempts = {"n": 0}
+
+    def fake_validate(api_key, *, provider=None):
+        attempts["n"] += 1
+        if api_key == "sk-good":
+            return True, "ok"
+        return False, "401 unauthorized"
+
+    monkeypatch.setattr(settings, "validate_api_key", fake_validate)
+
+    assert settings._prompt_and_save_api_key("moonshot") == "sk-good"
+    assert attempts["n"] == 2
+    saved = json.loads(user_cfg.read_text(encoding="utf-8"))
+    assert saved["api_keys"]["moonshot"] == "sk-good"
+
+
+def test_prompt_and_save_api_key_non_interactive_errors(monkeypatch, tmp_path):
+    user_cfg = tmp_path / "config.json"
+    user_cfg.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(settings, "USER_CONFIG_PATH", user_cfg)
+    monkeypatch.setattr(settings.sys.stdin, "isatty", lambda: False)
+
+    try:
+        settings._prompt_and_save_api_key("moonshot")
+        raise AssertionError("expected ValueError")
+    except ValueError as error:
+        assert "No Moonshot/Kimi API key" in str(error)
+
+
 def test_provider_binding_resolves_deepseek_defaults(monkeypatch, tmp_path):
     monkeypatch.setattr(settings, "USER_CONFIG_PATH", tmp_path / "missing.json")
     monkeypatch.setenv("LANGBRIDGE_API_PROVIDER", "deepseek")

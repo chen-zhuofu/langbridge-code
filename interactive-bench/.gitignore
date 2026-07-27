@@ -1,0 +1,17 @@
+# Stage outputs (regenerated)
+data-pipeline/**/out/
+collect/out/
+resolve/out/
+enrich/out/
+intent/out/
+env/out/
+reference/out/
+curate/out/
+harness/out/
+eval/out/
+
+# Local docker build contexts can be large
+data/docker-images/
+
+__pycache__/
+*.pyc
