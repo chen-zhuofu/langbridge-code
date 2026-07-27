@@ -6,7 +6,7 @@
       "moonshot": {
         "base_url": "https://api.moonshot.ai/v1",
         "model": "kimi-k2.7-code",
-        "models": ["kimi-k3", "kimi-k2.7-code", "kimi-k2.7-code-highspeed"]
+        "models": ["kimi-k3"]
       },
       "openai": {
         "base_url": "",

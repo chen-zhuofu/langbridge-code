@@ -423,47 +423,18 @@ def infer_provider_for_model(model: str, *, catalog=None) -> str | None:
 
 
 def list_model_catalog(api_key=None, *, provider=None) -> list[dict]:
-    """Models across every provider that has a key: ``[{id, provider}, ...]``.
+    """Configured models only: ``[{id, provider}, ...]``.
 
-    Active provider is listed first. Live ``/models`` failures fall back to that
-    provider's configured defaults so the TUI picker still works offline.
+    Does **not** call live ``/models`` — that dumps every remote id. The picker
+    should stay a short curated list from ``config.json`` (provider ``model``,
+    optional ``models`` array, and ``agent_models``).
+    Active provider entries are listed first.
     """
-    from openai import OpenAI
-
     cfg = load_config()
     prefer = provider or active_api_provider()
-    entries: list[dict] = []
-
-    # Seed configured models, preferring the active provider's copies.
     seeded = configured_model_catalog(cfg)
-    entries.extend(e for e in seeded if e.get("provider") == prefer)
+    entries = [e for e in seeded if e.get("provider") == prefer]
     entries.extend(e for e in seeded if e.get("provider") != prefer)
-
-    providers = [prefer, *[name for name in PROVIDER_LABELS if name != prefer]]
-    for pname in providers:
-        key = _resolve_provider_api_key(pname)
-        if not key and pname == prefer and api_key:
-            key = sanitize_api_key(api_key)
-        if not key:
-            continue
-        kwargs = {
-            "api_key": key,
-            "timeout": 12.0,
-            "max_retries": 0,
-        }
-        base_url = _provider_base_url(pname, cfg)
-        if base_url:
-            kwargs["base_url"] = base_url
-        try:
-            remote = [
-                getattr(item, "id", None) or str(item)
-                for item in (OpenAI(**kwargs).models.list().data or [])
-            ]
-        except Exception:  # noqa: BLE001 — keep configured seeds for this provider
-            continue
-        for model_id in remote:
-            entries.append({"id": model_id, "provider": pname})
-
     return _dedupe_model_catalog(entries)
 
 

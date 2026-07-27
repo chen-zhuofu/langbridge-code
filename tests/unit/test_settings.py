@@ -173,13 +173,33 @@ def test_set_default_model_persists(monkeypatch, tmp_path):
         settings._bind(settings.load_config())
 
 
-def test_list_available_models_falls_back_to_config(monkeypatch):
-    monkeypatch.setattr(
-        settings,
-        "list_model_catalog",
-        lambda api_key=None, *, provider=None: [{"id": "cfg-model", "provider": "moonshot"}],
-    )
-    assert settings.list_available_models("sk-test") == ["cfg-model"]
+def test_list_model_catalog_uses_config_only(monkeypatch):
+    """Picker must not dump live /models — only curated config entries."""
+    cfg = {
+        "api": {
+            "provider": "moonshot",
+            "providers": {
+                "moonshot": {
+                    "model": "kimi-k2.7-code",
+                    "models": ["kimi-k3"],
+                },
+                "deepseek": {"model": "deepseek-v4-pro"},
+            },
+        }
+    }
+    monkeypatch.setattr(settings, "load_config", lambda: cfg)
+    monkeypatch.setattr(settings, "active_api_provider", lambda: "moonshot")
+    catalog = settings.list_model_catalog("sk-test")
+    assert [e["id"] for e in catalog] == [
+        "kimi-k2.7-code",
+        "kimi-k3",
+        "deepseek-v4-pro",
+    ]
+    assert settings.list_available_models("sk-test") == [
+        "kimi-k2.7-code",
+        "kimi-k3",
+        "deepseek-v4-pro",
+    ]
 
 
 def test_infer_provider_for_kimi_k3():
