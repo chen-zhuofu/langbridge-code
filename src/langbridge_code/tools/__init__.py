@@ -32,24 +32,28 @@ TOOLS = (
     | skills.TOOLS
 )
 
-MAIN_TOOL_SCHEMAS = (
+MAIN_TOOL_SCHEMAS = skills.schemas_with_role(
     filesystem.TOOL_SCHEMAS
     + execution.TOOL_SCHEMAS
     + merge_branch.TOOL_SCHEMAS
     + web.TOOL_SCHEMAS
-    + skills.TOOL_SCHEMAS
+    + skills.TOOL_SCHEMAS,
+    "langbridge",
 )
 MAIN_TOOL_NAMES = {schema["name"] for schema in MAIN_TOOL_SCHEMAS}
-MAIN_TOOLS = {
-    name: tool
-    for name, tool in (
-        filesystem.TOOLS
-        | execution.TOOLS
-        | merge_branch.TOOLS
-        | web.TOOLS
-        | skills.TOOLS
-    ).items()
-}
+MAIN_TOOLS = skills.tools_with_role(
+    {
+        name: tool
+        for name, tool in (
+            filesystem.TOOLS
+            | execution.TOOLS
+            | merge_branch.TOOLS
+            | web.TOOLS
+            | skills.TOOLS
+        ).items()
+    },
+    "langbridge",
+)
 
 # The evaluator verifies only; keep state-mutating merge_branch out of its hands.
 GOAL_VERIFICATION_TOOL_SCHEMAS = [

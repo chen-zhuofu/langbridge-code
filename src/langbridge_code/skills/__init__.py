@@ -68,18 +68,26 @@ def _skill_dirs():
     yield from _agent_skill_dirs()
 
 
-def load_skill(name):
+def load_skill(name, *, role=None):
     """Return a skill playbook or a file under that skill directory.
 
     Names:
       - ``clean-code-guard`` → that skill's ``SKILL.md`` (frontmatter stripped)
       - ``clean-code-guard/references/ai-failure-modes.md`` → that reference file
+
+    When ``role`` is set, only ``skills/<role>/`` is searched (used by
+    ``read_skill`` so agents cannot load another role's playbooks). With
+    ``role=None``, all agent skill dirs are searched — used by tests.
     """
     name = name.strip().strip("/")
     if not name or ".." in Path(name).parts:
         raise FileNotFoundError(name)
 
-    for root in _skill_dirs():
+    roots = [SKILLS_DIR / role] if role is not None else list(_skill_dirs())
+
+    for root in roots:
+        if not root.is_dir():
+            continue
         # Progressive disclosure: skill/references/foo.md
         if "/" in name:
             target = (root / name).resolve()
@@ -326,7 +334,7 @@ def resolve_skill_slash(text: str):
         return "passthrough", text
     name, args = parsed
     try:
-        body = load_skill(name)
+        body = load_skill(name, role="langbridge")
     except FileNotFoundError:
         return "unknown", name
     return "expanded", format_skill_slash_turn(name, body, args)

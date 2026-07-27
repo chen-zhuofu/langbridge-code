@@ -333,6 +333,165 @@ def validate_api_key(api_key, *, provider=None) -> tuple[bool, str]:
     return True, "ok"
 
 
+def _dedupe_models(names) -> list[str]:
+    seen = set()
+    out = []
+    for name in names:
+        cleaned = (name or "").strip()
+        if not cleaned or cleaned in seen:
+            continue
+        seen.add(cleaned)
+        out.append(cleaned)
+    return out
+
+
+def _provider_base_url(provider: str, cfg=None) -> str:
+    cfg = cfg or load_config()
+    provider_cfg = (cfg.get("api", {}).get("providers") or {}).get(provider) or {}
+    return str(provider_cfg.get("base_url") or "")
+
+
+def _resolve_provider_api_key(provider: str) -> str | None:
+    """Return a usable key for ``provider`` without prompting."""
+    for env_name in _PROVIDER_ENV.get(provider, ()):
+        key = sanitize_api_key(os.environ.get(env_name))
+        if key:
+            return key
+    return _api_keys_from_config().get(provider)
+
+
+def configured_model_catalog(cfg=None) -> list[dict]:
+    """Configured model entries ``{id, provider}`` from defaults / agent_models."""
+    cfg = cfg or load_config()
+    entries = []
+    top = (cfg.get("model") or "").strip()
+    active = active_api_provider()
+    if top:
+        entries.append({"id": top, "provider": active})
+    for provider, provider_cfg in (cfg.get("api", {}).get("providers") or {}).items():
+        if not isinstance(provider_cfg, dict):
+            continue
+        model = (provider_cfg.get("model") or "").strip()
+        if model:
+            entries.append({"id": model, "provider": provider})
+        for extra in provider_cfg.get("models") or []:
+            cleaned = (extra or "").strip()
+            if cleaned:
+                entries.append({"id": cleaned, "provider": provider})
+        for role_model in (provider_cfg.get("agent_models") or {}).values():
+            cleaned = (role_model or "").strip()
+            if cleaned:
+                entries.append({"id": cleaned, "provider": provider})
+    return _dedupe_model_catalog(entries)
+
+
+def configured_model_ids(cfg=None) -> list[str]:
+    """Model ids from config defaults (top-level + each provider)."""
+    return [entry["id"] for entry in configured_model_catalog(cfg)]
+
+
+def _dedupe_model_catalog(entries) -> list[dict]:
+    """Prefer first occurrence of each model id (caller orders preferred provider first)."""
+    seen = set()
+    out = []
+    for entry in entries:
+        model_id = (entry.get("id") or "").strip()
+        provider = (entry.get("provider") or "").strip()
+        if not model_id or model_id in seen:
+            continue
+        seen.add(model_id)
+        out.append({"id": model_id, "provider": provider or active_api_provider()})
+    return out
+
+
+def infer_provider_for_model(model: str, *, catalog=None) -> str | None:
+    """Best-effort provider for a model id from catalog or name heuristics."""
+    cleaned = (model or "").strip()
+    if not cleaned:
+        return None
+    for entry in catalog or []:
+        if entry.get("id") == cleaned and entry.get("provider"):
+            return entry["provider"]
+    name = cleaned.lower().rsplit("/", 1)[-1]
+    if name.startswith("kimi-") or name.startswith("moonshot-"):
+        return "moonshot"
+    if name.startswith("deepseek-"):
+        return "deepseek"
+    if name.startswith("gpt-") or name.startswith("o1") or name.startswith("o3"):
+        return "openai"
+    return None
+
+
+def list_model_catalog(api_key=None, *, provider=None) -> list[dict]:
+    """Models across every provider that has a key: ``[{id, provider}, ...]``.
+
+    Active provider is listed first. Live ``/models`` failures fall back to that
+    provider's configured defaults so the TUI picker still works offline.
+    """
+    from openai import OpenAI
+
+    cfg = load_config()
+    prefer = provider or active_api_provider()
+    entries: list[dict] = []
+
+    # Seed configured models, preferring the active provider's copies.
+    seeded = configured_model_catalog(cfg)
+    entries.extend(e for e in seeded if e.get("provider") == prefer)
+    entries.extend(e for e in seeded if e.get("provider") != prefer)
+
+    providers = [prefer, *[name for name in PROVIDER_LABELS if name != prefer]]
+    for pname in providers:
+        key = _resolve_provider_api_key(pname)
+        if not key and pname == prefer and api_key:
+            key = sanitize_api_key(api_key)
+        if not key:
+            continue
+        kwargs = {
+            "api_key": key,
+            "timeout": 12.0,
+            "max_retries": 0,
+        }
+        base_url = _provider_base_url(pname, cfg)
+        if base_url:
+            kwargs["base_url"] = base_url
+        try:
+            remote = [
+                getattr(item, "id", None) or str(item)
+                for item in (OpenAI(**kwargs).models.list().data or [])
+            ]
+        except Exception:  # noqa: BLE001 — keep configured seeds for this provider
+            continue
+        for model_id in remote:
+            entries.append({"id": model_id, "provider": pname})
+
+    return _dedupe_model_catalog(entries)
+
+
+def list_available_models(api_key=None, *, provider=None) -> list[str]:
+    """Model ids only (wrapper around :func:`list_model_catalog`)."""
+    return [entry["id"] for entry in list_model_catalog(api_key, provider=provider)]
+
+
+def set_default_model(model: str, *, provider: str | None = None) -> str:
+    """Persist ``model`` (and optional provider) as the user default and rebind."""
+    cleaned = (model or "").strip()
+    if not cleaned:
+        raise ValueError("model name required")
+    patch = {"model": cleaned}
+    if provider:
+        patch["api"] = {"provider": provider}
+    save_user_config(patch)
+    # Env LANGBRIDGE_MODEL / LANGBRIDGE_API_PROVIDER still win when set.
+    if provider and not os.environ.get("LANGBRIDGE_API_PROVIDER"):
+        # Ensure bind sees the saved provider even if env was previously forced
+        # in-process by an older call.
+        pass
+    if provider:
+        os.environ["LANGBRIDGE_API_PROVIDER"] = provider
+    _bind(load_config())
+    return cleaned
+
+
 def _prompt_and_save_api_key(provider: str) -> str:
     """Ask on a TTY until a key validates; save it, then return it."""
     label = PROVIDER_LABELS.get(provider, provider)

@@ -1,4 +1,6 @@
 """Explore subagent loop (agent_explorer tool implementation)."""
+import json
+
 import subprocess
 from pathlib import Path
 
@@ -9,7 +11,7 @@ from langbridge_code.prompt.system import explorer_system_prompt
 from langbridge_code.tools.note_progress import TASK_NOTE_PROGRESS_TOOL_SCHEMA
 from langbridge_code.llm.client import create_model_response
 from langbridge_code.llm.parse import extract_output_text, print_step_trace
-from langbridge_code.tools.common.arguments import load_tool_arguments
+from langbridge_code.tools.common.description import without_description
 from langbridge_code.tools.common.runtime import managed_binary
 from langbridge_code.util.agent_worklog import (
     write_worklog_finish,
@@ -32,16 +34,19 @@ EXPLORE_TOOL_NAMES = (
     FILE_READ_TOOL_NAMES
     | {"bash", "read_webpage", "read_skill"}
 )
-EXPLORE_TOOL_SCHEMAS = [
-    schema
-    for schema in (
-        filesystem.TOOL_SCHEMAS
-        + execution.TOOL_SCHEMAS
-        + web.TOOL_SCHEMAS
-        + skills.TOOL_SCHEMAS
-    )
-    if schema["name"] in EXPLORE_TOOL_NAMES
-]
+EXPLORE_TOOL_SCHEMAS = skills.schemas_with_role(
+    [
+        schema
+        for schema in (
+            filesystem.TOOL_SCHEMAS
+            + execution.TOOL_SCHEMAS
+            + web.TOOL_SCHEMAS
+            + skills.TOOL_SCHEMAS
+        )
+        if schema["name"] in EXPLORE_TOOL_NAMES
+    ],
+    "explorer",
+)
 
 
 
@@ -49,15 +54,18 @@ def read_only_bash(**kwargs):
     return execution.read_only_bash(role="Explore agent", **kwargs)
 
 
-EXPLORE_TOOLS = {
-    name: tool
-    for name, tool in (
-        filesystem.TOOLS
-        | web.TOOLS
-        | skills.TOOLS
-    ).items()
-    if name in EXPLORE_TOOL_NAMES and name != "bash"
-}
+EXPLORE_TOOLS = skills.tools_with_role(
+    {
+        name: tool
+        for name, tool in (
+            filesystem.TOOLS
+            | web.TOOLS
+            | skills.TOOLS
+        ).items()
+        if name in EXPLORE_TOOL_NAMES and name != "bash"
+    },
+    "explorer",
+)
 EXPLORE_TOOLS["bash"] = read_only_bash
 
 
@@ -382,7 +390,7 @@ class ExploreSession:
         name = call.get("name")
         call_id = call.get("call_id")
         try:
-            arguments = load_tool_arguments(call, name)
+            arguments = without_description(json.loads(call.get("arguments") or "{}"), name)
             if name not in self.tools:
                 raise ValueError(f"Unknown Explore tool: {name}")
             output = self.tools[name](**arguments)

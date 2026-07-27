@@ -70,6 +70,50 @@ def test_known_skill_slash_starts_turn(server, monkeypatch):
     assert started == ["/grilling focus on auth"]
 
 
+def test_list_and_set_model(server, monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        "langbridge_code.ui.bridge.list_model_catalog",
+        lambda api_key: [
+            {"id": "model-a", "provider": "deepseek"},
+            {"id": "model-b", "provider": "moonshot"},
+        ],
+    )
+    saved = []
+
+    def fake_set(model, *, provider=None):
+        saved.append((model, provider))
+        return model
+
+    monkeypatch.setattr("langbridge_code.ui.bridge.set_default_model", fake_set)
+    monkeypatch.setattr(
+        "langbridge_code.ui.bridge.load_api_key",
+        lambda provider=None: "test-key",
+    )
+    server.handle({"type": "list_models"})
+    models = events_of_type(server, "models")[-1]
+    assert models["items"][0]["id"] == "test-model"
+    assert {item["id"] for item in models["items"]} >= {"test-model", "model-a", "model-b"}
+    assert models["current"] == "test-model"
+
+    server.handle({"type": "set_model", "model": "model-b", "provider": "moonshot"})
+    assert server.model == "model-b"
+    assert saved == [("model-b", "moonshot")]
+    assert events_of_type(server, "model")[-1]["model"] == "model-b"
+
+
+def test_set_model_blocked_while_turn_active(server, monkeypatch):
+    monkeypatch.setattr("langbridge_code.ui.bridge.set_default_model", lambda model: model)
+    server.turn_active = True
+    server.handle({"type": "set_model", "model": "other"})
+    assert server.model == "test-model"
+    warns = [
+        event
+        for event in events_of_type(server, "system")
+        if "busy" in event.get("text", "").lower()
+    ]
+    assert warns
+
+
 def test_queue_list_and_clear(server):
     server.turn_active = True
     server.handle({"type": "user_message", "text": "a"})

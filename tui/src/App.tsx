@@ -3,7 +3,7 @@ import { Box, Text, useApp, useInput, useStdout } from "ink";
 
 import { Bridge } from "./bridge.js";
 import { copyToClipboard } from "./clipboard.js";
-import type { EngineEvent, SessionItem } from "./protocol.js";
+import type { EngineEvent, ModelItem, SessionItem } from "./protocol.js";
 import { ChatLine, makeLine } from "./state.js";
 import { HELP_TEXT } from "./help.js";
 import { ACCENT, YELLOW } from "./theme.js";
@@ -11,6 +11,7 @@ import { Banner } from "./components/Banner.js";
 import { ChatLog, totalRowCount } from "./components/ChatLog.js";
 import { Composer, composerRowCount } from "./components/Composer.js";
 import { SessionPicker } from "./components/SessionPicker.js";
+import { ModelPicker } from "./components/ModelPicker.js";
 import { StatusBar } from "./components/StatusBar.js";
 
 interface EngineState {
@@ -62,6 +63,11 @@ export function App() {
   const cursor = cursorRef.current;
   const [scrollOffset, setScrollOffset] = useState(0);
   const [picker, setPicker] = useState<{ sessions: SessionItem[]; highlighted: number; startup: boolean } | null>(null);
+  const [modelPicker, setModelPicker] = useState<{
+    models: ModelItem[];
+    highlighted: number;
+    current: string;
+  } | null>(null);
   const [pendingApproval, setPendingApproval] = useState(false);
   const [pendingQuestion, setPendingQuestion] = useState(false);
   const [size, setSize] = useState({
@@ -153,6 +159,24 @@ export function App() {
           if (event.sessions.length > 0) {
             setPicker({ sessions: event.sessions, highlighted: 0, startup: true });
           }
+          break;
+        case "models": {
+          const current = event.current || "";
+          const models =
+            event.items.length > 0
+              ? event.items
+              : current
+                ? [{ id: current, provider: event.provider || "" }]
+                : [];
+          const highlighted = Math.max(
+            0,
+            models.findIndex((item) => item.id === current),
+          );
+          setModelPicker({ models, highlighted, current });
+          break;
+        }
+        case "model":
+          setHello((previous) => ({ ...previous, model: event.model }));
           break;
         case "system":
           writeSystem(event.text, event.style);
@@ -291,12 +315,22 @@ export function App() {
       writeSystem("Agent is busy. Use /stop first.", "warn");
       return;
     }
+    setModelPicker(null);
     bridge.send({ type: "list_sessions" });
     // sessionsRef updates on the next tick; open with what we have now.
     setTimeout(() => {
       if (sessionsRef.current.length === 0) writeSystem("No saved sessions.");
       else setPicker({ sessions: sessionsRef.current, highlighted: 0, startup: false });
     }, 150);
+  }, [bridge, writeSystem]);
+
+  const openModelPicker = useCallback(() => {
+    if (engineRef.current.turnActive) {
+      writeSystem("Agent is busy. Use /stop first.", "warn");
+      return;
+    }
+    setPicker(null);
+    bridge.send({ type: "list_models" });
   }, [bridge, writeSystem]);
 
   const copyLastAssistant = useCallback(() => {
@@ -340,6 +374,12 @@ export function App() {
           if (session) bridge.send({ type: "delete_session", path: session.path });
           break;
         }
+        case "/model": {
+          const name = text.slice("/model".length).trim();
+          if (name) bridge.send({ type: "set_model", model: name });
+          else openModelPicker();
+          break;
+        }
         case "/approve":
           if (arg === "on" || arg === "off") bridge.send({ type: "yolo", value: arg === "on" });
           else bridge.send({ type: "approval", approved: true });
@@ -378,7 +418,7 @@ export function App() {
         }
       }
     },
-    [append, bridge, copyLastAssistant, exit, openPicker, sessionAt, writeSystem],
+    [append, bridge, copyLastAssistant, exit, openModelPicker, openPicker, sessionAt, writeSystem],
   );
 
   const bumpInput = useCallback(() => setInputVersion((version) => version + 1), []);
@@ -437,6 +477,40 @@ export function App() {
       if (/(?:\u001b)?\[<\d+;\d+;\d+[Mm]/.test(char)) return;
     }
 
+    if (modelPicker) {
+      if (key.escape) {
+        setModelPicker(null);
+        return;
+      }
+      if (key.upArrow) {
+        setModelPicker((current) =>
+          current ? { ...current, highlighted: Math.max(0, current.highlighted - 1) } : current,
+        );
+        return;
+      }
+      if (key.downArrow) {
+        setModelPicker((current) =>
+          current
+            ? { ...current, highlighted: Math.min(current.models.length - 1, current.highlighted + 1) }
+            : current,
+        );
+        return;
+      }
+      if (key.return) {
+        const chosen = modelPicker.models[modelPicker.highlighted];
+        setModelPicker(null);
+        if (chosen) {
+          bridge.send({
+            type: "set_model",
+            model: chosen.id,
+            provider: chosen.provider || undefined,
+          });
+        }
+        return;
+      }
+      return;
+    }
+
     if (picker) {
       if (key.escape) {
         setPicker(null);
@@ -469,6 +543,17 @@ export function App() {
       return;
     }
 
+    // Alt/Meta+M, Ctrl+Shift+M, or Ctrl+M (when the terminal reports char "m")
+    // opens the model picker. Plain Ctrl+M is often Enter (CR) — use /model then.
+    if (
+      (key.meta || (key.ctrl && key.shift) || key.ctrl) &&
+      (char === "m" || char === "M") &&
+      !key.return
+    ) {
+      openModelPicker();
+      return;
+    }
+
     if (key.ctrl && (key.upArrow || key.downArrow)) {
       scrollBy(key.upArrow ? 5 : -5);
       return;
@@ -493,6 +578,9 @@ export function App() {
           return;
         case "r":
           openPicker();
+          return;
+        case "m":
+          openModelPicker();
           return;
         case "b":
           setBannerVisible((visible) => !visible);
@@ -663,6 +751,14 @@ export function App() {
         <Box flexGrow={1} alignItems="center" justifyContent="center">
           <SessionPicker sessions={picker.sessions} highlighted={picker.highlighted} />
         </Box>
+      ) : modelPicker ? (
+        <Box flexGrow={1} alignItems="center" justifyContent="center">
+          <ModelPicker
+            models={modelPicker.models}
+            highlighted={modelPicker.highlighted}
+            current={modelPicker.current}
+          />
+        </Box>
       ) : (
         <ChatLog lines={lines} height={chatHeight} width={width - 4} scrollOffset={scrollOffset} />
       )}
@@ -680,7 +776,7 @@ export function App() {
           value={input}
           cursor={cursor}
           width={width - 4}
-          focused={!picker}
+          focused={!picker && !modelPicker}
           busy={engine.turnActive}
         />
       </Box>

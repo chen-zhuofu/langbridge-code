@@ -5,6 +5,11 @@ export interface SessionItem {
   label: string;
 }
 
+export interface ModelItem {
+  id: string;
+  provider: string;
+}
+
 export type EngineEvent =
   | {
       type: "hello";
@@ -43,7 +48,9 @@ export type EngineEvent =
       preview: string;
       conversation?: { role: string; text: string }[];
     }
-  | { type: "queue"; items: string[] };
+  | { type: "queue"; items: string[] }
+  | { type: "models"; items: ModelItem[]; current: string; provider?: string }
+  | { type: "model"; model: string; provider?: string };
 
 export type ClientMessage =
   | { type: "user_message"; text: string }
@@ -59,4 +66,6 @@ export type ClientMessage =
   | { type: "goal"; text: string }
   | { type: "queue_list" }
   | { type: "queue_clear" }
+  | { type: "list_models" }
+  | { type: "set_model"; model: string; provider?: string }
   | { type: "quit" };

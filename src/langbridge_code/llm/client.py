@@ -1,15 +1,11 @@
 """LLM client — OpenAI Responses API, or chat completions for Moonshot/Kimi and DeepSeek."""
-import json
+import os
 import time
 import uuid
 
 from openai import OpenAI, OpenAIError, RateLimitError
 
 from langbridge_code.llm.debug import print_llm_request, print_llm_response
-from langbridge_code.tools.common.arguments import (
-    append_tool_argument_delta,
-    sanitize_model_output,
-)
 
 
 class ApiQuotaExceeded(RuntimeError):
@@ -51,6 +47,11 @@ from langbridge_code import settings
 
 _STREAM_EMIT_INTERVAL_SECONDS = 0.08
 
+# Claude Code-style: tight default, one silent escalate retry for large writes.
+CAPPED_DEFAULT_MAX_TOKENS = 8_000
+ESCALATED_MAX_TOKENS = 64_000
+_MAX_OUTPUT_HIT_REASONS = frozenset({"length", "max_tokens", "max_output_tokens"})
+
 
 def make_client(api_key):
     kwargs = {
@@ -65,6 +66,36 @@ def make_client(api_key):
 
 def uses_responses_api(provider=None):
     return (provider or settings.API_PROVIDER) == "openai"
+
+
+def resolve_max_output_tokens(override=None):
+    """Return (max_tokens, env_override).
+
+    Env ``LANGBRIDGE_MAX_OUTPUT_TOKENS`` wins and disables escalate-on-hit.
+    """
+    env = os.environ.get("LANGBRIDGE_MAX_OUTPUT_TOKENS")
+    if env:
+        return int(env), True
+    if override is not None:
+        return int(override), False
+    return int(
+        getattr(settings, "DEFAULT_MAX_OUTPUT_TOKENS", CAPPED_DEFAULT_MAX_TOKENS)
+    ), False
+
+
+def hit_max_output_tokens(data, finish_reason=None) -> bool:
+    """True when the provider stopped because the output token budget was hit."""
+    if finish_reason in _MAX_OUTPUT_HIT_REASONS:
+        return True
+    if not isinstance(data, dict):
+        return False
+    if data.get("finish_reason") in _MAX_OUTPUT_HIT_REASONS:
+        return True
+    if data.get("status") == "incomplete":
+        details = data.get("incomplete_details") or {}
+        if details.get("reason") in _MAX_OUTPUT_HIT_REASONS:
+            return True
+    return False
 
 
 def to_chat_tools(tool_schemas):
@@ -206,6 +237,7 @@ def _stream_chat_completion(client, kwargs, *, label, stream_sink):
     reasoning_parts: list[str] = []
     content_parts: list[str] = []
     tool_calls: dict[int, dict[str, str]] = {}
+    finish_reason = None
     last_emit = 0.0
 
     def maybe_emit(kind: str, text: str, *, force: bool = False):
@@ -221,7 +253,10 @@ def _stream_chat_completion(client, kwargs, *, label, stream_sink):
     for chunk in stream:
         if not chunk.choices:
             continue
-        delta = chunk.choices[0].delta
+        choice = chunk.choices[0]
+        if choice.finish_reason:
+            finish_reason = choice.finish_reason
+        delta = choice.delta
         reasoning_delta = getattr(delta, "reasoning_content", None)
         if reasoning_delta:
             reasoning_parts.append(reasoning_delta)
@@ -242,9 +277,7 @@ def _stream_chat_completion(client, kwargs, *, label, stream_sink):
                 if function.name:
                     entry["name"] += function.name
                 if function.arguments:
-                    entry["arguments"] = append_tool_argument_delta(
-                        entry["arguments"], function.arguments
-                    )
+                    entry["arguments"] += function.arguments
             hint = entry["name"] or "tool"
             if entry["arguments"]:
                 hint = f"{hint}({entry['arguments'][:72]})"
@@ -288,7 +321,7 @@ def _stream_chat_completion(client, kwargs, *, label, stream_sink):
         tool_calls=built_tool_calls,
         reasoning="".join(reasoning_parts) or None,
     )
-    return {"output": from_chat_message(message)}
+    return {"output": from_chat_message(message), "finish_reason": finish_reason}
 
 
 DEFAULT_OPENAI_REASONING = {"summary": "auto"}
@@ -330,6 +363,14 @@ def create_model_response(
     """Call the provider LLM. Thinking/reasoning is enabled on every request."""
     print_llm_request(label, model, agent_input, tool_schemas)
     client = make_client(api_key)
+    max_tokens, env_override = resolve_max_output_tokens()
+    default_cap = int(
+        getattr(settings, "DEFAULT_MAX_OUTPUT_TOKENS", CAPPED_DEFAULT_MAX_TOKENS)
+    )
+    escalated_cap = int(
+        getattr(settings, "ESCALATED_MAX_OUTPUT_TOKENS", ESCALATED_MAX_TOKENS)
+    )
+    escalated = False
     last_error = None
     for attempt in range(8):
         try:
@@ -338,15 +379,18 @@ def create_model_response(
                     "model": model,
                     "input": agent_input,
                     "reasoning": reasoning if reasoning is not None else DEFAULT_OPENAI_REASONING,
+                    "max_output_tokens": max_tokens,
                 }
                 if tool_schemas:
                     kwargs["tools"] = tool_schemas
                 response = client.responses.create(**kwargs)
                 data = response.model_dump(exclude_none=True)
+                finish_reason = None
             else:
                 kwargs = {
                     "model": model,
                     "messages": to_chat_messages(agent_input),
+                    "max_tokens": max_tokens,
                 }
                 extra_body = _chat_extra_body(model)
                 if extra_body:
@@ -360,11 +404,21 @@ def create_model_response(
                         label=label,
                         stream_sink=stream_sink,
                     )
+                    finish_reason = data.pop("finish_reason", None)
                 else:
                     response = client.chat.completions.create(**kwargs)
                     message = response.choices[0].message
+                    finish_reason = response.choices[0].finish_reason
                     data = {"output": from_chat_message(message)}
-            data = sanitize_model_output(data)
+            if (
+                not env_override
+                and not escalated
+                and max_tokens == default_cap
+                and hit_max_output_tokens(data, finish_reason)
+            ):
+                escalated = True
+                max_tokens = escalated_cap
+                continue
             print_llm_response(label, data)
             return data
         except RateLimitError as error:

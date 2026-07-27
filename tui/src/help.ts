@@ -4,6 +4,7 @@ export const HELP_TEXT = `Commands:
   /sessions          open the session picker (Ctrl+R)
   /resume [n]        open the picker, or resume session number <n>
   /delete <n>        delete session number <n>
+  /model [id]        switch model (Alt/Meta+M or Ctrl+Shift+M opens picker)
   /approve [on|off]  approve a pending action, or toggle auto-approve (yolo)
   /yolo [on|off]     toggle yolo mode (auto-approve all write tools)
   /deny              deny a pending action
@@ -24,7 +25,7 @@ export const HELP_TEXT = `Commands:
 Keys: Enter send · Shift+Enter / Ctrl+J newline
       Home/End · Ctrl+W delete word · Ctrl+U/K clear line
       Ctrl+A approve · Ctrl+D deny · Ctrl+Y yolo · Ctrl+P pause · Ctrl+S stop
-      Ctrl+R sessions · Ctrl+B header · Ctrl+E select/wheel · Ctrl+O copy
+      Ctrl+R sessions · Alt/Meta+M or Ctrl+Shift+M model · Ctrl+B header · Ctrl+E select/wheel · Ctrl+O copy
       PageUp/PageDown or Ctrl+↑/↓ scroll · Ctrl+C quit
 While the agent is busy, Enter queues your message; queued messages run only
 after the current turn finishes successfully (not after /stop or errors).`;

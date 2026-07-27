@@ -3,10 +3,10 @@
 Protocol: one JSON object per line.
   stdin  (client -> engine): user_message, approval, answer, yolo, pause_toggle,
           stop, new_session, list_sessions, resume_session, delete_session,
-          goal, queue_list, queue_clear, quit
+          goal, queue_list, queue_clear, list_models, set_model, quit
   stdout (engine -> client): hello, system, assistant, turn_started, trace,
           stream, state, context_line, approval_request, question, turn_end,
-          sessions, session_resumed, queue
+          sessions, session_resumed, queue, models, model
 
 All UI rendering lives in the client; this module only runs turns and reports
 events. Replaces the Textual TUI's threading model: events are written to
@@ -34,7 +34,12 @@ from langbridge_code.context.foreground import (
     register_foreground_listener,
     unregister_foreground_listener,
 )
-from langbridge_code.settings import load_api_key
+from langbridge_code.settings import (
+    infer_provider_for_model,
+    list_model_catalog,
+    load_api_key,
+    set_default_model,
+)
 from langbridge_code.agents.common.approval import circuit_breaker_reason
 from langbridge_code.tools.common.runtime import RuntimeBootstrapError, bootstrap_runtime
 from langbridge_code.ui.message_queue import UserMessageQueue
@@ -213,6 +218,13 @@ class BridgeServer:
             dropped = self.message_queue.clear()
             self.system(f"Cleared {dropped} queued message(s)." if dropped else "No queued messages.")
             self.push_state()
+        elif kind == "list_models":
+            self.list_models()
+        elif kind == "set_model":
+            self.set_model(
+                str(message.get("model", "")),
+                provider=(str(message["provider"]) if message.get("provider") else None),
+            )
         return False
 
     # --- state reporting ------------------------------------------------------
@@ -555,6 +567,59 @@ class BridgeServer:
         else:
             self.system("Yolo mode off — write tools need approval again.")
         self.push_state()
+
+    def list_models(self) -> None:
+        catalog = list_model_catalog(self.api_key)
+        if self.model and self.model not in {entry["id"] for entry in catalog}:
+            catalog = [
+                {"id": self.model, "provider": settings.API_PROVIDER},
+                *catalog,
+            ]
+        self.send(
+            {
+                "type": "models",
+                "items": catalog,
+                "current": self.model,
+                "provider": settings.API_PROVIDER,
+            }
+        )
+
+    def set_model(self, model: str, provider: str | None = None) -> None:
+        cleaned = (model or "").strip()
+        if not cleaned:
+            self.system("Model name required. Use /model <id> or pick from the list.", style="warn")
+            return
+        if self.turn_active:
+            self.system("Agent is busy. Use /stop before switching models.", style="warn")
+            return
+        catalog = list_model_catalog(self.api_key)
+        target_provider = provider or infer_provider_for_model(cleaned, catalog=catalog)
+        try:
+            set_default_model(cleaned, provider=target_provider)
+        except ValueError as error:
+            self.system(str(error), style="warn")
+            return
+        if target_provider:
+            try:
+                self.api_key = load_api_key(target_provider)
+            except ValueError as error:
+                self.system(str(error), style="error")
+                return
+        self.model = cleaned
+        if self.main_agent is not None:
+            self.main_agent.api_key = self.api_key
+            self.main_agent.model = cleaned
+            self.main_agent._rebuild_subagent_tools()
+        self.send(
+            {
+                "type": "model",
+                "model": cleaned,
+                "provider": settings.API_PROVIDER,
+            }
+        )
+        label = f"{cleaned} ({settings.API_PROVIDER})" if target_provider else cleaned
+        self.system(f"Model set to {label}.")
+        self.push_context_line(force=True)
 
     def toggle_pause(self) -> None:
         if not self.turn_active:

@@ -1,4 +1,9 @@
+import pytest
+
 from langbridge_code.skills import list_skills, load_skill
+from langbridge_code.tools import skills as skills_tools
+from langbridge_code.agents.planner import PLANNER_TOOLS
+from langbridge_code.tools import MAIN_TOOLS
 
 
 def test_agent_skills_are_discoverable():
@@ -36,6 +41,39 @@ def test_list_skills_for_role():
     assert "clean-code-guard" in reviewer_names
     assert "test-guard" in reviewer_names
     assert "docs-guard" in reviewer_names
+
+
+def test_load_skill_respects_role_scope():
+    body = load_skill("grilling", role="langbridge")
+    assert "grill" in body.lower()
+
+    with pytest.raises(FileNotFoundError):
+        load_skill("grilling", role="planner")
+
+    with pytest.raises(FileNotFoundError):
+        load_skill("superpowers_test-driven-development", role="langbridge")
+
+    assert "test" in load_skill(
+        "superpowers_test-driven-development", role="worker_coder"
+    ).lower()
+
+
+def test_agent_read_skill_tools_are_role_scoped():
+    # Main agent can load langbridge skills, not planner/worker ones.
+    assert "grill" in MAIN_TOOLS["read_skill"]("grilling").lower()
+    assert "unknown skill" in MAIN_TOOLS["read_skill"](
+        "superpowers_writing-plans"
+    ).lower()
+
+    # Planner cannot load main-agent grilling.
+    assert "unknown skill" in PLANNER_TOOLS["read_skill"]("grilling").lower()
+    assert "plan" in PLANNER_TOOLS["read_skill"](
+        "superpowers_writing-plans"
+    ).lower()
+
+    schema = skills_tools.read_skill_schema("planner")
+    assert "superpowers_writing-plans" in schema["description"]
+    assert "grilling" not in schema["description"]
 
 
 def test_guard_skill_reference_loads():

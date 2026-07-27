@@ -10,7 +10,7 @@ from langbridge_code.context.message import recent_chat_turns
 from langbridge_code.context.foreground import ForegroundTracker
 from langbridge_code.settings import GOAL_EVAL_INPUT_CHARS, GOAL_EVALUATOR_MAX_STEPS
 from langbridge_code.tools import GOAL_VERIFICATION_TOOL_SCHEMAS, GOAL_VERIFICATION_TOOLS
-from langbridge_code.tools.common.arguments import load_tool_arguments
+from langbridge_code.tools.common.description import without_description
 from langbridge_code.tools.memory_writer import MEMORY_WRITER_TOOL_SCHEMA
 from langbridge_code.llm.client import create_model_response
 from langbridge_code.llm.parse import extract_output_text, print_step_trace
@@ -128,7 +128,7 @@ class GoalEvaluatorAgent:
         name = call.get("name")
         call_id = call.get("call_id")
         try:
-            arguments = load_tool_arguments(call, name)
+            arguments = without_description(json.loads(call.get("arguments") or "{}"), name)
             if name == "memory_writer":
                 from langbridge_code.tools.memory_writer import schedule_memory_writer
 

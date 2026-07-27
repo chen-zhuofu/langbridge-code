@@ -8,8 +8,10 @@ from langbridge_code.llm.client import (
     create_model_response,
     format_api_error,
     from_chat_message,
+    hit_max_output_tokens,
     quota_exceeded_message,
     rate_limit_is_non_retryable,
+    resolve_max_output_tokens,
     to_chat_messages,
     to_chat_tools,
 )
@@ -195,21 +197,30 @@ def test_create_model_response_fails_fast_on_tpd(monkeypatch):
     assert sleeps == []
 
 
-def _fake_chat_client(captured):
+def _fake_chat_client(captured, *, finish_reasons=None):
     class _Message:
         content = "ok"
         tool_calls = None
         reasoning_content = "think"
 
     class _Choice:
-        message = _Message()
+        def __init__(self, finish_reason):
+            self.message = _Message()
+            self.finish_reason = finish_reason
 
     class _Response:
-        choices = [_Choice()]
+        def __init__(self, finish_reason):
+            self.choices = [_Choice(finish_reason)]
+
+    reasons = list(finish_reasons or [None])
+    calls = {"n": 0}
 
     def create(**kwargs):
+        captured.setdefault("calls", []).append(dict(kwargs))
         captured.update(kwargs)
-        return _Response()
+        idx = min(calls["n"], len(reasons) - 1)
+        calls["n"] += 1
+        return _Response(reasons[idx])
 
     client = type("Client", (), {})()
     client.chat = type("Chat", (), {})()
@@ -261,3 +272,44 @@ def test_format_api_error_for_quota():
         ApiQuotaExceeded(quota_exceeded_message(_rate_limit_error("TPD")))
     )
     assert "daily token quota" in message.lower()
+
+
+def test_resolve_max_output_tokens_default(monkeypatch):
+    monkeypatch.delenv("LANGBRIDGE_MAX_OUTPUT_TOKENS", raising=False)
+    monkeypatch.setattr("langbridge_code.settings.DEFAULT_MAX_OUTPUT_TOKENS", 8000)
+    assert resolve_max_output_tokens() == (8000, False)
+
+
+def test_resolve_max_output_tokens_env_override(monkeypatch):
+    monkeypatch.setenv("LANGBRIDGE_MAX_OUTPUT_TOKENS", "12000")
+    assert resolve_max_output_tokens() == (12000, True)
+
+
+def test_hit_max_output_tokens_reasons():
+    assert hit_max_output_tokens({}, "length") is True
+    assert hit_max_output_tokens({"status": "incomplete", "incomplete_details": {"reason": "max_output_tokens"}}) is True
+    assert hit_max_output_tokens({}, "stop") is False
+
+
+def test_create_model_response_sends_max_tokens(monkeypatch):
+    captured = {}
+    _patch_chat_provider(monkeypatch, _fake_chat_client(captured), "moonshot")
+    monkeypatch.delenv("LANGBRIDGE_MAX_OUTPUT_TOKENS", raising=False)
+    monkeypatch.setattr("langbridge_code.settings.DEFAULT_MAX_OUTPUT_TOKENS", 8000)
+
+    create_model_response("key", "kimi-k2.7-code", [{"role": "user", "content": "hi"}])
+
+    assert captured["max_tokens"] == 8000
+
+
+def test_create_model_response_escalates_max_tokens_once(monkeypatch):
+    captured = {}
+    client = _fake_chat_client(captured, finish_reasons=["length", "stop"])
+    _patch_chat_provider(monkeypatch, client, "moonshot")
+    monkeypatch.delenv("LANGBRIDGE_MAX_OUTPUT_TOKENS", raising=False)
+    monkeypatch.setattr("langbridge_code.settings.DEFAULT_MAX_OUTPUT_TOKENS", 8000)
+    monkeypatch.setattr("langbridge_code.settings.ESCALATED_MAX_OUTPUT_TOKENS", 64000)
+
+    create_model_response("key", "kimi-k2.7-code", [{"role": "user", "content": "hi"}])
+
+    assert [call["max_tokens"] for call in captured["calls"]] == [8000, 64000]

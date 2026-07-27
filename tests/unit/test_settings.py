@@ -156,3 +156,32 @@ def test_choose_api_provider_non_interactive_falls_back(monkeypatch, tmp_path):
 def test_artifacts_dir_defaults_under_install_root_per_project():
     expected = settings.INSTALL_ROOT / "artifacts" / settings.WORKSPACE_ROOT.name
     assert settings.ARTIFACTS_DIR == expected
+
+
+def test_set_default_model_persists(monkeypatch, tmp_path):
+    user_cfg = tmp_path / "config.json"
+    user_cfg.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(settings, "USER_CONFIG_PATH", user_cfg)
+    monkeypatch.delenv("LANGBRIDGE_MODEL", raising=False)
+    try:
+        assert settings.set_default_model("picked-model") == "picked-model"
+        saved = json.loads(user_cfg.read_text(encoding="utf-8"))
+        assert saved["model"] == "picked-model"
+        assert settings.DEFAULT_MODEL == "picked-model"
+    finally:
+        monkeypatch.undo()
+        settings._bind(settings.load_config())
+
+
+def test_list_available_models_falls_back_to_config(monkeypatch):
+    monkeypatch.setattr(
+        settings,
+        "list_model_catalog",
+        lambda api_key=None, *, provider=None: [{"id": "cfg-model", "provider": "moonshot"}],
+    )
+    assert settings.list_available_models("sk-test") == ["cfg-model"]
+
+
+def test_infer_provider_for_kimi_k3():
+    assert settings.infer_provider_for_model("kimi-k3") == "moonshot"
+    assert settings.infer_provider_for_model("deepseek-v4-pro") == "deepseek"
