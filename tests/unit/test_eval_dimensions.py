@@ -2,7 +2,7 @@
 import json
 from pathlib import Path
 
-from langbridge_eval import dimensions, telemetry
+from util import dimensions, telemetry
 
 
 def test_static_analysis_defaults_globally():
@@ -159,7 +159,7 @@ def test_telemetry_snapshot_aggregates():
 
 
 def test_record_result_splits_report_and_detail(tmp_path, monkeypatch):
-    from langbridge_eval import metrics
+    from util import metrics
 
     monkeypatch.setenv("LANGBRIDGE_EVAL_RESULTS_DIR", str(tmp_path))
     rows = [

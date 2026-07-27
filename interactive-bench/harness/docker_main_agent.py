@@ -31,6 +31,7 @@ EVAL_PKG_PATH = PROJECT_ROOT / "eval"
 USER_CONFIG = Path.home() / ".langbridge-code" / "config.json"
 
 CONTAINER_SRC = "/opt/langbridge/src"
+CONTAINER_PKG = f"{CONTAINER_SRC}/langbridge_code"
 CONTAINER_EVAL = "/opt/langbridge/eval"
 CONTAINER_REPO = "/work/repo"
 CONTAINER_ARTIFACTS = "/tmp/lb_agent_state"
@@ -329,12 +330,12 @@ class DockerMainAgent:
 
         _container_exec(
             self.container,
-            f"mkdir -p {CONTAINER_SRC} {CONTAINER_EVAL} {CONTAINER_ARTIFACTS} "
+            f"mkdir -p {CONTAINER_PKG} {CONTAINER_EVAL} {CONTAINER_ARTIFACTS} "
             f"{CONTAINER_SESSION} {CONTAINER_IX}",
         )
         for src, dest in (
-            (f"{SRC_PATH}/.", f"{self.container}:{CONTAINER_SRC}"),
-            (f"{EVAL_PKG_PATH}/langbridge_eval", f"{self.container}:{CONTAINER_EVAL}/"),
+            (f"{SRC_PATH}/.", f"{self.container}:{CONTAINER_PKG}"),
+            (f"{EVAL_PKG_PATH}/util", f"{self.container}:{CONTAINER_EVAL}/"),
             (f"{EVAL_PKG_PATH}/prompt", f"{self.container}:{CONTAINER_EVAL}/"),
         ):
             cp = docker(["cp", src, dest])

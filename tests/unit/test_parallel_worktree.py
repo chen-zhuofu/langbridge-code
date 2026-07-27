@@ -70,6 +70,90 @@ def test_failed_worktree_resumes_only_for_same_task_name_and_contract(tmp_path):
     )
 
 
+def test_reconcile_stale_working_marks_interrupted(tmp_path):
+    run_log = tmp_path / "run.json"
+    for name, status in (
+        ("task-1", "merged"),
+        ("task-2", "working"),
+        ("task-3", "ready"),
+    ):
+        worktree_mod.record_branch(
+            run_log,
+            worktree_mod.WorktreeInfo(
+                branch=f"lb/session/{name}",
+                path=tmp_path / name,
+                task_description=f"do {name}",
+                task_name=name,
+            ),
+            status,
+        )
+
+    assert worktree_mod.reconcile_stale_working(run_log) == ["task-2"]
+    statuses = {
+        item["task_name"]: item["status"]
+        for item in worktree_mod.registry_snapshot(run_log)
+    }
+    assert statuses == {"task-1": "merged", "task-2": "interrupted", "task-3": "ready"}
+    # Idempotent: a second reconcile finds nothing stale.
+    assert worktree_mod.reconcile_stale_working(run_log) == []
+
+
+def test_interrupted_worktree_is_resumable(tmp_path):
+    run_log = tmp_path / "run.json"
+    worktree = tmp_path / "wt"
+    worktree.mkdir()
+    info = worktree_mod.WorktreeInfo(
+        branch="lb/session/task-2-levels",
+        path=worktree,
+        task_description="Build levels.js",
+        task_name="task-2-levels",
+        base_commit="abc123",
+    )
+    worktree_mod.record_branch(run_log, info, "working")
+    worktree_mod.reconcile_stale_working(run_log)
+
+    resumed = worktree_mod.resumable_worktree(
+        run_log,
+        task_name="task-2-levels",
+        task_description="Build levels.js",
+    )
+    assert resumed == info
+
+
+def test_build_subagent_state_empty_when_nothing_to_report():
+    assert worktree_mod.build_subagent_state([], []) == ""
+
+
+def test_build_subagent_state_lists_running_and_registry():
+    pending = [
+        {
+            "call": {
+                "name": "agent_worker",
+                "call_id": "c1",
+                "arguments": '{"task_name":"task-5-map"}',
+            },
+            "running_for_s": 125,
+        }
+    ]
+    registry = [
+        {"task_name": "task-3-sprites", "status": "ready"},
+        {"task_name": "task-2-levels", "status": "interrupted"},
+    ]
+    text = worktree_mod.build_subagent_state(pending, registry)
+    assert "RUNNING: agent_worker 'task-5-map' (elapsed 2m05s)" in text
+    assert "task-3-sprites [ready]" in text
+    assert "merge it with merge_branch" in text
+    assert "task-2-levels [interrupted]" in text
+    assert "re-dispatch" in text
+
+
+def test_build_subagent_state_says_nothing_running_when_runner_idle():
+    registry = [{"task_name": "task-2-levels", "status": "interrupted"}]
+    text = worktree_mod.build_subagent_state([], registry)
+    assert "No subagent is running in this process right now." in text
+    assert "Never infer that a task is still running" in text
+
+
 def test_create_worktree_in_git_repo(tmp_path):
     repo = tmp_path / "repo"
     repo.mkdir()

@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-PIPELINE = Path(__file__).resolve().parents[2] / "data-pipeline"
+PIPELINE = Path(__file__).resolve().parents[2] / "eval" / "data" / "data-pipeline"
 sys.path.insert(0, str(PIPELINE))
 
 import run_pipeline as rp  # noqa: E402

@@ -1,5 +1,5 @@
 """Tests for eval run_agent task wrapping."""
-from langbridge_eval.run_agent import wrap_issue_as_task
+from run_agent import wrap_issue_as_task
 
 
 def test_wrap_issue_as_task_requires_code_changes():

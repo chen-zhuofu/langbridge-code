@@ -3,7 +3,7 @@ from pathlib import Path
 
 
 def test_grade_checkout_writes_json(tmp_path, monkeypatch):
-    from langbridge_eval import grade_checkout
+    import grade_checkout
 
     repo = tmp_path / "repo"
     repo.mkdir()
@@ -11,19 +11,19 @@ def test_grade_checkout_writes_json(tmp_path, monkeypatch):
     (repo / ".refvenv" / "bin" / "python").write_text("#!/bin/true\n", encoding="utf-8")
 
     monkeypatch.setattr(
-        "langbridge_eval.ref_helpers.apply_patch",
+        "util.ref_helpers.apply_patch",
         lambda repo_dir, patch_text: (True, ""),
     )
     monkeypatch.setattr(
-        "langbridge_eval.ref_helpers.run_pytest",
+        "util.ref_helpers.run_pytest",
         lambda py, repo_dir, test_files, timeout: {test_files[0]: "PASSED"},
     )
     monkeypatch.setattr(
-        "langbridge_eval.dimensions.static_baseline",
+        "util.dimensions.static_baseline",
         lambda repo_dir, spec, changed_files: {},
     )
     monkeypatch.setattr(
-        "langbridge_eval.dimensions.score_static_analysis",
+        "util.dimensions.score_static_analysis",
         lambda repo_dir, spec, changed_files, baseline: {"score": 1.0, "skipped": False},
     )
 

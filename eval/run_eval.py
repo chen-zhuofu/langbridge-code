@@ -1,19 +1,18 @@
 """Parallel Docker runner for langbridge-bench eval.
 
 Each task runs in its dedicated pipeline image ``lb-task:<task_id>`` (repo +
-``.refvenv`` already baked in by ``data-pipeline/env``). The host copies in
+``.refvenv`` already baked in by ``eval/data/data-pipeline/env``). The host copies in
 LangBridge source, runs main-agent e2e, then grades in-container. Artifacts
 land under ``artifacts/evals/<run_id>/``.
 
   uv run python eval/run_eval.py --workers 4 --limit 5
-  uv run python eval/run_eval.py --bench-dir data/swe-bench/lite --limit 10
   uv run python eval/run_eval.py --rebuild-image --task <id>
 
 On a TTY, stderr shows a live multi-task progress board (phase + bar per
 task). Use ``--no-progress`` to fall back to one-line-per-finished-task logs.
 
 Requires Docker (user in the ``docker`` group, or wrap with ``sg docker -c``).
-Task images must exist (or rebuildable from ``data/langbridge-bench/docker-images/<id>/``).
+Task images must exist (or rebuildable from ``eval/data/langbridge-bench/docker-images/<id>/``).
 """
 
 from __future__ import annotations
@@ -31,13 +30,21 @@ import time
 from pathlib import Path
 
 from langbridge_code.settings import EVAL_LAYER_TIMEOUT_SECONDS, GRADE_TIMEOUT_SECONDS, load_api_key
-from langbridge_eval import langbridge_bench, metrics
-from langbridge_eval.bench import strip_eval_noise, split_diff
+from util import langbridge_bench, metrics
+from util.bench import strip_eval_noise, split_diff
+from sandbox.docker import container_exec, docker, image_exists, write_and_copy_script
+from sandbox.network import (
+    EVAL_NETWORK,
+    PROXY_NAME,
+    PROXY_URL,
+    ensure_egress_guard,
+    verify_network_lockdown,
+)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SRC_PATH = PROJECT_ROOT / "src"
-EVAL_PKG_PATH = PROJECT_ROOT / "eval"  # parent of langbridge_eval package
-DEFAULT_BENCH_DIR = PROJECT_ROOT / "data" / "langbridge-bench"
+EVAL_PKG_PATH = PROJECT_ROOT / "eval"
+DEFAULT_BENCH_DIR = PROJECT_ROOT / "eval" / "data" / "langbridge-bench"
 DOCKERFILE = Path(__file__).resolve().parent / "Dockerfile"
 SPECS_DIR = DEFAULT_BENCH_DIR / "specs"
 DOCKER_IMAGES_DIR = DEFAULT_BENCH_DIR / "docker-images"
@@ -46,27 +53,16 @@ DEFAULT_BASE_IMAGE = "langbridge-bench:py312"
 BASE_IMAGE = os.environ.get("LANGBENCH_DOCKER_IMAGE", DEFAULT_BASE_IMAGE)
 TASK_IMAGE_PREFIX = "lb-task"
 CONTAINER_SRC = "/opt/langbridge/src"
+CONTAINER_PKG = f"{CONTAINER_SRC}/langbridge_code"
 CONTAINER_EVAL = "/opt/langbridge/eval"
-CONTAINER_BENCH = CONTAINER_EVAL  # Dockerfile / proxy live at eval/ root
+CONTAINER_BENCH = CONTAINER_EVAL
 CONTAINER_REPO = "/work/repo"
 CONTAINER_ARTIFACTS = "/tmp/lb_agent_state"
 CONTAINER_SESSION_ARTIFACTS = "/root/lb_session_artifacts"
 CONTAINER_GRADE_DIR = "/tmp/lb_grade"
 CONTAINER_PYTHONPATH = f"{CONTAINER_SRC}:{CONTAINER_EVAL}"
-# Task images put .refvenv/bin first on PATH (for the agent), so harness
-# processes inside task containers must pin the system interpreter explicitly.
 HARNESS_PYTHON = "/usr/local/bin/python3"
 DEFAULT_OUT = PROJECT_ROOT / "artifacts" / "evals"
-
-# Egress lockdown (no sudo needed, auto-provisioned per run): agent containers
-# run on an --internal Docker network (no route to the outside). Their only
-# egress is the lb-eval-proxy container (attached to both this network and the
-# default bridge), a CONNECT proxy that allows the LLM API host only.
-EVAL_NETWORK = "lb-eval-net"
-PROXY_NAME = "lb-eval-proxy"
-PROXY_PORT = 3128
-PROXY_URL = f"http://{PROXY_NAME}:{PROXY_PORT}"
-PROXY_SCRIPT = Path(__file__).resolve().parent / "egress_proxy.py"
 
 # Pipeline stage → approximate progress fill for the live board.
 _PHASE_FRAC = {
@@ -257,12 +253,8 @@ class EvalProgress:
             self._render()
 
 
-def docker(args, **kwargs):
-    return subprocess.run(["docker", *args], capture_output=True, text=True, **kwargs)
 
 
-def image_exists(image: str) -> bool:
-    return docker(["image", "inspect", image]).returncode == 0
 
 
 def task_image_tag(spec: dict) -> str:
@@ -300,9 +292,7 @@ def ensure_task_image(spec: dict, *, rebuild: bool = False) -> str:
     if not dockerfile.is_file():
         raise RuntimeError(
             f"missing task image {tag} and no Dockerfile at {dockerfile}. "
-            f"For langbridge-bench tasks run data-pipeline/env; "
-            f"for SWE-bench adapters run eval/import_to_langbridge.py "
-            f"then pass --bench-dir data/swe-bench/<lite|verified|pro>"
+            f"For langbridge-bench tasks run eval/data/data-pipeline/env."
         )
     text = dockerfile.read_text(encoding="utf-8")
     if "langbridge-bench:py312" in text:
@@ -317,19 +307,6 @@ def ensure_task_image(spec: dict, *, rebuild: bool = False) -> str:
     return tag
 
 
-def container_exec(name, command, env=None, timeout=None, workdir=None):
-    args = ["exec"]
-    if workdir:
-        args += ["-w", workdir]
-    for key, value in (env or {}).items():
-        args += ["-e", f"{key}={value}"]
-    args += [name, "bash", "-lc", command]
-    return subprocess.run(
-        ["docker", *args],
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-    )
 
 
 def bootstrap_container(container):
@@ -344,18 +321,9 @@ command -v uv >/dev/null
 python -c "import httpx, openai, numpy, prompt_toolkit, textual, pytest"
 echo "bootstrap ok: $(uv --version) git=$(git --version) gcc=$(gcc --version | head -1)"
 """
-    return _write_and_copy_script(container, script, "/tmp/lb_bootstrap.sh", timeout=60)
+    return write_and_copy_script(container, script, "/tmp/lb_bootstrap.sh", timeout=60)
 
 
-def _write_and_copy_script(container, script_text, remote_path, timeout=None):
-    with tempfile.NamedTemporaryFile("w", suffix=".sh", delete=False) as handle:
-        handle.write(script_text)
-        local_path = handle.name
-    try:
-        docker(["cp", local_path, f"{container}:{remote_path}"])
-        return container_exec(container, f"bash {remote_path}", timeout=timeout)
-    finally:
-        os.unlink(local_path)
 
 
 def prepare_task_workspace(container, spec):
@@ -372,7 +340,7 @@ git clean -fdq -e .refvenv -e .langbridge
 .refvenv/bin/python -c "import pytest"
 echo "task workspace ready at {CONTAINER_REPO}"
 """
-    return _write_and_copy_script(container, script, "/tmp/lb_prepare_task.sh", timeout=120)
+    return write_and_copy_script(container, script, "/tmp/lb_prepare_task.sh", timeout=120)
 
 
 def run_agent(container, spec, api_env, model, timeout):
@@ -394,7 +362,7 @@ def run_agent(container, spec, api_env, model, timeout):
     log_path = "/tmp/lb_agent_run.log"
     cmd = (
         f"mkdir -p {CONTAINER_SESSION_ARTIFACTS} {CONTAINER_ARTIFACTS} && "
-        f"{HARNESS_PYTHON} -u -m langbridge_eval.run_agent "
+        f"{HARNESS_PYTHON} -u -m run_agent "
         f">{log_path} 2>&1; ec=$?; cat {log_path}; exit $ec"
     )
     try:
@@ -413,8 +381,8 @@ def run_agent(container, spec, api_env, model, timeout):
 
 
 def capture_diff(container, spec=None):
-    from langbridge_eval.bench import DIFF_EXCLUDE_PATHSPECS
-    from langbridge_eval.langbridge_bench import _strip_test_hunks
+    from util.bench import DIFF_EXCLUDE_PATHSPECS
+    from util.langbridge_bench import _strip_test_hunks
 
     excludes = " ".join(f"'{p}'" for p in DIFF_EXCLUDE_PATHSPECS)
     base = (spec or {}).get("base_commit") or "HEAD"
@@ -476,7 +444,7 @@ def grade_in_container(container, spec, candidate_diff, grade_timeout):
 
     env = {"PYTHONPATH": CONTAINER_PYTHONPATH}
     cmd = (
-        f"{HARNESS_PYTHON} -m langbridge_eval.grade_checkout "
+        f"{HARNESS_PYTHON} -m grade_checkout "
         f"--spec {CONTAINER_GRADE_DIR}/spec.json "
         f"--diff {CONTAINER_GRADE_DIR}/candidate.diff "
         f"--out {CONTAINER_GRADE_DIR}/grade.json "
@@ -500,91 +468,6 @@ def grade_in_container(container, spec, candidate_diff, grade_timeout):
                 "log": grade_log[-2000:],
             }
     return graded
-
-
-def _active_api_host():
-    from urllib.parse import urlparse
-
-    from langbridge_code.settings import API_BASE_URL
-
-    host = urlparse(API_BASE_URL).hostname or ""
-    if not host:
-        sys.exit("Cannot determine LLM API host from settings.API_BASE_URL.")
-    return host
-
-
-def _ensure_internal_network():
-    """Create the --internal eval network; recreate if a non-internal one exists."""
-    inspect = docker(["network", "inspect", "-f", "{{.Internal}}", EVAL_NETWORK])
-    if inspect.returncode == 0:
-        if (inspect.stdout or "").strip() == "true":
-            return
-        removed = docker(["network", "rm", EVAL_NETWORK])
-        if removed.returncode != 0:
-            sys.exit(
-                f"Docker network {EVAL_NETWORK!r} exists but is not internal, and "
-                f"could not be removed (containers attached?): {removed.stderr.strip()}"
-            )
-    created = docker(["network", "create", "--internal", EVAL_NETWORK])
-    if created.returncode != 0:
-        sys.exit(f"docker network create {EVAL_NETWORK} failed: {created.stderr.strip()}")
-
-
-def ensure_egress_guard(image):
-    """Start the allowlist proxy; return docker args for agent containers.
-
-    The proxy container joins both the internal network (reachable by agents)
-    and the default bridge (has internet). Everything is provisioned with
-    plain docker commands — no root/iptables on the host.
-    """
-    api_host = _active_api_host()
-    _ensure_internal_network()
-
-    docker(["rm", "-f", PROXY_NAME])
-    created = docker(
-        ["create", "--name", PROXY_NAME, "--restart", "unless-stopped",
-         "-e", f"ALLOWED_HOSTS={api_host}", "-e", f"PORT={PROXY_PORT}",
-         image, "python3", "-u", "/egress_proxy.py"]
-    )
-    if created.returncode != 0:
-        sys.exit(f"docker create {PROXY_NAME} failed: {created.stderr.strip()}")
-    copied = docker(["cp", str(PROXY_SCRIPT), f"{PROXY_NAME}:/egress_proxy.py"])
-    if copied.returncode != 0:
-        sys.exit(f"docker cp egress_proxy.py failed: {copied.stderr.strip()}")
-    connected = docker(["network", "connect", EVAL_NETWORK, PROXY_NAME])
-    if connected.returncode != 0:
-        sys.exit(f"docker network connect failed: {connected.stderr.strip()}")
-    started = docker(["start", PROXY_NAME])
-    if started.returncode != 0:
-        sys.exit(f"docker start {PROXY_NAME} failed: {started.stderr.strip()}")
-
-    return ["--network", EVAL_NETWORK], api_host
-
-
-def verify_network_lockdown(image, net_args, api_host):
-    """Canary from the agent network: API via proxy works, everything else doesn't."""
-
-    def probe(cmd):
-        return docker(["run", "--rm", *net_args, image, "bash", "-c", cmd]).returncode == 0
-
-    if probe("timeout 5 bash -c '</dev/tcp/github.com/443'"):
-        sys.exit(
-            f"Network guard check failed: direct github.com:443 IS reachable from "
-            f"{EVAL_NETWORK} — the network is not internal."
-        )
-    if not probe(
-        f"curl -s -o /dev/null --connect-timeout 8 -x {PROXY_URL} https://{api_host}/"
-    ):
-        sys.exit(
-            f"Network guard check failed: {api_host} unreachable via {PROXY_NAME}.\n"
-            f"Check: docker logs {PROXY_NAME}"
-        )
-    if probe(
-        f"curl -s -o /dev/null --connect-timeout 8 -x {PROXY_URL} https://github.com/"
-    ):
-        sys.exit(
-            f"Network guard check failed: proxy tunnelled github.com — allowlist broken."
-        )
 
 
 def run_one_spec(spec, artifacts_root, api_env, model, timeout, grade_timeout, progress=None, net_args=()):
@@ -646,23 +529,19 @@ def run_one_spec(spec, artifacts_root, api_env, model, timeout, grade_timeout, p
 
         container_exec(
             container,
-            f"mkdir -p {CONTAINER_SRC} {CONTAINER_EVAL} {CONTAINER_BENCH} "
+            f"mkdir -p {CONTAINER_PKG} {CONTAINER_EVAL} {CONTAINER_BENCH} "
             f"{CONTAINER_ARTIFACTS} {CONTAINER_SESSION_ARTIFACTS}",
         )
-        copy = docker(["cp", f"{SRC_PATH}/.", f"{container}:{CONTAINER_SRC}"])
+        copy = docker(["cp", f"{SRC_PATH}/.", f"{container}:{CONTAINER_PKG}"])
         if copy.returncode != 0:
             raise RuntimeError(f"docker cp src failed: {copy.stderr.strip()}")
-        copy_eval = docker(
-            ["cp", f"{EVAL_PKG_PATH}/langbridge_eval", f"{container}:{CONTAINER_EVAL}/"]
-        )
-        if copy_eval.returncode != 0:
-            raise RuntimeError(f"docker cp langbridge_eval failed: {copy_eval.stderr.strip()}")
-        # run_agent loads eval/prompt/task.py next to langbridge_eval.
-        copy_prompt = docker(
-            ["cp", f"{EVAL_PKG_PATH}/prompt", f"{container}:{CONTAINER_EVAL}/"]
-        )
-        if copy_prompt.returncode != 0:
-            raise RuntimeError(f"docker cp eval/prompt failed: {copy_prompt.stderr.strip()}")
+        for name in ("util", "prompt", "run_agent.py", "grade_checkout.py"):
+            src = EVAL_PKG_PATH / name
+            copy_eval = docker(["cp", str(src), f"{container}:{CONTAINER_EVAL}/"])
+            if copy_eval.returncode != 0:
+                raise RuntimeError(
+                    f"docker cp {name} failed: {(copy_eval.stderr or '').strip()}"
+                )
 
         phase("setup", image)
         setup = prepare_task_workspace(container, spec)
@@ -800,8 +679,7 @@ def main():
         type=Path,
         default=None,
         help="Bench data root containing specs/ and docker-images/ "
-        "(default: data/langbridge-bench). "
-        "Examples: data/langbridge-bench, data/swe-bench/lite",
+        "(default: eval/data/langbridge-bench).",
     )
     parser.add_argument(
         "--rebuild-image",

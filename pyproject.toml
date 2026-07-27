@@ -13,12 +13,12 @@ dependencies = [
 [project.scripts]
 langbridge-code = "langbridge_code.main:main"
 
+# Package discovery lives in setup.py (flat src/ → import name langbridge_code).
 [tool.setuptools]
-package-dir = {"" = "src", "langbridge_eval" = "eval/langbridge_eval"}
+include-package-data = true
 
-[tool.setuptools.packages.find]
-where = ["src", "eval"]
-include = ["langbridge_code*", "langbridge_eval*"]
+[tool.pytest.ini_options]
+pythonpath = ["eval"]
 
 [build-system]
 requires = ["setuptools>=69"]

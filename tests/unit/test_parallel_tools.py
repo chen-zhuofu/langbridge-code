@@ -81,6 +81,32 @@ def test_partition_unparseable_arguments_fail_closed():
     assert not batches[0].concurrency_safe
 
 
+def test_pending_calls_reports_live_work_then_empties():
+    release = threading.Event()
+
+    def run_fn(call):
+        release.wait(timeout=2)
+        return {"call_id": call["call_id"], "output": "done"}
+
+    call = {
+        "name": "agent_worker",
+        "call_id": "w1",
+        "arguments": '{"task_name":"task-1"}',
+    }
+    with CompletionDrivenToolRunner(run_fn, max_workers=1) as runner:
+        runner.submit([call])
+        pending = runner.pending_calls()
+        assert len(pending) == 1
+        assert pending[0]["call"]["call_id"] == "w1"
+        assert pending[0]["running_for_s"] >= 0
+
+        release.set()
+        completed = runner.drain_completed(wait_for_one=True)
+        assert [item.call["call_id"] for item in completed] == ["w1"]
+        assert runner.pending_calls() == []
+        assert not runner.has_pending()
+
+
 def test_run_tool_calls_preserves_order():
     started = []
     lock = threading.Lock()
@@ -335,7 +361,7 @@ def test_completion_runner_wait_is_interruptible():
 
 def test_background_thread_records_eval_telemetry():
     """Worker-pool threads must see the parent telemetry collector."""
-    from langbridge_eval import telemetry
+    from util import telemetry
 
     thread_ids = []
 
@@ -370,7 +396,7 @@ def test_background_thread_records_eval_telemetry():
 
 
 def test_eval_tool_timing_records_all_arguments():
-    from langbridge_eval import telemetry
+    from util import telemetry
 
     def run_fn(call):
         return {

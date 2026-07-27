@@ -309,6 +309,126 @@ def test_main_agent_handles_first_worker_result_while_another_runs(tmp_path, mon
     assert model_round == 3
 
 
+def test_session_init_reconciles_stale_working_registry(tmp_path):
+    from langbridge_code.agents.common import worktree as worktree_mod
+
+    run_log = tmp_path / "run.json"
+    worktree_mod.record_branch(
+        run_log,
+        worktree_mod.WorktreeInfo(
+            branch="lb/session/task-2-levels",
+            path=tmp_path / "task-2-levels",
+            task_description="Build levels.js",
+            task_name="task-2-levels",
+        ),
+        "working",
+    )
+    worktree_mod.record_branch(
+        run_log,
+        worktree_mod.WorktreeInfo(
+            branch="lb/session/task-3-sprites",
+            path=tmp_path / "task-3-sprites",
+            task_description="Build sprites.js",
+            task_name="task-3-sprites",
+        ),
+        "ready",
+    )
+
+    session = MainAgentSession(
+        "key", "model", [{"role": "system", "content": "sys"}], run_log, 1
+    )
+
+    statuses = {
+        item["task_name"]: item["status"]
+        for item in worktree_mod.registry_snapshot(run_log)
+    }
+    assert statuses == {"task-2-levels": "interrupted", "task-3-sprites": "ready"}
+    block = session.context.stack.subagent_state_block
+    assert "No subagent is running in this process right now." in block
+    assert "task-2-levels [interrupted]" in block
+    assert "task-3-sprites [ready]" in block
+
+
+def test_subagent_state_block_shows_running_worker_during_send(tmp_path, monkeypatch):
+    run_log = tmp_path / "run.json"
+    release_slow = threading.Event()
+    model_round = 0
+
+    monkeypatch.setattr("langbridge_code.agents.main_agent.emit_phase", lambda *a, **k: None)
+    monkeypatch.setattr("langbridge_code.agents.main_agent.write_worklog_received", lambda *a, **k: None)
+    monkeypatch.setattr("langbridge_code.agents.main_agent.write_worklog_finish", lambda *a, **k: None)
+    monkeypatch.setattr("langbridge_code.agents.main_agent.write_worklog_observation", lambda *a, **k: None)
+
+    def fake_response(*args, **kwargs):
+        nonlocal model_round
+        model_round += 1
+        current_messages = kwargs.get("messages") or args[2]
+        rendered = str(current_messages)
+        if model_round == 1:
+            assert "<subagent_state>" not in rendered
+            return {
+                "output": [
+                    {
+                        "type": "function_call",
+                        "name": "agent_worker",
+                        "call_id": "slow",
+                        "arguments": '{"description":"slow","task_name":"task-slow"}',
+                    },
+                    {
+                        "type": "function_call",
+                        "name": "bash",
+                        "call_id": "quick",
+                        "arguments": '{"command":"true"}',
+                    },
+                ]
+            }
+        if model_round == 2:
+            # The worker is still pending: the live block must say RUNNING.
+            assert "<subagent_state>" in rendered
+            assert "RUNNING: agent_worker 'task-slow'" in rendered
+            release_slow.set()
+            return {
+                "output": [
+                    {
+                        "type": "message",
+                        "content": [{"type": "output_text", "text": "Waiting."}],
+                    }
+                ]
+            }
+        # After the worker completed, no RUNNING line remains.
+        assert "RUNNING: agent_worker" not in rendered
+        return {
+            "output": [
+                {
+                    "type": "message",
+                    "content": [{"type": "output_text", "text": "Done."}],
+                }
+            ]
+        }
+
+    monkeypatch.setattr("langbridge_code.agents.main_agent.create_model_response", fake_response)
+    session = MainAgentSession(
+        "key", "model", [{"role": "system", "content": "sys"}], run_log, 1, target="go"
+    )
+    session._context_blocks_ready = True
+
+    def fake_run_tool(call):
+        if call["call_id"] == "slow":
+            release_slow.wait(timeout=2)
+        return {
+            "type": "function_call_output",
+            "call_id": call["call_id"],
+            "output": f"{call['call_id']} result",
+        }
+
+    session._run_tool = fake_run_tool
+    assert session.send("go") == "Done."
+    assert model_round == 3
+    # send() finished: the block must not claim anything is running.
+    block = session.context.stack.subagent_state_block
+    assert block is None or "RUNNING" not in block
+
+
 def test_main_agent_session_injects_session_context(monkeypatch, tmp_path):
     run_log = tmp_path / "session-demo"
     run_log.mkdir()

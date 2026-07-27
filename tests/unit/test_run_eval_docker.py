@@ -9,7 +9,7 @@ pytest.importorskip("datasets")
 pytest.importorskip("swebench")
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-MODULE_PATH = PROJECT_ROOT / "evals" / "swe-bench" / "run_eval_docker.py"
+MODULE_PATH = PROJECT_ROOT / "eval" / "run_public_eval.py"
 SPEC = importlib.util.spec_from_file_location("run_eval_docker", MODULE_PATH)
 docker_eval = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None

@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-_PIPELINE = Path(__file__).resolve().parents[2] / "data-pipeline"
+_PIPELINE = Path(__file__).resolve().parents[2] / "eval" / "data" / "data-pipeline"
 _CURATE = _PIPELINE / "curate"
 for _path in (_PIPELINE, _CURATE):
     if str(_path) not in sys.path:

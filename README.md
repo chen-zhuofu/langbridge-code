@@ -32,7 +32,7 @@ override the runtime location.
 ## Eval (langbridge-bench)
 
 Public e2e runs the full main agent in Docker — one container per task
-(agent + in-container grade) over specs in `data/langbridge-bench/specs/`:
+(agent + in-container grade) over specs in `eval/data/langbridge-bench/specs/`:
 
 ```bash
 uv run python eval/run_eval.py --workers 4 --limit 5
@@ -120,7 +120,7 @@ writes, and writes inside protected state directories.
 On-demand skills: specialists see a catalog of playbooks in their prompt and can
 call `read_skill(name)` to load one. Bundled skills include Karpathy guidelines
 and vendored [Superpowers](https://github.com/obra/superpowers) under
-`src/langbridge_code/skills/_external/superpowers/`.
+`src/skills/_external/superpowers/`.
 
 Each tool call includes a required `description` field: a short, user-visible sentence
 explaining why the agent is calling that tool. It feeds the live thinking line in the TUI.
@@ -229,38 +229,38 @@ grade with the official harness.
 uv sync --group eval
 
 # Stage 1 — generate predictions (agent inside the official SWE-bench image)
-sg docker -c "uv run python eval/run_swe_docker.py --difficulty lite --count 10"
+sg docker -c "uv run python eval/run_public_eval.py --difficulty verified --count 10"
 
 # Stage 2 — grade (from eval/ so grader logs land under eval/)
 cd eval && uv run python -m swebench.harness.run_evaluation \
-  --dataset_name princeton-nlp/SWE-bench_Lite \
+  --dataset_name princeton-nlp/SWE-bench_Verified \
   --predictions_path out/predictions.jsonl \
-  --max_workers 4 --run_id langbridge-l4-lite
+  --max_workers 4 --run_id langbridge-verified
 ```
 
-Datasets: `lite` (~300), `verified` (500), and `pro` (731 public, hard).
-The two-stage command above is for Lite/Verified. Pro uses the host prediction
-runner and Scale's grading harness; see `eval/README.md`.
+Datasets: `verified` (500) and `pro` (731 public, hard). Lite is not supported.
+Pro uses Scale's grading harness; see `eval/README.md`.
 
-### langbridge-bench (`data-pipeline/` + `data/langbridge-bench/` + `eval/`)
+### langbridge-bench (`eval/data/` + `eval/`)
 
-Self-built benchmark from GitHub PRs. Pipeline under `data-pipeline/`;
-eval-ready specs under `data/langbridge-bench/specs/` (Dockerfiles under
-`data/langbridge-bench/docker-images/`).
+Self-built benchmark from GitHub PRs. Pipeline under
+`eval/data/data-pipeline/`; eval-ready specs under
+`eval/data/langbridge-bench/specs/` (Dockerfiles under
+`eval/data/langbridge-bench/docker-images/`).
 
 ```bash
-uv run python data-pipeline/run_pipeline.py
+uv run python eval/data/data-pipeline/run_pipeline.py
 uv run python eval/run_eval.py --workers 4 --limit 5
 ```
 
-See `data-pipeline/README.md` and `eval/README.md`.
+See `eval/data/data-pipeline/README.md` and `eval/README.md`.
 
 ## Run
 
 ### Models & providers
 
 LangBridge Code is **not tied to a single vendor**. Package defaults in
-`src/langbridge_code/config.json` use **Moonshot Kimi**; OpenAI and DeepSeek are
+`src/config.json` use **Moonshot Kimi**; OpenAI and DeepSeek are
 also built in.
 
 | Provider (`api.provider`) | Default model | API used | API key (env or `api_keys.*`) |
@@ -320,13 +320,13 @@ Environment overrides: `MOONSHOT_API_KEY` / `KIMI_API_KEY` (Kimi),
 `OPENAI_API_KEY` (OpenAI), `DEEPSEEK_API_KEY` (DeepSeek),
 `LANGBRIDGE_API_PROVIDER`, `LANGBRIDGE_MODEL`, and `LANGBRIDGE_API_BASE_URL`.
 
-Copy any section from `src/langbridge_code/config.json` into
+Copy any section from `src/config.json` into
 `~/.langbridge-code/config.json` to override limits, paths, or tool budgets.
 
 ### TypeScript TUI (default)
 
 The TUI is a TypeScript/Ink app (`tui/`) that talks to the Python agent engine
-over a JSONL stdio bridge (`langbridge_code/ui/bridge.py`) — a clean,
+over a JSONL stdio bridge (`src/ui/bridge.py`) — a clean,
 command-driven layout: a welcome banner, a flowing conversation, a multi-line
 prompt, and a status bar.
 

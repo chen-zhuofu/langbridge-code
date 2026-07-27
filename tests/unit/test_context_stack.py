@@ -140,6 +140,35 @@ def test_bootstrap_preserves_trailing_user_message(stack):
     )
 
 
+def test_subagent_state_block_renders_and_refreshes(stack):
+    stack.set_subagent_state_block("- RUNNING: agent_worker 'task-1'")
+    stack.start_turn("go")
+    stack.complete_step(_tool_step("c0", "grep", "one"))
+
+    rendered = [m["content"] for m in stack.to_messages() if m.get("role") == "user"]
+    assert any(
+        c.startswith("<subagent_state>") and "task-1" in c for c in rendered
+    )
+
+    stack.set_subagent_state_block(None)
+    assert not any(
+        str(m.get("content", "")).startswith("<subagent_state>")
+        for m in stack.to_messages()
+    )
+
+
+def test_bootstrap_absorbs_subagent_state_block(stack):
+    messages = [
+        {"role": "system", "content": "system prompt"},
+        {"role": "user", "content": "<subagent_state>\n- No subagent is running\n</subagent_state>"},
+        {"role": "user", "content": "task"},
+        *_tool_step("c0", "grep", "one"),
+    ]
+    stack.bootstrap_from_messages(messages)
+    assert stack.subagent_state_block == "- No subagent is running"
+    assert len(stack.raw_rounds) == 1
+
+
 def test_agent_context_manager_mutates_in_place():
     from langbridge_code.context.agent_context import AgentContextManager
 
