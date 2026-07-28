@@ -265,12 +265,50 @@ def model_for_agent(role, default=None):
     """Model for one agent role (explorer/planner/worker/reviewer).
 
     Resolution: LANGBRIDGE_MODEL env (global override) > per-role entry in the
-    provider's agent_models config > the session default model.
+    active provider's agent_models config > the session default model.
+
+    ``agent_models`` values may name models from another provider (e.g. moonshot
+    main + deepseek-v4-flash explorer); the LLM client routes by model id.
     """
     env = os.environ.get("LANGBRIDGE_MODEL")
     if env:
         return env
     return AGENT_MODELS.get(role) or default or DEFAULT_MODEL
+
+
+def provider_base_url(provider: str, cfg=None) -> str:
+    """Public wrapper: base_url for ``provider`` from config."""
+    return _provider_base_url(provider, cfg)
+
+
+def resolve_provider_api_key(provider: str) -> str | None:
+    """Public wrapper: env/config key for ``provider`` without prompting."""
+    return _resolve_provider_api_key(provider)
+
+
+def resolve_llm_route(model: str | None, api_key: str | None = None) -> dict:
+    """Pick provider / key / base_url for one model call (cross-provider OK).
+
+    Returns ``{"provider", "api_key", "base_url"}``. Prefers the model's own
+    provider credentials; falls back to ``api_key`` (session active key) when
+    that provider has no key configured — useful for tests and single-key setups.
+    """
+    catalog = configured_model_catalog()
+    provider = (
+        infer_provider_for_model(model, catalog=catalog)
+        or active_api_provider()
+    )
+    base_url = _provider_base_url(provider)
+    if not base_url and provider == API_PROVIDER:
+        base_url = API_BASE_URL
+    key = _resolve_provider_api_key(provider)
+    if not key:
+        key = sanitize_api_key(api_key)
+    return {
+        "provider": provider,
+        "api_key": key,
+        "base_url": base_url or "",
+    }
 
 
 # Terminal paste can inject CSI/OSC sequences (e.g. mouse-mode ``\x1b[<…M``)
@@ -381,7 +419,9 @@ def configured_model_catalog(cfg=None) -> list[dict]:
         for role_model in (provider_cfg.get("agent_models") or {}).values():
             cleaned = (role_model or "").strip()
             if cleaned:
-                entries.append({"id": cleaned, "provider": provider})
+                # agent_models may point at another provider (mixed routing).
+                owner = infer_provider_for_model(cleaned) or provider
+                entries.append({"id": cleaned, "provider": owner})
     return _dedupe_model_catalog(entries)
 
 

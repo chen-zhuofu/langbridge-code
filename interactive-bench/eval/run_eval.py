@@ -28,11 +28,21 @@ if str(BENCH) not in sys.path:
 
 from _lib import paths  # noqa: E402
 from _lib.io_util import write_json  # noqa: E402
+from _lib.runtime import eval_timeout_sec  # noqa: E402
 from harness.agent import make_docker_agent, make_stub_agent  # noqa: E402
 from harness.score import score_episode  # noqa: E402
 from harness.sim import run_episode  # noqa: E402
 
 _PRINT_LOCK = threading.Lock()
+
+
+def _e2e_budget_sec(spec: dict) -> int:
+    """Per-task e2e ceiling: max(40m, 2×baseline runtime). Refresh sim.timeout_sec."""
+    runtime = (spec.get("baseline") or {}).get("agent_runtime_sec")
+    budget = int(eval_timeout_sec(runtime))
+    sim = spec.setdefault("sim", {})
+    sim["timeout_sec"] = float(budget)
+    return budget
 
 
 def load_specs(
@@ -54,6 +64,7 @@ def load_specs(
             continue
         if task_id and data.get("task_id") != task_id and path.stem != task_id:
             continue
+        _e2e_budget_sec(data)
         specs.append(data)
     if offset:
         specs = specs[offset:]
@@ -72,14 +83,17 @@ def run_one_spec(
     *,
     out_dir: Path,
     stub: bool,
-    turn_timeout: int,
+    turn_timeout: int | None,
     max_turns: int,
     grade_timeout: int,
     no_grade: bool,
     model: str | None,
 ) -> dict:
     tid = spec["task_id"]
-    _log(f"=== {tid} ===")
+    budget = _e2e_budget_sec(spec)
+    # Default turn budget = e2e ceiling so a single long turn is not cut at 15m.
+    effective_turn = int(turn_timeout) if turn_timeout is not None else budget
+    _log(f"=== {tid} === (e2e={budget}s turn={effective_turn}s)")
     agent_artifacts = out_dir / tid
     agent_artifacts.mkdir(parents=True, exist_ok=True)
     agent = (
@@ -88,7 +102,7 @@ def run_one_spec(
         else make_docker_agent(
             spec,
             artifacts_dir=agent_artifacts,
-            turn_timeout_sec=turn_timeout,
+            turn_timeout_sec=effective_turn,
             model=model,
         )
     )
@@ -150,8 +164,11 @@ def main() -> int:
     parser.add_argument(
         "--turn-timeout",
         type=int,
-        default=900,
-        help="Max seconds per main-agent turn (default 900)",
+        default=None,
+        help=(
+            "Max seconds per main-agent turn. Default: per-task e2e budget "
+            "max(40m, 2×baseline agent runtime)."
+        ),
     )
     parser.add_argument(
         "--max-turns",

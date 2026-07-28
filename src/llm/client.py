@@ -53,14 +53,20 @@ ESCALATED_MAX_TOKENS = 64_000
 _MAX_OUTPUT_HIT_REASONS = frozenset({"length", "max_tokens", "max_output_tokens"})
 
 
-def make_client(api_key):
+def make_client(api_key, *, base_url=None):
+    """Build an OpenAI-compatible client.
+
+    ``base_url`` overrides the active provider default so one process can talk
+    to Moonshot and DeepSeek (or OpenAI) in the same session.
+    """
     kwargs = {
         "api_key": api_key,
         "timeout": settings.API_TIMEOUT_SECONDS,
         "max_retries": settings.API_MAX_RETRIES,
     }
-    if settings.API_BASE_URL:
-        kwargs["base_url"] = settings.API_BASE_URL
+    url = settings.API_BASE_URL if base_url is None else base_url
+    if url:
+        kwargs["base_url"] = url
     return OpenAI(**kwargs)
 
 
@@ -339,13 +345,13 @@ def _is_kimi_k3(model: str | None) -> bool:
     return name == "kimi-k3" or name.startswith("kimi-k3-")
 
 
-def _chat_extra_body(model: str | None = None):
-    provider = settings.API_PROVIDER
-    if provider == "moonshot":
+def _chat_extra_body(model: str | None = None, *, provider: str | None = None):
+    resolved = provider or settings.infer_provider_for_model(model) or settings.API_PROVIDER
+    if resolved == "moonshot":
         if _is_kimi_k3(model):
             return {"reasoning_effort": DEFAULT_KIMI_K3_REASONING_EFFORT}
         return {"thinking": DEFAULT_MOONSHOT_THINKING}
-    if provider == "deepseek":
+    if resolved == "deepseek":
         return {"thinking": DEFAULT_DEEPSEEK_THINKING}
     return None
 
@@ -360,9 +366,20 @@ def create_model_response(
     label="agent",
     stream_sink=None,
 ):
-    """Call the provider LLM. Thinking/reasoning is enabled on every request."""
+    """Call the provider LLM. Thinking/reasoning is enabled on every request.
+
+    Routes by ``model`` id so roles can use another provider than the session
+    default (e.g. kimi main + deepseek-v4-flash explorer).
+    """
     print_llm_request(label, model, agent_input, tool_schemas)
-    client = make_client(api_key)
+    route = settings.resolve_llm_route(model, api_key)
+    if not route.get("api_key"):
+        raise ValueError(
+            f"No API key for provider {route['provider']!r} (model {model!r}). "
+            f"Add it under api_keys.{route['provider']} in ~/.langbridge-code/config.json."
+        )
+    client = make_client(route["api_key"], base_url=route["base_url"] or None)
+    provider = route["provider"]
     max_tokens, env_override = resolve_max_output_tokens()
     default_cap = int(
         getattr(settings, "DEFAULT_MAX_OUTPUT_TOKENS", CAPPED_DEFAULT_MAX_TOKENS)
@@ -374,7 +391,7 @@ def create_model_response(
     last_error = None
     for attempt in range(8):
         try:
-            if uses_responses_api():
+            if uses_responses_api(provider):
                 kwargs = {
                     "model": model,
                     "input": agent_input,
@@ -392,7 +409,7 @@ def create_model_response(
                     "messages": to_chat_messages(agent_input),
                     "max_tokens": max_tokens,
                 }
-                extra_body = _chat_extra_body(model)
+                extra_body = _chat_extra_body(model, provider=provider)
                 if extra_body:
                     kwargs["extra_body"] = extra_body
                 if tool_schemas:

@@ -48,7 +48,7 @@ Reveal is state-conditioned. Turn 0 = first user message verbatim.
 | Condition | Behavior |
 | --- | --- |
 | Consecutive `no-op` | Cap **4**. |
-| Timeout | Original **agent runtime** × **1.5**. |
+| Timeout | ``max(40 minutes, original agent runtime × 2)``. |
 | Sim / intent judge | Must **not** end the episode. |
 
 ## Scoring (vs original session)

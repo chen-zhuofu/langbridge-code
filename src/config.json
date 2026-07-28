@@ -1,7 +1,7 @@
 {
   "model": null,
   "api": {
-    "provider": "moonshot",
+    "provider": "deepseek",
     "providers": {
       "moonshot": {
         "base_url": "https://api.moonshot.ai/v1",

@@ -44,11 +44,14 @@ def _spec(**kwargs):
     return base
 
 
-def test_timeout_is_runtime_times_1_5():
+def test_timeout_is_max_40m_or_2x_runtime():
     assert timeout_sec(_spec()) == 10_000  # explicit sim.timeout_sec wins
     spec = _spec()
     del spec["sim"]["timeout_sec"]
-    assert timeout_sec(spec) == 60.0
+    # baseline 40s → 2×40=80 < 40m floor → 2400
+    assert timeout_sec(spec) == 2400.0
+    spec["baseline"]["agent_runtime_sec"] = 2000
+    assert timeout_sec(spec) == 4000.0
 
 
 def test_episode_stops_after_four_noops():

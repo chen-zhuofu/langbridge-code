@@ -15,6 +15,7 @@ if str(_PIPELINE) not in sys.path:
 
 from intent.prompts import SIM_SYSTEM
 from _lib.llm import chat_json
+from _lib.runtime import eval_timeout_sec
 
 NOOP_MESSAGE = "continue"
 MAX_CONSECUTIVE_NOOPS = 4
@@ -51,14 +52,12 @@ def initial_revealed(intents: list[dict]) -> list[str]:
 
 
 def timeout_sec(spec: dict) -> float | None:
+    """Episode e2e ceiling: explicit sim.timeout_sec, else max(40m, 2×runtime)."""
     sim = spec.get("sim") or {}
     if sim.get("timeout_sec") is not None:
         return float(sim["timeout_sec"])
     baseline = (spec.get("baseline") or {}).get("agent_runtime_sec")
-    if baseline is None:
-        return None
-    return float(baseline) * 1.5
-
+    return eval_timeout_sec(baseline)
 
 def should_stop(state: EpisodeState, spec: dict) -> str | None:
     max_noops = int((spec.get("sim") or {}).get("max_consecutive_noops") or MAX_CONSECUTIVE_NOOPS)

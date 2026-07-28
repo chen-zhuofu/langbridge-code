@@ -142,7 +142,7 @@ def test_enrich_uses_conversation_runtime(tmp_path):
         out = enrich_one(_resolved(instruction=""), data_dir=tmp_path)
     assert out["instruction"] == "Fix foobar checkpoint embedding resume logic"
     assert out["followup_prompts"] == ["Also cover the foobar unit tests"]
-    assert out["agent_runtime_sec"] == 60.0
+    assert out["agent_runtime_sec"] == 30.0
     assert out["difficulty"] == "easy"
 
 
@@ -214,7 +214,7 @@ def test_build_interactive_spec_sim_timeout():
     )
     assert spec["sim"]["noop_message"] == "continue"
     assert spec["sim"]["max_consecutive_noops"] == 4
-    assert spec["sim"]["timeout_sec"] == 150.0
+    assert spec["sim"]["timeout_sec"] == 2400.0
     assert spec["sim"]["session_analysis"] == "be quiet"
     assert spec["fail_to_pass"] == ["t::a"]
     assert spec["test_files"] == ["tests/t.py"]
@@ -277,4 +277,4 @@ def test_curate_writes_spec(tmp_path, monkeypatch):
     assert written.exists()
     spec = json.loads(written.read_text(encoding="utf-8"))
     assert spec["task_id"] == row["task_id"]
-    assert spec["sim"]["timeout_sec"] == 135.0
+    assert spec["sim"]["timeout_sec"] == 2400.0

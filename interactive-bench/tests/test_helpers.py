@@ -55,6 +55,40 @@ diff --git a/tests/t.py b/tests/t.py
     assert changed_paths_from_diff(patch) == ["a.py", "tests/t.py"]
 
 
+def test_code_only_for_grade_drops_agent_test_hunks():
+    from _lib.diff_split import code_only_for_grade
+
+    candidate = """diff --git a/src/app.py b/src/app.py
+--- a/src/app.py
++++ b/src/app.py
+@@ -1 +1 @@
+-old
++new
+diff --git a/tests/test_embedding.py b/tests/test_embedding.py
+--- a/tests/test_embedding.py
++++ b/tests/test_embedding.py
+@@ -1 +1 @@
+-a
++agent_tests
+"""
+    official = """diff --git a/tests/test_embedding.py b/tests/test_embedding.py
+--- a/tests/test_embedding.py
++++ b/tests/test_embedding.py
+@@ -1 +1 @@
+-a
++official_tests
+"""
+    code = code_only_for_grade(
+        candidate,
+        test_patch=official,
+        test_files=["tests/test_embedding.py"],
+    )
+    assert "src/app.py" in code
+    assert "+new" in code
+    assert "test_embedding.py" not in code
+    assert "agent_tests" not in code
+
+
 def test_is_ancestor_api_uses_compare_status():
     with patch(
         "_lib.github._compare",

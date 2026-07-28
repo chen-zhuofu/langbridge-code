@@ -23,6 +23,7 @@ if str(_PIPELINE) not in sys.path:
     sys.path.insert(0, str(_PIPELINE))
 
 from _lib import paths
+from _lib.diff_split import code_only_for_grade
 from _lib.docker_util import docker, image_exists
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -182,6 +183,51 @@ py = Path("/work/repo/.refvenv/bin/python")
 repo = Path("/work/repo")
 PYTEST_LINE_RE = re.compile(r"^(\S+::\S+)\s+(PASSED|FAILED|ERROR)\b")
 
+# Official test_patch is authoritative: never re-apply agent edits to those
+# paths (or any other test-looking file) during grade.
+_TEST_HINTS = ("/tests/", "/test/", "/__tests__/", "/e2e_tests/", "tests/")
+_TEST_NAME_SUFFIXES = (
+    "_test.py", "_test.go", "_test.ts", "_test.tsx", "_test.js", "_test.jsx",
+    ".test.py", ".test.ts", ".test.tsx", ".test.js", ".test.jsx",
+    ".spec.ts", ".spec.tsx", ".spec.js", ".spec.jsx",
+)
+
+def _norm(path: str) -> str:
+    return path.replace("\\", "/").lstrip("./")
+
+def _is_test_path(path: str) -> bool:
+    p = _norm(path)
+    name = Path(p).name.lower()
+    lower = p.lower()
+    if name == "conftest.py":
+        return True
+    if name.startswith("test_") and name.endswith((".py", ".go", ".ts", ".js")):
+        return True
+    if any(name.endswith(suf) for suf in _TEST_NAME_SUFFIXES):
+        return True
+    return any(h in lower for h in _TEST_HINTS)
+
+def _paths_in_patch(patch: str) -> set[str]:
+    out = set()
+    for line in (patch or "").splitlines():
+        if line.startswith("diff --git "):
+            m = re.search(r" b/(\S+)", line)
+            if m:
+                out.add(_norm(m.group(1)))
+    return out
+
+def strip_test_hunks(patch: str) -> str:
+    protected = _paths_in_patch(test_patch) | {_norm(f) for f in test_files if f}
+    out, keep = [], True
+    for line in (patch or "").splitlines(keepends=True):
+        if line.startswith("diff --git "):
+            m = re.search(r" b/(\S+)", line)
+            path = _norm(m.group(1)) if m else ""
+            keep = bool(path) and path not in protected and not _is_test_path(path)
+        if keep:
+            out.append(line)
+    return "".join(out)
+
 def apply(patch: str, label: str) -> None:
     if not (patch or "").strip():
         return
@@ -206,6 +252,7 @@ subprocess.check_call(
     ["git", "clean", "-fdq", "-e", ".refvenv", "-e", ".langbridge"],
     cwd=str(repo),
 )
+diff = strip_test_hunks(diff)
 apply(test_patch, "test_patch")
 apply(diff, "candidate_diff")
 
@@ -236,7 +283,11 @@ print(json.dumps({
 
 
 def _api_env() -> dict[str, str]:
-    from langbridge_code.settings import _PROVIDER_ENV, active_api_provider, load_api_key
+    from langbridge_code.settings import (
+        _PROVIDER_ENV,
+        active_api_provider,
+        resolve_provider_api_key,
+    )
 
     env: dict[str, str] = {}
     for key in (
@@ -254,9 +305,12 @@ def _api_env() -> dict[str, str]:
             env[key] = value
     provider = env.get("LANGBRIDGE_API_PROVIDER") or active_api_provider()
     env["LANGBRIDGE_API_PROVIDER"] = provider
-    env_names = _PROVIDER_ENV.get(provider, ())
-    if env_names and not any(env.get(name) for name in env_names):
-        env[env_names[0]] = load_api_key(provider)
+    for name, env_names in _PROVIDER_ENV.items():
+        if any(env.get(key) for key in env_names):
+            continue
+        key = resolve_provider_api_key(name)
+        if key:
+            env[env_names[0]] = key
     return env
 
 
@@ -434,12 +488,22 @@ class DockerMainAgent:
         self.start()
         if not self.candidate_diff:
             self.capture_diff()
+        # Keep full candidate.diff on disk for debugging; grade only code hunks
+        # so the official test_patch is the sole source of eval tests.
+        graded_diff = code_only_for_grade(
+            self.candidate_diff,
+            test_patch=self.spec.get("test_patch") or "",
+            test_files=list(self.spec.get("test_files") or []),
+        )
+        (self.artifacts_dir / "candidate.code.diff").write_text(
+            graded_diff, encoding="utf-8"
+        )
         with tempfile.TemporaryDirectory(prefix="lb-ix-grade-") as tmp:
             task_path = Path(tmp) / "grade_task.json"
             diff_path = Path(tmp) / "candidate.diff"
             script = Path(tmp) / "grade_runner.py"
             task_path.write_text(json.dumps(self.spec), encoding="utf-8")
-            diff_path.write_text(self.candidate_diff, encoding="utf-8")
+            diff_path.write_text(graded_diff, encoding="utf-8")
             script.write_text(_GRADE_SCRIPT, encoding="utf-8")
             docker(["cp", str(task_path), f"{self.container}:{CONTAINER_IX}/grade_task.json"])
             docker(["cp", str(diff_path), f"{self.container}:{CONTAINER_IX}/candidate.diff"])

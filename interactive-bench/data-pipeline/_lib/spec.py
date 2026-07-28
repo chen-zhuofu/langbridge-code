@@ -4,12 +4,14 @@ from __future__ import annotations
 from typing import Any
 
 from . import paths
+from .runtime import eval_timeout_sec
 
 
 def build_interactive_spec(inst: dict[str, Any]) -> dict[str, Any]:
     """Normalize a resolved/enriched instance into an eval-facing spec dict."""
     task_id = inst.get("task_id") or inst["session_id"]
     intents = inst.get("intents") or []
+    runtime = inst.get("agent_runtime_sec")
     spec: dict[str, Any] = {
         "task_id": task_id,
         "source": "swe-chat",
@@ -21,18 +23,14 @@ def build_interactive_spec(inst: dict[str, Any]) -> dict[str, Any]:
         "intents": list(intents),
         "baseline": {
             "prompt_count": inst.get("prompt_count"),
-            "agent_runtime_sec": inst.get("agent_runtime_sec"),
+            "agent_runtime_sec": runtime,
             "user_persona": inst.get("user_persona"),
         },
         "sim": {
             "actions": ["no-op", "steer", "reveal_next", "answer"],
             "noop_message": "continue",
             "max_consecutive_noops": 4,
-            "timeout_sec": (
-                None
-                if inst.get("agent_runtime_sec") is None
-                else float(inst["agent_runtime_sec"]) * 1.5
-            ),
+            "timeout_sec": eval_timeout_sec(runtime),
             "session_analysis": inst.get("session_analysis") or "",
         },
         "fail_to_pass": list(inst.get("fail_to_pass") or inst.get("FAIL_TO_PASS") or []),

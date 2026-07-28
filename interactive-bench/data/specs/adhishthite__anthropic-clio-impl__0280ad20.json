@@ -34,7 +34,7 @@
     ],
     "noop_message": "continue",
     "max_consecutive_noops": 4,
-    "timeout_sec": 4551.835500000008,
+    "timeout_sec": 6069.1140000000105,
     "session_analysis": "Both upload-limit and embedding-checkpoint work are in scope from the start. Stay silent while the agent makes progress. Steer if it drifts to unrelated refactors."
   },
   "fail_to_pass": [

@@ -29,7 +29,7 @@ import threading
 import time
 from pathlib import Path
 
-from langbridge_code.settings import EVAL_LAYER_TIMEOUT_SECONDS, GRADE_TIMEOUT_SECONDS, load_api_key
+from langbridge_code.settings import EVAL_LAYER_TIMEOUT_SECONDS, GRADE_TIMEOUT_SECONDS
 from util import langbridge_bench, metrics
 from util.bench import strip_eval_noise, split_diff
 from sandbox.docker import container_exec, docker, image_exists, write_and_copy_script
@@ -621,8 +621,16 @@ def run_one_spec(spec, artifacts_root, api_env, model, timeout, grade_timeout, p
 
 
 def _api_env():
-    """Pass provider + matching API key into the container."""
-    from langbridge_code.settings import _PROVIDER_ENV, active_api_provider
+    """Pass provider + all available API keys into the container.
+
+    Mixed-model sessions may call more than one provider (e.g. moonshot main +
+    deepseek explorer), so every configured key is forwarded.
+    """
+    from langbridge_code.settings import (
+        _PROVIDER_ENV,
+        active_api_provider,
+        resolve_provider_api_key,
+    )
 
     env = {}
     for key in (
@@ -640,9 +648,12 @@ def _api_env():
     provider = env.get("LANGBRIDGE_API_PROVIDER") or active_api_provider()
     env["LANGBRIDGE_API_PROVIDER"] = provider
 
-    env_names = _PROVIDER_ENV.get(provider, ())
-    if env_names and not any(env.get(name) for name in env_names):
-        env[env_names[0]] = load_api_key(provider)
+    for name, env_names in _PROVIDER_ENV.items():
+        if any(env.get(key) for key in env_names):
+            continue
+        key = resolve_provider_api_key(name)
+        if key:
+            env[env_names[0]] = key
     return env
 
 

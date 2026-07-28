@@ -205,3 +205,117 @@ def test_list_model_catalog_uses_config_only(monkeypatch):
 def test_infer_provider_for_kimi_k3():
     assert settings.infer_provider_for_model("kimi-k3") == "moonshot"
     assert settings.infer_provider_for_model("deepseek-v4-pro") == "deepseek"
+
+
+def test_configured_model_catalog_owns_cross_provider_agent_models(monkeypatch):
+    cfg = {
+        "api": {
+            "provider": "moonshot",
+            "providers": {
+                "moonshot": {
+                    "model": "kimi-k2.7-code",
+                    "agent_models": {"explorer": "deepseek-v4-flash"},
+                },
+                "deepseek": {"model": "deepseek-v4-pro"},
+            },
+        }
+    }
+    monkeypatch.setattr(settings, "active_api_provider", lambda: "moonshot")
+    catalog = settings.configured_model_catalog(cfg)
+    by_id = {e["id"]: e["provider"] for e in catalog}
+    assert by_id["kimi-k2.7-code"] == "moonshot"
+    assert by_id["deepseek-v4-flash"] == "deepseek"
+    assert by_id["deepseek-v4-pro"] == "deepseek"
+
+
+def test_resolve_llm_route_uses_model_provider_key_and_base_url(monkeypatch, tmp_path):
+    user_cfg = tmp_path / "config.json"
+    user_cfg.write_text(
+        json.dumps({
+            "api": {
+                "provider": "moonshot",
+                "providers": {
+                    "moonshot": {
+                        "base_url": "https://api.moonshot.ai/v1",
+                        "model": "kimi-k2.7-code",
+                        "agent_models": {"explorer": "deepseek-v4-flash"},
+                    },
+                    "deepseek": {
+                        "base_url": "https://api.deepseek.com",
+                        "model": "deepseek-v4-pro",
+                    },
+                },
+            },
+            "api_keys": {
+                "moonshot": "sk-moon",
+                "deepseek": "sk-deep",
+            },
+        }),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(settings, "USER_CONFIG_PATH", user_cfg)
+    for key in (
+        "MOONSHOT_API_KEY",
+        "KIMI_API_KEY",
+        "DEEPSEEK_API_KEY",
+        "OPENAI_API_KEY",
+        "LANGBRIDGE_API_PROVIDER",
+        "LANGBRIDGE_MODEL",
+        "LANGBRIDGE_API_BASE_URL",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    try:
+        settings._bind(settings.load_config())
+        moon = settings.resolve_llm_route("kimi-k2.7-code", "sk-session")
+        assert moon["provider"] == "moonshot"
+        assert moon["api_key"] == "sk-moon"
+        assert moon["base_url"] == "https://api.moonshot.ai/v1"
+
+        deep = settings.resolve_llm_route("deepseek-v4-flash", "sk-session")
+        assert deep["provider"] == "deepseek"
+        assert deep["api_key"] == "sk-deep"
+        assert deep["base_url"] == "https://api.deepseek.com"
+    finally:
+        monkeypatch.undo()
+        settings._bind(settings.load_config())
+
+
+def test_resolve_llm_route_falls_back_to_session_key(monkeypatch, tmp_path):
+    user_cfg = tmp_path / "config.json"
+    user_cfg.write_text(
+        json.dumps({
+            "api": {
+                "provider": "moonshot",
+                "providers": {
+                    "moonshot": {
+                        "base_url": "https://api.moonshot.ai/v1",
+                        "model": "kimi-k2.7-code",
+                    },
+                    "deepseek": {
+                        "base_url": "https://api.deepseek.com",
+                        "model": "deepseek-v4-pro",
+                    },
+                },
+            },
+            "api_keys": {"moonshot": "sk-moon"},
+        }),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(settings, "USER_CONFIG_PATH", user_cfg)
+    for key in (
+        "MOONSHOT_API_KEY",
+        "KIMI_API_KEY",
+        "DEEPSEEK_API_KEY",
+        "OPENAI_API_KEY",
+        "LANGBRIDGE_API_PROVIDER",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    try:
+        settings._bind(settings.load_config())
+        route = settings.resolve_llm_route("deepseek-v4-pro", "sk-session-fallback")
+        assert route["provider"] == "deepseek"
+        assert route["api_key"] == "sk-session-fallback"
+        assert route["base_url"] == "https://api.deepseek.com"
+    finally:
+        monkeypatch.undo()
+        settings._bind(settings.load_config())

@@ -28,7 +28,7 @@
     ],
     "noop_message": "continue",
     "max_consecutive_noops": 4,
-    "timeout_sec": 1230.5459999999985,
+    "timeout_sec": 2400.0,
     "session_analysis": "The user reported a bug: chart not showing in answer section in agent mode using container mode. The user provided logs showing chart-builder subagent ended with chart_spec=NOT_FOUND, indicating the chart specification was not generated. The user did not provide additional steering or clarification beyond the initial instruction and logs. The agent should focus on root cause investigation: why chart-builder fails to produce a chart spec, likely due to missing or incorrect data flow between subagent and main agent."
   },
   "fail_to_pass": [

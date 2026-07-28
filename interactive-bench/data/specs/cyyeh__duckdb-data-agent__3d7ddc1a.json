@@ -40,7 +40,7 @@
     ],
     "noop_message": "continue",
     "max_consecutive_noops": 4,
-    "timeout_sec": 2170.5060000000003,
+    "timeout_sec": 2894.0080000000007,
     "session_analysis": "The user initially reported a bug (chart not visible). The assistant applied systematic debugging to investigate the root cause, focusing on chart_spec extraction failures in container mode. After multiple iterations of evidence gathering and analysis, the user confirmed the chart is now visible. The user was mostly silent during the debugging process, only providing initial instruction and final confirmation."
   },
   "fail_to_pass": [

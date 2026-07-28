@@ -86,3 +86,44 @@ def changed_paths_from_diff(patch: str) -> list[str]:
     for m in _FILE_HEADER.finditer(patch or ""):
         paths.append(m.group(2))
     return paths
+
+
+def _normalize_repo_path(path: str) -> str:
+    return path.replace("\\", "/").lstrip("./")
+
+
+def strip_paths_from_diff(patch: str, drop: set[str]) -> str:
+    """Keep unified-diff hunks whose ``b/`` path is not in ``drop``."""
+    if not patch or not patch.strip() or not drop:
+        return patch or ""
+    drop_norm = {_normalize_repo_path(p) for p in drop if p}
+    out: list[str] = []
+    keep = True
+    for line in patch.splitlines(keepends=True):
+        m = re.match(r"^diff --git a/(.+) b/(.+)$", line.rstrip("\n"))
+        if m:
+            keep = _normalize_repo_path(m.group(2)) not in drop_norm
+        if keep:
+            out.append(line)
+    return "".join(out)
+
+
+def code_only_for_grade(
+    candidate_diff: str,
+    *,
+    test_patch: str = "",
+    test_files: list[str] | None = None,
+) -> str:
+    """Drop agent test hunks so the official ``test_patch`` wins at grade time.
+
+    Strips: paths touched by ``test_patch``, ``test_files``, and any path that
+    looks like a test file. Non-test (product) hunks are kept.
+    """
+    protected = {
+        _normalize_repo_path(p) for p in changed_paths_from_diff(test_patch or "")
+    }
+    protected.update(
+        _normalize_repo_path(f) for f in (test_files or []) if f
+    )
+    _, code_patch, _, _ = split_unified_diff(candidate_diff or "")
+    return strip_paths_from_diff(code_patch, protected)

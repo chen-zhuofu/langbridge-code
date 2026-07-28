@@ -186,8 +186,8 @@ def test_create_model_response_fails_fast_on_tpd(monkeypatch):
     client.chat.completions.create = lambda **_kwargs: (_ for _ in ()).throw(error)
     client.responses = None
 
-    monkeypatch.setattr("langbridge_code.llm.client.make_client", lambda _key: client)
-    monkeypatch.setattr("langbridge_code.llm.client.uses_responses_api", lambda: False)
+    monkeypatch.setattr("langbridge_code.llm.client.make_client", lambda *a, **k: client)
+    monkeypatch.setattr("langbridge_code.llm.client.uses_responses_api", lambda *a, **k: False)
     sleeps = []
     monkeypatch.setattr("langbridge_code.llm.client.time.sleep", lambda s: sleeps.append(s))
 
@@ -230,8 +230,8 @@ def _fake_chat_client(captured, *, finish_reasons=None):
 
 
 def _patch_chat_provider(monkeypatch, client, provider):
-    monkeypatch.setattr("langbridge_code.llm.client.make_client", lambda _key: client)
-    monkeypatch.setattr("langbridge_code.llm.client.uses_responses_api", lambda: False)
+    monkeypatch.setattr("langbridge_code.llm.client.make_client", lambda *a, **k: client)
+    monkeypatch.setattr("langbridge_code.llm.client.uses_responses_api", lambda *a, **k: False)
     monkeypatch.setattr("langbridge_code.settings.API_STREAMING_ENABLED", False)
     monkeypatch.setattr("langbridge_code.settings.API_PROVIDER", provider)
 
@@ -265,6 +265,38 @@ def test_create_model_response_enables_deepseek_thinking(monkeypatch):
 
     assert captured["extra_body"]["thinking"] == {"type": "enabled"}
     assert data["output"][0]["type"] == "reasoning"
+
+
+def test_create_model_response_routes_cross_provider(monkeypatch):
+    """Explorer model on deepseek should call make_client with deepseek base_url."""
+    captured = {}
+    client = _fake_chat_client(captured)
+    calls = []
+
+    def fake_make_client(api_key, *, base_url=None):
+        calls.append({"api_key": api_key, "base_url": base_url})
+        return client
+
+    monkeypatch.setattr("langbridge_code.llm.client.make_client", fake_make_client)
+    monkeypatch.setattr("langbridge_code.llm.client.uses_responses_api", lambda *a, **k: False)
+    monkeypatch.setattr("langbridge_code.settings.API_STREAMING_ENABLED", False)
+    monkeypatch.setattr(
+        "langbridge_code.settings.resolve_llm_route",
+        lambda model, api_key=None: {
+            "provider": "deepseek",
+            "api_key": "sk-deep",
+            "base_url": "https://api.deepseek.com",
+        },
+    )
+
+    create_model_response(
+        "sk-moon-session",
+        "deepseek-v4-flash",
+        [{"role": "user", "content": "hi"}],
+    )
+
+    assert calls == [{"api_key": "sk-deep", "base_url": "https://api.deepseek.com"}]
+    assert captured["extra_body"]["thinking"] == {"type": "enabled"}
 
 
 def test_format_api_error_for_quota():
