@@ -19,9 +19,15 @@ Start it:
 uv run langbridge-code
 ```
 
-On first start, LangBridge prepares a managed tool runtime under
-`<workspace>/.langbridge/runtime/`. Missing `rg`, Git, and Bash are installed
-into a repo-local micromamba prefix; pytest is provided by a local test venv.
+With `uv` installed, that is the only setup command required after cloning the
+repository. `uv` selects the pinned Python version and installs the Python
+application. On first start, LangBridge installs and builds its TypeScript TUI
+automatically.
+
+LangBridge also prepares a managed tool runtime under
+`<workspace>/.langbridge/runtime/`. Missing Node.js/npm, `rg`, Git, and Bash are
+installed into a repo-local micromamba prefix; pytest is provided by a local
+test venv.
 The directory is added to the
 repository's local git exclude file and must not be committed. There is no
 reduced-functionality fallback: if the runtime cannot be downloaded or
@@ -331,13 +337,13 @@ command-driven layout: a welcome banner, a flowing conversation, a multi-line
 prompt, and a status bar.
 
 ```bash
-cd tui && npm install && npm run build && cd ..   # once
 uv run langbridge-code
 ```
 
-`langbridge-code` launches the TypeScript TUI (requires Node.js 18+ and a built
-`tui/dist`; build with `cd tui && npm install && npm run build`). Point at a
-specific Node or Python binary with `LANGBRIDGE_NODE` / `LANGBRIDGE_PYTHON`.
+`langbridge-code` launches the TypeScript TUI. On first launch it installs a
+managed Node.js/npm when necessary, runs `npm ci`, and builds `tui/dist`.
+Point at specific Node, npm, or Python binaries with `LANGBRIDGE_NODE`,
+`LANGBRIDGE_NPM`, or `LANGBRIDGE_PYTHON`.
 `LANGBRIDGE_BRIDGE_MODULE` overrides the Python bridge module,
 Mouse wheel scrolling is on by default. Terminals cannot do native
 drag-select and app wheel-scroll at once. Press `Ctrl+E` for select
@@ -350,6 +356,8 @@ Set `LANGBRIDGE_TUI_MOUSE=0` to start in select mode.
 While developing locally, prefer `uv run langbridge-code` (editable install) so code
 changes take effect immediately. Use `uv sync --reinstall-package langbridge-code
 --no-editable` only when you need a non-editable install.
+Development and test dependencies are intentionally excluded from a normal
+launch; install them with `uv sync --group dev`.
 
 **Commands** (type in the prompt):
 

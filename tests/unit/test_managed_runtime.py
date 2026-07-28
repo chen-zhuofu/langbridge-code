@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+from types import SimpleNamespace
 
 from langbridge_code.tools.common import runtime
 
@@ -43,6 +44,32 @@ def test_ensure_native_tools_installs_missing_tools(tmp_path, monkeypatch):
     assert {"ripgrep", "git", "bash"} <= set(commands[0])
 
 
+def test_ensure_tui_tools_installs_nodejs_once(tmp_path, monkeypatch):
+    monkeypatch.setenv("LANGBRIDGE_RUNTIME_DIR", str(tmp_path / "runtime"))
+    installed = False
+    commands = []
+
+    def available(_name):
+        return installed
+
+    def run_checked(command, *, env=None):
+        nonlocal installed
+        commands.append(command)
+        installed = True
+
+    micromamba = tmp_path / "micromamba"
+    micromamba.touch()
+    monkeypatch.setattr(runtime, "_binary_available", available)
+    monkeypatch.setattr(runtime, "_install_micromamba", lambda: micromamba)
+    monkeypatch.setattr(runtime, "_run_checked", run_checked)
+    monkeypatch.setattr(runtime, "activate_runtime", lambda: None)
+
+    runtime.ensure_tui_tools()
+
+    assert commands
+    assert commands[0].count("nodejs") == 1
+
+
 def test_ensure_native_tools_skips_install_when_all_are_available(monkeypatch):
     monkeypatch.setattr(runtime, "_binary_available", lambda _name: True)
     monkeypatch.setattr(runtime, "activate_runtime", lambda: None)
@@ -53,6 +80,22 @@ def test_ensure_native_tools_skips_install_when_all_are_available(monkeypatch):
     )
 
     runtime.ensure_native_tools()
+
+
+def test_node_older_than_minimum_is_not_available(monkeypatch):
+    monkeypatch.setattr(runtime, "_configured_binary", lambda _name: None)
+    monkeypatch.setattr(runtime, "inject_runtime_env", lambda env: env)
+    monkeypatch.setattr(
+        "langbridge_code.tools.common.runtime.shutil.which",
+        lambda *_args, **_kwargs: "/usr/bin/node",
+    )
+    monkeypatch.setattr(
+        runtime.subprocess,
+        "run",
+        lambda *_args, **_kwargs: SimpleNamespace(returncode=0, stdout="v16.20.2\n"),
+    )
+
+    assert runtime._binary_available("node") is False
 
 
 def test_managed_binary_prefers_frontend_bundled_ripgrep(tmp_path, monkeypatch):
@@ -115,4 +158,3 @@ def test_runtime_ignore_uses_local_git_exclude(tmp_path, monkeypatch):
     runtime._ensure_runtime_ignored()
 
     assert exclude.read_text().splitlines().count(".langbridge/runtime/") == 1
-

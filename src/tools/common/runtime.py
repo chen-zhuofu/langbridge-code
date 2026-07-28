@@ -24,12 +24,20 @@ NATIVE_PACKAGES = {
     "git": "git",
     "bash": "bash",
 }
+TUI_PACKAGES = {
+    "node": "nodejs",
+    "npm": "nodejs",
+}
+MANAGED_PACKAGES = NATIVE_PACKAGES | TUI_PACKAGES
 CONFIGURED_BINARY_ENV = {
     "rg": "LANGBRIDGE_RG_PATH",
+    "node": "LANGBRIDGE_NODE",
+    "npm": "LANGBRIDGE_NPM",
 }
 MICROMAMBA_BASE_URL = "https://micro.mamba.pm/api/micromamba"
 INSTALL_TIMEOUT_SECONDS = 900
 RUNTIME_IGNORE_PATTERN = ".langbridge/runtime/"
+MIN_NODE_MAJOR = 18
 
 
 class RuntimeBootstrapError(RuntimeError):
@@ -197,9 +205,30 @@ def _run_checked(command: list[str], *, env: dict[str, str] | None = None) -> No
 def _binary_available(name: str) -> bool:
     configured = _configured_binary(name)
     if configured:
-        return True
-    env = inject_runtime_env(dict(os.environ))
-    return shutil.which(name, path=env.get("PATH")) is not None
+        candidate = configured
+    else:
+        env = inject_runtime_env(dict(os.environ))
+        candidate = shutil.which(name, path=env.get("PATH"))
+    if not candidate:
+        return False
+    if name == "node":
+        return _supported_node(candidate)
+    return True
+
+
+def _supported_node(candidate: str) -> bool:
+    try:
+        completed = subprocess.run(
+            [candidate, "--version"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        major = int(completed.stdout.strip().lstrip("v").split(".", 1)[0])
+    except (OSError, subprocess.TimeoutExpired, ValueError):
+        return False
+    return completed.returncode == 0 and major >= MIN_NODE_MAJOR
 
 
 def _configured_binary(name: str) -> str | None:
@@ -214,15 +243,14 @@ def _configured_binary(name: str) -> str | None:
     return None
 
 
-def ensure_native_tools() -> None:
-    """Install missing rg/git/bash into the repo-local conda prefix."""
-    missing = [name for name in NATIVE_PACKAGES if not _binary_available(name)]
+def _ensure_tools(packages_by_binary: dict[str, str]) -> None:
+    missing = [name for name in packages_by_binary if not _binary_available(name)]
     if not missing:
         activate_runtime()
         return
 
     micromamba = _install_micromamba()
-    packages = [NATIVE_PACKAGES[name] for name in missing]
+    packages = list(dict.fromkeys(packages_by_binary[name] for name in missing))
     command = [
         str(micromamba),
         "create" if not (runtime_prefix() / "conda-meta").exists() else "install",
@@ -246,13 +274,23 @@ def ensure_native_tools() -> None:
         )
 
 
+def ensure_native_tools() -> None:
+    """Install missing agent tools into the repo-local conda prefix."""
+    _ensure_tools(NATIVE_PACKAGES)
+
+
+def ensure_tui_tools() -> None:
+    """Install missing Node.js/npm into the repo-local conda prefix."""
+    _ensure_tools(TUI_PACKAGES)
+
+
 def managed_binary(name: str) -> str:
     """Resolve a required native tool from PATH / configured env.
 
-    Installation happens only in ``bootstrap_runtime()`` at process start.
-    Tools must not download or create the managed runtime on each call.
+    Installation happens only in the CLI or agent startup bootstrap. Individual
+    tool calls must not download or create the managed runtime.
     """
-    if name not in NATIVE_PACKAGES:
+    if name not in MANAGED_PACKAGES:
         raise ValueError(f"Unknown managed native tool: {name}")
     configured = _configured_binary(name)
     if configured:
@@ -359,4 +397,3 @@ def bootstrap_runtime() -> None:
     _ensure_runtime_ignored()
     ensure_native_tools()
     ensure_managed_test_python()
-

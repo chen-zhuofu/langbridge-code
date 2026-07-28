@@ -1,5 +1,4 @@
 import os
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -10,37 +9,48 @@ if __package__ in (None, ""):
     sys.path.append(str(Path(__file__).resolve().parents[1]))
 
 from langbridge_code.settings import INSTALL_ROOT, ensure_api_credentials
+from langbridge_code.tools.common.runtime import (
+    RuntimeBootstrapError,
+    ensure_tui_tools,
+    managed_binary,
+)
 
+TUI_DIR = INSTALL_ROOT / "tui"
 TUI_DIST = INSTALL_ROOT / "tui" / "dist" / "cli.js"
 
 
-def _node_executable() -> str | None:
-    override = os.environ.get("LANGBRIDGE_NODE")
-    if override:
-        return override
-    found = shutil.which("node")
-    if found:
-        return found
-    fallback = Path.home() / ".local" / "node" / "bin" / "node"
-    if fallback.exists():
-        return str(fallback)
-    return None
+def ensure_tui_built(npm: str) -> None:
+    """Install locked TUI dependencies and build them on the first launch."""
+    if TUI_DIST.exists():
+        return
+    if not (TUI_DIR / "package-lock.json").is_file():
+        raise RuntimeBootstrapError(f"TUI source is missing from {TUI_DIR}.")
+
+    print("First run: installing and building the terminal UI...", file=sys.stderr)
+    commands = ([npm, "ci", "--no-audit", "--no-fund"], [npm, "run", "build"])
+    for command in commands:
+        try:
+            completed = subprocess.run(command, cwd=TUI_DIR, check=False)
+        except OSError as error:
+            raise RuntimeBootstrapError(
+                f"Could not run {' '.join(command)}: {error}"
+            ) from error
+        if completed.returncode != 0:
+            raise RuntimeBootstrapError(
+                f"TUI setup command failed ({completed.returncode}): {' '.join(command)}"
+            )
+    if not TUI_DIST.is_file():
+        raise RuntimeBootstrapError(f"TUI build did not create {TUI_DIST}.")
 
 
 def main():
-    node = _node_executable()
-    if node is None:
-        print(
-            "Node.js not found. Install Node.js (or set LANGBRIDGE_NODE to the node binary).",
-            file=sys.stderr,
-        )
-        raise SystemExit(1)
-    if not TUI_DIST.exists():
-        print(
-            "TUI build missing. Build it with: cd tui && npm install && npm run build",
-            file=sys.stderr,
-        )
-        raise SystemExit(1)
+    try:
+        ensure_tui_tools()
+        node = managed_binary("node")
+        ensure_tui_built(managed_binary("npm"))
+    except RuntimeBootstrapError as error:
+        print(f"LangBridge setup failed: {error}", file=sys.stderr)
+        raise SystemExit(1) from error
     # Ask / validate API credentials on a plain TTY before Ink takes over stdin.
     try:
         ensure_api_credentials()

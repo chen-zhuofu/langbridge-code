@@ -14,7 +14,9 @@ const REPO_ROOT = path.resolve(HERE, "..", "..");
 function pythonExecutable(): string {
   const override = process.env.LANGBRIDGE_PYTHON;
   if (override) return override;
-  const venv = path.join(REPO_ROOT, ".venv", "bin", "python");
+  const venv = process.platform === "win32"
+    ? path.join(REPO_ROOT, ".venv", "Scripts", "python.exe")
+    : path.join(REPO_ROOT, ".venv", "bin", "python");
   if (fs.existsSync(venv)) return venv;
   return "python3";
 }
@@ -47,7 +49,7 @@ export class Bridge extends EventEmitter {
         // binary installed with the TUI. It still has a Python fallback for
         // headless launches where the TypeScript package is not present.
         LANGBRIDGE_RG_PATH: rgPath,
-        PYTHONPATH: [path.join(REPO_ROOT, "src"), process.env.PYTHONPATH].filter(Boolean).join(":"),
+        PYTHONPATH: [path.join(REPO_ROOT, "src"), process.env.PYTHONPATH].filter(Boolean).join(path.delimiter),
       },
       stdio: ["pipe", "pipe", "pipe"],
     });

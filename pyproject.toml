@@ -17,6 +17,9 @@ langbridge-code = "langbridge_code.main:main"
 [tool.setuptools]
 include-package-data = true
 
+[tool.uv]
+default-groups = []
+
 [tool.pytest.ini_options]
 pythonpath = ["eval"]
 
