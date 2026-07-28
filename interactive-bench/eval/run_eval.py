@@ -5,14 +5,17 @@ and writes reports under ``interactive-bench/eval/out/``.
 
 ```bash
 uv run python interactive-bench/eval/run_eval.py --stub --limit 1
-uv run python interactive-bench/eval/run_eval.py --task <id>   # real main agent
+uv run python interactive-bench/eval/run_eval.py --task <id>
+uv run python interactive-bench/eval/run_eval.py --workers 2 --offset 1 --limit 2
 ```
 """
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import json
 import sys
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -29,11 +32,14 @@ from harness.agent import make_docker_agent, make_stub_agent  # noqa: E402
 from harness.score import score_episode  # noqa: E402
 from harness.sim import run_episode  # noqa: E402
 
+_PRINT_LOCK = threading.Lock()
+
 
 def load_specs(
     *,
     task_id: str | None = None,
     limit: int = 0,
+    offset: int = 0,
     include_demo: bool = False,
 ) -> list[dict]:
     paths.SPECS_DIR.mkdir(parents=True, exist_ok=True)
@@ -49,15 +55,90 @@ def load_specs(
         if task_id and data.get("task_id") != task_id and path.stem != task_id:
             continue
         specs.append(data)
-        if limit and len(specs) >= limit:
-            break
+    if offset:
+        specs = specs[offset:]
+    if limit:
+        specs = specs[:limit]
     return specs
+
+
+def _log(msg: str) -> None:
+    with _PRINT_LOCK:
+        print(msg, flush=True)
+
+
+def run_one_spec(
+    spec: dict,
+    *,
+    out_dir: Path,
+    stub: bool,
+    turn_timeout: int,
+    max_turns: int,
+    grade_timeout: int,
+    no_grade: bool,
+    model: str | None,
+) -> dict:
+    tid = spec["task_id"]
+    _log(f"=== {tid} ===")
+    agent_artifacts = out_dir / tid
+    agent_artifacts.mkdir(parents=True, exist_ok=True)
+    agent = (
+        make_stub_agent()
+        if stub
+        else make_docker_agent(
+            spec,
+            artifacts_dir=agent_artifacts,
+            turn_timeout_sec=turn_timeout,
+            model=model,
+        )
+    )
+    grade = None
+    try:
+        if hasattr(agent, "start"):
+            _log(f"  {tid}: starting docker main agent...")
+            agent.start()
+        episode = run_episode(spec, agent, max_turns=max_turns)
+        tests_passed = None
+        if not stub and not no_grade and hasattr(agent, "grade"):
+            _log(f"  {tid}: capturing diff + grading F2P...")
+            agent.capture_diff()
+            grade = agent.grade(timeout=grade_timeout)
+            tests_passed = bool(grade.get("tests_passed"))
+            _log(
+                f"  {tid}: grade tests_passed={tests_passed} "
+                f"f2p={grade.get('f2p_passed')}/{grade.get('f2p_total')}"
+            )
+        scored = score_episode(spec, episode, tests_passed=tests_passed)
+    except Exception as exc:  # noqa: BLE001
+        _log(f"  {tid}: error: {exc}")
+        row = {"task_id": tid, "error": str(exc), "pass": False}
+        write_json(out_dir / f"{tid}.json", {"task_id": tid, "error": str(exc)})
+        return row
+    finally:
+        if hasattr(agent, "close"):
+            try:
+                agent.close()
+            except Exception:  # noqa: BLE001
+                pass
+
+    write_json(
+        out_dir / f"{tid}.json",
+        {"task_id": tid, "episode": episode, "score": scored, "grade": grade},
+    )
+    summary = {"task_id": tid, **scored, "grade": grade}
+    _log(
+        f"  {tid}: stop={episode['stop_reason']} inputs={episode['user_input_count']} "
+        f"interventions={episode['interventions']} pass={scored.get('pass')}"
+    )
+    return summary
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--task", type=str, default=None)
     parser.add_argument("--limit", type=int, default=0)
+    parser.add_argument("--offset", type=int, default=0, help="skip the first N specs")
+    parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--stub", action="store_true", help="Use stub agent (no Docker)")
     parser.add_argument(
         "--include-demo",
@@ -94,6 +175,7 @@ def main() -> int:
     specs = load_specs(
         task_id=args.task,
         limit=args.limit or 0,
+        offset=args.offset or 0,
         include_demo=args.include_demo,
     )
     if not specs:
@@ -103,70 +185,31 @@ def main() -> int:
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     out_dir = args.out_dir / stamp
     out_dir.mkdir(parents=True, exist_ok=True)
+    workers = max(1, int(args.workers))
+    print(f"Running {len(specs)} tasks with {workers} workers")
 
-    results = []
-    for spec in specs:
-        tid = spec["task_id"]
-        print(f"=== {tid} ===")
-        agent_artifacts = out_dir / tid
-        agent_artifacts.mkdir(parents=True, exist_ok=True)
-        agent = (
-            make_stub_agent()
-            if args.stub
-            else make_docker_agent(
+    results: list[dict] = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = {
+            pool.submit(
+                run_one_spec,
                 spec,
-                artifacts_dir=agent_artifacts,
-                turn_timeout_sec=args.turn_timeout,
+                out_dir=out_dir,
+                stub=bool(args.stub),
+                turn_timeout=args.turn_timeout,
+                max_turns=args.max_turns,
+                grade_timeout=args.grade_timeout,
+                no_grade=bool(args.no_grade),
                 model=args.model,
-            )
-        )
-        grade = None
-        try:
-            if hasattr(agent, "start"):
-                print("  starting docker main agent...")
-                agent.start()
-            episode = run_episode(spec, agent, max_turns=args.max_turns)
-            tests_passed = None
-            if not args.stub and not args.no_grade and hasattr(agent, "grade"):
-                print("  capturing diff + grading F2P...")
-                agent.capture_diff()
-                grade = agent.grade(timeout=args.grade_timeout)
-                tests_passed = bool(grade.get("tests_passed"))
-                print(
-                    f"  grade: tests_passed={tests_passed} "
-                    f"f2p={grade.get('f2p_passed')}/{grade.get('f2p_total')}"
-                )
-            scored = score_episode(spec, episode, tests_passed=tests_passed)
-        except Exception as exc:  # noqa: BLE001
-            print(f"  error: {exc}", file=sys.stderr)
-            write_json(
-                out_dir / f"{tid}.json",
-                {"task_id": tid, "error": str(exc)},
-            )
-            results.append({"task_id": tid, "error": str(exc), "pass": False})
-            continue
-        finally:
-            if hasattr(agent, "close"):
-                try:
-                    agent.close()
-                except Exception:  # noqa: BLE001
-                    pass
-
-        row = {
-            "task_id": tid,
-            "episode": episode,
-            "score": scored,
-            "grade": grade,
+            ): spec
+            for spec in specs
         }
-        write_json(out_dir / f"{tid}.json", row)
-        results.append({"task_id": tid, **scored, "grade": grade})
-        print(
-            f"  stop={episode['stop_reason']} inputs={episode['user_input_count']} "
-            f"interventions={episode['interventions']} pass={scored.get('pass')}"
-        )
+        for future in concurrent.futures.as_completed(futures):
+            results.append(future.result())
 
     report = {
         "n": len(results),
+        "workers": workers,
         "results": results,
         "created_at": stamp,
         "stub": bool(args.stub),

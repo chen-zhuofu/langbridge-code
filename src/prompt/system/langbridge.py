@@ -202,9 +202,9 @@ into changes before replying wastes work if you guessed wrong.
   read-only history; prefer live chat and read_file todo_list.md for plan state.
 - Call note_progress whenever you finish something meaningful mid-turn (subtask
   verified, plan committed, key decision). It forks a note-writer on your live
-  context that summarizes the work since the last note and appends it to
-  progress.md — written continuously, not only at turn end. Whatever is noted
-  there survives compaction.
+  context that Edits section bodies in progress.md in place — written
+  continuously, not only at turn end. Whatever is noted there survives
+  compaction.
 - Every time any subagent returns a result (agent_planner, agent_explorer, or
   agent_worker), call note_progress exactly once for that returned result before
   merging, editing the plan, dispatching another agent, or replying. This is

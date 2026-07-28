@@ -139,6 +139,33 @@ def test_stub_agent_and_run_eval_cli(tmp_path, monkeypatch):
     assert report["results"][0]["task_id"] == "cli-demo"
 
 
+def test_run_eval_workers_and_offset(tmp_path, monkeypatch):
+    from _lib import paths
+    from eval import run_eval
+
+    specs_dir = tmp_path / "specs"
+    specs_dir.mkdir()
+    out_dir = tmp_path / "eval_out"
+    for tid in ("a-task", "b-task", "c-task"):
+        (specs_dir / f"{tid}.json").write_text(
+            json.dumps(_spec(task_id=tid)), encoding="utf-8"
+        )
+
+    monkeypatch.setattr(paths, "SPECS_DIR", specs_dir)
+    monkeypatch.setattr(paths, "EVAL_OUT", out_dir)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["run_eval.py", "--stub", "--workers", "2", "--offset", "1", "--limit", "2"],
+    )
+    assert run_eval.main() == 0
+    report = json.loads(next(out_dir.glob("*/report.json")).read_text(encoding="utf-8"))
+    assert report["workers"] == 2
+    assert report["n"] == 2
+    ids = {row["task_id"] for row in report["results"]}
+    assert ids == {"b-task", "c-task"}
+
+
 def test_make_stub_agent_finishes():
     agent = make_stub_agent(max_agent_turns=2)
     assert agent("hi")["done"] is False

@@ -78,10 +78,20 @@ def test_attach_includes_prior_agent_traces_when_redispatching(tmp_path, monkeyp
     assert "still wiring handlers" in (stack.progress_block or "")
 
 
-def test_write_note_overrides_file_without_touching_progress_block(tmp_path, monkeypatch):
+def test_write_note_edits_file_without_touching_progress_block(tmp_path, monkeypatch):
+    def fake_fork(*args, **kwargs):
+        from langbridge_code.util.progress import write_progress
+
+        write_progress(
+            tmp_path,
+            "# Session progress\n\n#### Work done\n_desc_\n\n- implemented move()\n",
+            "task-3",
+        )
+        return "Noted in progress.md: implemented move()"
+
     monkeypatch.setattr(
-        "langbridge_code.agents.common.fork.fork_one_pass",
-        lambda *args, **kwargs: "#### Work done\n- implemented move()",
+        "langbridge_code.agents.common.fork.fork_progress_note",
+        fake_fork,
     )
     progress = TaskProgress("key", "model", tmp_path, "task-3", label="Worker")
     stack = _stack()
@@ -96,20 +106,23 @@ def test_write_note_overrides_file_without_touching_progress_block(tmp_path, mon
     assert stack.progress_block is None
 
 
-def test_second_write_note_overrides_disk_not_live_block(tmp_path, monkeypatch):
+def test_second_write_note_updates_disk_not_live_block(tmp_path, monkeypatch):
     notes = [
-        "#### Key discoveries\n- first fact",
-        "#### Key discoveries\n- second fact",
+        "# Session progress\n\n#### Key discoveries\n_desc_\n\n- first fact\n",
+        "# Session progress\n\n#### Key discoveries\n_desc_\n\n- first fact\n- second fact\n",
     ]
     calls = {"n": 0}
 
     def fake_fork(*args, **kwargs):
-        note = notes[calls["n"]]
+        from langbridge_code.util.progress import write_progress
+
+        content = notes[calls["n"]]
         calls["n"] += 1
-        return note
+        write_progress(tmp_path, content, "task-3")
+        return "Noted in progress.md: updated"
 
     monkeypatch.setattr(
-        "langbridge_code.agents.common.fork.fork_one_pass", fake_fork
+        "langbridge_code.agents.common.fork.fork_progress_note", fake_fork
     )
     progress = TaskProgress("key", "model", tmp_path, "task-3", label="Worker")
     stack = _stack()
@@ -119,7 +132,7 @@ def test_second_write_note_overrides_disk_not_live_block(tmp_path, monkeypatch):
     progress.write_note()
     text = read_progress(tmp_path, "task-3")
     assert "second fact" in text
-    assert "first fact" not in text
+    assert "first fact" in text  # Edit-style update keeps prior facts
     assert stack.progress_block is None
 
 

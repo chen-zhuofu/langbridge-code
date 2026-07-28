@@ -16,6 +16,10 @@ eval/
     langbridge-bench/  # curated specs + docker-images
     public/            # verified / pro (official data + images only)
 ```
+## Manual test 
+```bash
+uv run --project ~/langbridge-code langbridge-code
+```
 
 ## Crawl task
 ```bash

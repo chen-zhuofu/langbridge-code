@@ -680,19 +680,26 @@ def test_main_agent_first_send_sets_memory_and_skill_blocks(monkeypatch, tmp_pat
     assert contents.index(memory_blocks[0]) < contents.index("do the thing")
 
 
-def test_note_progress_tool_forks_note_writer(monkeypatch, tmp_path):
+def test_note_progress_tool_forks_edit_writer(monkeypatch, tmp_path):
     run_log = tmp_path / "session-demo"
     run_log.mkdir()
     import langbridge_code.agents.common.fork as fork_mod
 
     fork_seen = {}
 
-    def fake_fork(api_key, model, messages, instruction, **kwargs):
-        fork_seen["instruction"] = instruction
-        fork_seen["messages"] = list(messages)
-        return "Fixed the parser; tests pass."
+    def fake_fork(api_key, model, messages, **kwargs):
+        from langbridge_code.util.progress import ensure_progress_template, write_progress
 
-    monkeypatch.setattr(fork_mod, "fork_one_pass", fake_fork)
+        fork_seen["messages"] = list(messages)
+        fork_seen["run_log_path"] = kwargs.get("run_log_path")
+        ensure_progress_template(run_log)
+        write_progress(
+            run_log,
+            "# Session progress\n\n#### Key discoveries\n_desc_\n\n- Fixed the parser; tests pass.\n",
+        )
+        return "Noted in progress.md: Fixed the parser; tests pass."
+
+    monkeypatch.setattr(fork_mod, "fork_progress_note", fake_fork)
 
     calls = {"n": 0}
 
@@ -728,10 +735,9 @@ def test_note_progress_tool_forks_note_writer(monkeypatch, tmp_path):
 
     progress = read_progress(run_log)
     assert "Fixed the parser; tests pass." in progress
-    # Mid-turn note overrides the file only — does not inject into <progress>.
+    # Mid-turn note updates the file only — does not inject into <progress>.
     assert not (session.context.stack.progress_block or "")
-    # The fork got the live context plus one instruction.
-    assert "note-writer" in fork_seen["instruction"]
+    assert fork_seen["run_log_path"] == run_log
     # Counter was reset by the note; only the post-step increment remains.
     assert session._rounds_since_progress_note <= 1
 

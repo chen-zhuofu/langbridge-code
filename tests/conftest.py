@@ -26,6 +26,11 @@ def _no_llm_prefetch(monkeypatch):
         lambda api_key, model, task, catalog, **kwargs: (catalog or "").strip(),
     )
     monkeypatch.setattr(fork_mod, "fork_one_pass", lambda *args, **kwargs: "")
+    monkeypatch.setattr(
+        fork_mod,
+        "fork_progress_note",
+        lambda *args, **kwargs: "Progress note fork made no file changes; nothing recorded.",
+    )
     yield
 
 

@@ -47,7 +47,7 @@ from langbridge_code.tools import MAIN_TOOL_SCHEMAS, MAIN_TOOLS
 from langbridge_code.agents.common.approval import approval_reason
 from langbridge_code.tools.ask_user import ASK_USER_TOOL_SCHEMA, resolve_ask_user
 from langbridge_code.tools.memory_writer import MEMORY_WRITER_TOOL_SCHEMA
-from langbridge_code.tools.note_progress import NOTE_FORK_INSTRUCTION, NOTE_PROGRESS_TOOL_SCHEMA
+from langbridge_code.tools.note_progress import NOTE_PROGRESS_TOOL_SCHEMA
 from langbridge_code.agents.common.phases import emit_phase
 from langbridge_code.agents.goal_evaluator import GoalEvaluatorAgent
 from langbridge_code.util.goal import (
@@ -323,7 +323,11 @@ class MainAgentSession:
             progress = build_resume_background(
                 self.run_log_path, model=self.model, progress=progress
             )
-        stack.set_progress_block(progress)
+        from langbridge_code.util.progress import clip_progress_for_context
+
+        stack.set_progress_block(
+            clip_progress_for_context(progress, run_log_path=self.run_log_path) or None
+        )
 
     def _init_context_blocks(self, user_prompt):
         """First-send prefetch: <memory> + <progress> + <skill_index>."""
@@ -546,28 +550,25 @@ class MainAgentSession:
         return str(result or "").startswith("Noted")
 
     def _write_progress_note_via_fork(self):
-        """Fork a note-writer on the live context; override progress.md on disk.
+        """Fork an Edit-restricted note-writer; update progress.md in place.
 
         Does not inject into ``<progress>`` — that block is loaded only on
         resume / compaction. Raw messages already carry the full transcript.
         """
-        from langbridge_code.agents.common.fork import fork_one_pass
-        from langbridge_code.util.progress import write_progress_note
+        from langbridge_code.agents.common.fork import fork_progress_note
 
         try:
-            note = fork_one_pass(
+            return fork_progress_note(
                 self.api_key,
                 self.model,
                 self.messages,
-                NOTE_FORK_INSTRUCTION,
-                label="progress note fork",
+                run_log_path=self.run_log_path,
+                turn_id=self.turn_id,
                 tool_schemas=MAIN_AGENT_TOOL_SCHEMAS,
+                label="progress note fork",
             )
         except Exception as error:
             return f"Progress note fork failed: {error}"
-        if not note.strip():
-            return "Progress note fork returned nothing; no note recorded."
-        return write_progress_note(self.run_log_path, note, turn_id=self.turn_id)
 
     def _run_tool(self, call):
         name = call.get("name")

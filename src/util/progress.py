@@ -1,9 +1,8 @@
-"""Session / per-task progress.md — single overridable note (Claude Code style).
+"""Session / per-task progress.md (Claude Code Session Memory style).
 
-Each ``note_progress`` fork rewrites the whole note from the live context.
-The in-memory ``<progress>`` block is loaded only on resume and after context
-compaction — mid-turn writes update the file only (raw messages already hold
-the full transcript).
+``note_progress`` forks an Edit-restricted writer that updates section bodies
+in place. The in-memory ``<progress>`` block is loaded only on resume and after
+context compaction — mid-turn writes update the file only.
 """
 from __future__ import annotations
 
@@ -18,6 +17,9 @@ from langbridge_code.util.artifacts import task_progress_path as artifact_task_p
 
 PROGRESS_HEADER = "# Session progress\n"
 GOAL_HEADER = "## Goal\n"
+# Cap for the pinned <progress> block. Larger files stay on disk; the model
+# is pointed at the path so it can read_file the rest.
+PROGRESS_CONTEXT_MAX_TOKENS = 20_000
 # Note body starts at #### sections (or legacy ## Turn after a goal block).
 _NOTE_BODY_START_RE = re.compile(r"^(#### |## Turn\b)", re.MULTILINE)
 
@@ -45,6 +47,47 @@ def read_progress(run_log_path, task_name: str | None = None) -> str:
     if path is None or not path.exists():
         return ""
     return path.read_text(encoding="utf-8")
+
+
+def clip_progress_for_context(
+    content: str,
+    *,
+    run_log_path,
+    task_name: str | None = None,
+    max_tokens: int = PROGRESS_CONTEXT_MAX_TOKENS,
+) -> str:
+    """Truncate progress text before pinning it into ``<progress>``.
+
+    Disk file is untouched. When over budget, keep the head and tell the model
+    where to read the full note.
+    """
+    from langbridge_code.context.common.budget import estimate_tokens
+
+    text = (content or "").strip()
+    if not text:
+        return ""
+    if max_tokens <= 0 or estimate_tokens(text) <= max_tokens:
+        return text
+    path = progress_path(run_log_path, task_name)
+    path_label = str(path.resolve()) if path is not None else "progress.md"
+    notice = (
+        f"\n\n[progress truncated for context — kept the first ~{max_tokens} tokens; "
+        f"full file: {path_label}]"
+    )
+    notice_tokens = estimate_tokens(notice)
+    budget = max(64, max_tokens - notice_tokens)
+    # Same rough char budget Claude uses (tokens ≈ chars/4), then shrink if needed.
+    approx_chars = max(256, budget * 4)
+    clipped = text[:approx_chars].rstrip()
+    while clipped and estimate_tokens(clipped) > budget:
+        clipped = clipped[: max(0, len(clipped) - 512)].rstrip()
+    if not clipped:
+        return notice.strip()
+    # Prefer cutting on a paragraph boundary when we still have room nearby.
+    last_break = clipped.rfind("\n\n")
+    if last_break >= max(256, len(clipped) // 2):
+        clipped = clipped[:last_break].rstrip()
+    return clipped + notice
 
 
 def write_progress(run_log_path, content: str, task_name: str | None = None) -> None:
@@ -157,6 +200,67 @@ def remove_goal_block(run_log_path) -> None:
         write_progress(run_log_path, PROGRESS_HEADER + note + "\n")
 
 
+def ensure_progress_template(
+    run_log_path,
+    task_name: str | None = None,
+) -> str:
+    """Ensure progress.md exists with the section template; return current text.
+
+    Empty / header-only files get the Session Memory-style template. Existing
+    note bodies (including legacy notes without italic descriptions) are kept.
+    A ``## Goal`` block is preserved when seeding.
+    """
+    from langbridge_code.prompt.fork.progress_note import (
+        SESSION_PROGRESS_TEMPLATE,
+        TASK_PROGRESS_TEMPLATE,
+    )
+
+    if not run_log_path:
+        return ""
+    template = TASK_PROGRESS_TEMPLATE if task_name else SESSION_PROGRESS_TEMPLATE
+    with _progress_lock:
+        existing = read_progress(run_log_path, task_name).strip()
+        note = _extract_note_body(existing)
+        if note:
+            return existing + ("\n" if not existing.endswith("\n") else "")
+        goal = _extract_goal_markdown(existing)
+        # Drop the template's own "# Session progress" header; we rejoin below.
+        body = template.strip()
+        if body.startswith(PROGRESS_HEADER.strip()):
+            body = body[len(PROGRESS_HEADER.strip()) :].lstrip()
+        parts = [PROGRESS_HEADER.strip()]
+        if goal:
+            parts.append(goal)
+        parts.append(body)
+        content = "\n\n".join(parts) + "\n"
+        write_progress(run_log_path, content, task_name)
+        return content
+
+
+def note_progress_edit_succeeded(
+    before: str,
+    after: str,
+    *,
+    run_log_path=None,
+    turn_id: int | None = None,
+    task_name: str | None = None,
+) -> str:
+    """Return the tool result string after an Edit-based progress fork."""
+    before_text = (before or "").strip()
+    after_text = (after or "").strip()
+    if not after_text or after_text == before_text:
+        return "Progress note fork made no file changes; nothing recorded."
+    if task_name is None and run_log_path is not None and turn_id is not None:
+        from langbridge_code.util.session_traces import append_progress_boundary
+
+        append_progress_boundary(run_log_path, turn_id)
+    note = _extract_note_body(after_text) or after_text
+    summary = " ".join(note.split())
+    if len(summary) > 200:
+        summary = summary[:197] + "..."
+    return f"Noted in progress.md: {summary}"
+
+
 def write_progress_note(
     run_log_path,
     text: str,
@@ -164,7 +268,7 @@ def write_progress_note(
     *,
     turn_id: int | None = None,
 ) -> str:
-    """Override the progress note body (preserve ## Goal). File only — no context inject."""
+    """Full-body override (tests / legacy). Prefer the Edit-based fork in agents."""
     note = (text or "").strip()
     if not note:
         return "Note was empty; nothing recorded."

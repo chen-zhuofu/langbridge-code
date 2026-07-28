@@ -56,10 +56,12 @@ uv run python interactive-bench/data-pipeline/reference/reference_test.py --limi
 uv run python interactive-bench/data-pipeline/curate/curate.py --limit 1
 ```
 
-Eval smoke (stub agent, no Docker agent yet):
+Eval (same CLI shape as langbridge-bench: `--workers` / `--offset` / `--limit` / `--task`):
 
 ```bash
 uv run python interactive-bench/eval/run_eval.py --stub --limit 1
+uv run python interactive-bench/eval/run_eval.py --workers 2 --offset 1 --limit 2
+uv run python interactive-bench/eval/run_eval.py --task <id>
 ```
 
 ## Tests

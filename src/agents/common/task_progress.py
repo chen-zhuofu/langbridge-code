@@ -1,9 +1,9 @@
-"""Per-task progress notes for subagents — same override model as the main agent.
+"""Per-task progress notes for subagents — Session Memory Edit model.
 
 A task's note lives at {session}/…/progress.md (per task_name). Loaded into
 ``<progress>`` on attach (resume) and after context compaction. Mid-turn
-``note_progress`` overrides the file from the full live context and does not
-rewrite the pinned block.
+``note_progress`` forks an Edit-restricted writer that updates section bodies
+in place and does not rewrite the pinned block.
 """
 from __future__ import annotations
 
@@ -62,7 +62,11 @@ class TaskProgress:
         """Load progress.md into head ``<progress>`` (resume / compaction only)."""
         if self._stack is None or not self.enabled:
             return
-        from langbridge_code.util.progress import PROGRESS_HEADER, read_progress
+        from langbridge_code.util.progress import (
+            PROGRESS_HEADER,
+            clip_progress_for_context,
+            read_progress,
+        )
 
         content = read_progress(self.run_log_path, self.task_name).strip()
         if content == PROGRESS_HEADER.strip():
@@ -78,6 +82,11 @@ class TaskProgress:
                 progress=content,
                 exclude_trace=self.current_trace,
             )
+        content = clip_progress_for_context(
+            content,
+            run_log_path=self.run_log_path,
+            task_name=self.task_name,
+        )
         self._stack.set_progress_block(content or None)
         self._sync_messages()
 
@@ -89,27 +98,23 @@ class TaskProgress:
         self._messages.extend(rebuilt)
 
     def write_note(self, **_ignored) -> str:
-        """Fork a note-writer; override the task progress file (not the live block)."""
+        """Fork an Edit-restricted note-writer for this task's progress file."""
         if not self.enabled:
             return "No task progress file for this session; note not recorded."
-        from langbridge_code.agents.common.fork import fork_one_pass
-        from langbridge_code.tools.note_progress import TASK_NOTE_FORK_INSTRUCTION
-        from langbridge_code.util.progress import write_progress_note
+        from langbridge_code.agents.common.fork import fork_progress_note
 
         try:
-            note = fork_one_pass(
+            result = fork_progress_note(
                 self.api_key,
                 self.model,
                 list(self._messages or []),
-                TASK_NOTE_FORK_INSTRUCTION,
-                label=f"{self.label} note fork",
+                run_log_path=self.run_log_path,
+                task_name=self.task_name,
                 tool_schemas=self._tool_schemas,
+                label=f"{self.label} note fork",
             )
         except Exception as error:
             return f"Progress note fork failed: {error}"
-        if not note.strip():
-            return "Progress note fork returned nothing; no note recorded."
-        result = write_progress_note(self.run_log_path, note, self.task_name)
         # Reset only on success so a failed fork retries next round.
         if str(result).startswith("Noted"):
             self._rounds_since_note = 0
