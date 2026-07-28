@@ -32,7 +32,8 @@ swe-chat/
 
 2. Env vars:
    - `GITHUB_TOKEN` / `GH_TOKEN` — resolve + enrich diffs
-   - `OPENAI_API_KEY` (optional) — intent / sim LLM; heuristics if missing
+   - `OPENAI_API_KEY` — intent / sim LLM; intent falls back to heuristics, but the
+     sim only no-ops without it
    - Docker + base image `langbridge-bench:py312` — env/reference
 
 ## Run

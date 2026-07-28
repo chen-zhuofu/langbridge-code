@@ -56,7 +56,7 @@ def test_timeout_is_max_40m_or_2x_runtime():
 
 def test_episode_stops_after_four_noops():
     def agent_turn(_user: str):
-        # Never done → sim heuristic returns no-op while "still working"
+        # Never done → sim no-ops while "still working" until the noop cap trips
         return {"assistant_text": "still implementing details", "done": False}
 
     episode = run_episode(_spec(), agent_turn, max_turns=20)

@@ -101,7 +101,7 @@ def test_run_episode_stub_ends_and_scores():
     assert scored["user_input_count"] == episode["user_input_count"]
 
 
-def test_heuristic_reveal_when_done():
+def test_decide_sim_noops_without_llm():
     state = EpisodeState(revealed_intent_ids=["i1"])
     decision = decide_sim(
         spec=_spec(),

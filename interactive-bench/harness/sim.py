@@ -69,40 +69,6 @@ def should_stop(state: EpisodeState, spec: dict) -> str | None:
     return None
 
 
-def heuristic_sim(
-    *,
-    agent_text: str,
-    intents: list[dict],
-    revealed: list[str],
-) -> SimDecision:
-    """Offline fallback when no LLM key: reveal next when agent looks done."""
-    lower = (agent_text or "").lower()
-    asked = "?" in (agent_text or "") and any(
-        w in lower for w in ("should i", "do you want", "which", "prefer", "?")
-    )
-    unrevealed = [i for i in intents if str(i["id"]) not in set(revealed)]
-    if asked and unrevealed:
-        return SimDecision(
-            action="answer",
-            message=f"Please stick to: {unrevealed[0]['text']}",
-            reason="agent asked a question",
-            counts_as_user_input=True,
-        )
-    doneish = any(
-        p in lower
-        for p in ("done", "finished", "all tests pass", "ready for review", "completed")
-    )
-    if doneish and unrevealed:
-        nxt = unrevealed[0]
-        return SimDecision(
-            action="reveal_next",
-            message=str(nxt["text"]),
-            reason="agent looks done; reveal next intent",
-            counts_as_user_input=True,
-        )
-    return SimDecision(action="no-op", message=NOOP_MESSAGE, reason="progress / default")
-
-
 def llm_sim(
     *,
     spec: dict,
@@ -156,11 +122,9 @@ def decide_sim(
         trajectory_summary=trajectory_summary,
     )
     if decision is None:
-        decision = heuristic_sim(
-            agent_text=agent_text,
-            intents=list(spec.get("intents") or []),
-            revealed=state.revealed_intent_ids,
-        )
+        # No LLM decision available → stay quiet; the noop cap still ends the episode.
+        noop_message = (spec.get("sim") or {}).get("noop_message") or NOOP_MESSAGE
+        decision = SimDecision(action="no-op", message=noop_message, reason="sim llm unavailable")
     return decision
 
 
