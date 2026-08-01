@@ -61,7 +61,11 @@ Reveal is state-conditioned. Turn 0 = first user message verbatim.
 ## Labels
 
 - `task_type`: `bug_fix` / `feature` / `refactor` / `other`
-- `difficulty`: bucket by original agent runtime (easy ≤10m, medium ≤45m, else hard)
+- `difficulty`: bucket by gold-patch complexity — worst of files changed (easy ≤2, medium ≤5,
+  else hard), LOC changed (≤30 / ≤120 / else), FAIL_TO_PASS count (≤2 / ≤5 / else). Computed at
+  curate (F2P isn't known until reference).
+- `horizon`: bucket by original agent runtime — how long-horizon the task is (short ≤10m,
+  medium ≤30m, else long). Computed at enrich.
 
 ## Layout
 
@@ -90,8 +94,9 @@ interactive-bench/
 
 `collect` → `resolve` → `enrich` → `env` → `reference` → `curate`
 
-Intent LLM extraction runs inside **curate** (after cheaper Docker/F2P gates).
-Standalone `intent/analyze.py` remains for debugging.
+``curate`` runs after ``reference`` so LLM intent extraction only hits tasks
+that already have valid FAIL_TO_PASS. Poor / empty intents are dropped there
+(along with oracle / F2P quality gates).
 
 Then: `eval/run_eval.py` (sim harness).
 

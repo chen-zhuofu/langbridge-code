@@ -47,6 +47,7 @@ from langbridge_code.tools import (
 from langbridge_code.tools.common.description import without_description
 from langbridge_code.tools.common.runtime import managed_binary
 from langbridge_code.skills import (
+    attach_skill_tracking,
     ensure_skill_index_block,
     normalize_task_type,
     reviewer_skill_catalog,
@@ -143,15 +144,17 @@ AGENT_WORKER_TOOL_SCHEMA = {
         "Launch the worker-reviewer subagent for exactly one todo subtask. "
         "A new task starts without your chat context and never reads your plan file: the "
         "task_contract must be a word-for-word copy of that task's complete "
-        "markdown block in todo_list.md. Put exploration findings — exact file "
-        "paths, key functions/classes with line ranges, relevant snippets, and "
-        "how the pieces connect — in supplemental_context, without changing the "
-        "contract. "
+        "markdown block in todo_list.md (including its id:). Put exploration "
+        "findings — exact file paths, key functions/classes with line ranges, "
+        "relevant snippets, and how the pieces connect — in supplemental_context, "
+        "without changing the contract. If an approved design/spec exists, always "
+        "include its path in supplemental_context on every dispatch. "
         "One subtask per call — do not paste the entire plan or bundle todos. "
         "Every new coding task — single or batched — runs in its own isolated git "
         "worktree branched from HEAD, and the result reports its feature branch. "
-        "Re-dispatching the exact same contract with the same task_name resumes "
-        "that task's failed or interrupted worktree, progress note, and trace tail. "
+        "task_name must be the todo's id: value. Re-dispatching the same "
+        "task_name resumes that task's failed or interrupted worktree, progress "
+        "note, and trace tail. "
         "Merge each ready branch yourself with the merge_branch tool (never via "
         "agent_worker) before dispatching todos that depend on it. When several "
         "todos in todo_list.md are independent and unblocked, you may call "
@@ -162,10 +165,11 @@ AGENT_WORKER_TOOL_SCHEMA = {
         "the matching line `[x]` yourself with Edit. "
         "On stop before approval, partial work is preserved on the task's worktree "
         "branch (normal non-PASS returns are committed; hard Stop leaves completed "
-        "edits in place). Leave it unmerged and re-dispatch the same "
-        "contract/task_name with the previous return in supplemental_context. "
-        "Only merge a completed/PASS branch. If the contract changes, use a fresh "
-        "task_name. "
+        "edits in place). Leave it unmerged and re-dispatch the same task_name "
+        "with the previous return in supplemental_context. "
+        "Only merge a completed/PASS branch. If the todo's meaning/content must "
+        "change, edit todo_list.md with a new id and dispatch under that new "
+        "task_name — do not reuse the old id. "
         "Returns a final summary only."
     ),
     "parameters": {
@@ -175,9 +179,9 @@ AGENT_WORKER_TOOL_SCHEMA = {
                 "type": "string",
                 "description": (
                     "Word-for-word copy of exactly one complete task block from "
-                    "todo_list.md, including title, Objective, Detailed requirements, "
-                    "Acceptance spec, Deliverables, Verify, Out of scope, and deps. "
-                    "Do not summarize, rewrite, or omit any part."
+                    "todo_list.md, including title, (id: …), Objective, Detailed "
+                    "requirements, Acceptance spec, Deliverables, Verify, Out of "
+                    "scope, and deps. Do not summarize, rewrite, or omit any part."
                 ),
             },
             "supplemental_context": {
@@ -185,10 +189,13 @@ AGENT_WORKER_TOOL_SCHEMA = {
                 "description": (
                     "Additional facts discovered after the contract was written: "
                     "exact paths, line ranges, relevant snippets, and how components "
-                    "connect. When resuming the same task_name, include the previous "
-                    "agent_worker return so the worker knows why it stopped and what "
-                    "review feedback remains. Must not override or reinterpret the "
-                    "task contract."
+                    "connect. If an approved design/spec (or other authoritative "
+                    "playbook) exists for this project, always include its path here "
+                    "on every dispatch and re-dispatch so the worker can open it on "
+                    "demand. When resuming the same task_name (todo id), include the "
+                    "previous agent_worker return so the worker knows why it stopped "
+                    "and what review feedback remains. Must not override or "
+                    "reinterpret the task contract."
                 ),
             },
             "description": {
@@ -198,11 +205,11 @@ AGENT_WORKER_TOOL_SCHEMA = {
             "task_name": {
                 "type": "string",
                 "description": (
-                    "Stable name for this todo/task (e.g. 'task-3-game-state'). "
-                    "Names the task's progress note file: the worker's notes are "
-                    "saved under it and shown to the next worker dispatched with "
-                    "the SAME task_name — reuse the exact name when re-dispatching "
-                    "or continuing a task so it resumes from those notes."
+                    "Verbatim id: from the todo being dispatched "
+                    "(e.g. 'task-3-game-state'). Keys the worktree, progress note, "
+                    "and traces — reuse the exact id when re-dispatching or "
+                    "continuing so it resumes. If the todo's meaning/content must "
+                    "change, put a new id in todo_list.md and pass that new id here."
                 ),
             },
         },
@@ -389,7 +396,12 @@ def new_reviewer_session(
 
 
 class MemoryPhaseMixin:
-    """Same memory triangle as the main agent: prefetch, mid-phase fork, end catch-up."""
+    """Same memory triangle as the main agent: prefetch, mid-phase fork, end catch-up.
+
+    Uses a private agent-memory store (not the main agent's roots).
+    """
+
+    memory_agent: str | None = None
 
     def _init_memory_phase_state(self) -> None:
         self._memory_writer_ran_this_send = False
@@ -397,15 +409,16 @@ class MemoryPhaseMixin:
         self.tools["memory_writer"] = self._invoke_memory_writer
 
     def _refresh_memory_block(self, task: str = "") -> None:
-        from langbridge_code.memory import prefetch_memory
+        from langbridge_code.memory import memory_agent_scope, prefetch_memory
 
-        self.context.stack.set_memory_block(
-            prefetch_memory(
-                self.api_key,
-                self.model,
-                task or getattr(self, "assigned_task", None) or "",
+        with memory_agent_scope(self.memory_agent):
+            self.context.stack.set_memory_block(
+                prefetch_memory(
+                    self.api_key,
+                    self.model,
+                    task or getattr(self, "assigned_task", None) or "",
+                )
             )
-        )
 
     def _ensure_memory_hooks(self) -> None:
         if self._memory_hooks_ready:
@@ -431,7 +444,12 @@ class MemoryPhaseMixin:
     def _invoke_memory_writer(self, **_kwargs):
         from langbridge_code.tools.memory_writer import schedule_memory_writer
 
-        report = schedule_memory_writer(self.api_key, self.model, list(self.messages))
+        report = schedule_memory_writer(
+            self.api_key,
+            self.model,
+            list(self.messages),
+            memory_agent=self.memory_agent,
+        )
         self._memory_writer_ran_this_send = True
         return report
 
@@ -440,7 +458,12 @@ class MemoryPhaseMixin:
 
         if self._memory_writer_ran_this_send:
             return
-        schedule_memory_writer(self.api_key, self.model, self.messages)
+        schedule_memory_writer(
+            self.api_key,
+            self.model,
+            self.messages,
+            memory_agent=self.memory_agent,
+        )
         self._memory_writer_ran_this_send = True
 
 
@@ -460,10 +483,13 @@ class WorkerSession(MemoryPhaseMixin):
         write_guard=None,
         task_name="",
     ):
+        from langbridge_code.memory import MEMORY_AGENT_WORKER
+
         self.api_key = api_key
         self.model = model
         self.task_type = normalize_task_type(task_type)
         self.label = "Worker"
+        self.memory_agent = MEMORY_AGENT_WORKER
         self.trace_sink = trace_sink
         self.approval_callback = approval_callback
         self.run_log_path = run_log_path
@@ -493,6 +519,7 @@ class WorkerSession(MemoryPhaseMixin):
             self.task_progress.attach(
                 self.context.stack, self.messages, self.tool_schemas
             )
+        attach_skill_tracking(self.context.stack, self.tools, role="worker_coder")
         self.tool_history = []
         self.step = 0
         self.assigned_task: str | None = None
@@ -525,7 +552,7 @@ class WorkerSession(MemoryPhaseMixin):
             self.model,
             self.assigned_task or "",
             worker_skill_catalog(self.task_type),
-            label=f"{self.label} skill prefetch",
+            label=f"{self.label} skill listing",
         )
 
     def begin_send(self, user_prompt, *, assigned_task=None) -> None:
@@ -652,12 +679,15 @@ class ReviewerSession(MemoryPhaseMixin):
         turn_id=None,
         task_name="",
     ):
+        from langbridge_code.memory import MEMORY_AGENT_REVIEWER
+
         self.api_key = api_key
         self.model = model
         self.tool_schemas = list(tool_schemas)
         self.tools = dict(tools)
         self.task_type = normalize_task_type(task_type)
         self.label = "Reviewer"
+        self.memory_agent = MEMORY_AGENT_REVIEWER
         self.trace_sink = trace_sink
         self.run_log_path = run_log_path
         self.turn_id = turn_id
@@ -681,6 +711,7 @@ class ReviewerSession(MemoryPhaseMixin):
             self.task_progress.attach(
                 self.context.stack, self.messages, self.tool_schemas
             )
+        attach_skill_tracking(self.context.stack, self.tools, role="reviewer_code")
         self.step = 0
         self.assigned_task: str | None = None
         self._send_start_time: float | None = None
@@ -712,7 +743,7 @@ class ReviewerSession(MemoryPhaseMixin):
             self.model,
             self.assigned_task or "",
             reviewer_skill_catalog(self.task_type),
-            label=f"{self.label} skill prefetch",
+            label=f"{self.label} skill listing",
         )
 
     def begin_send(self, user_prompt, *, assigned_task=None) -> None:
@@ -1315,8 +1346,8 @@ def dispatch_worker(
         else:
             branch_note += (
                 " (partial work is committed on this branch — do NOT merge it yet; "
-                "re-dispatch the same task_contract with the same task_name and the "
-                "previous return in supplemental_context to resume here)"
+                "re-dispatch the same task_name (todo id) with the previous return "
+                "in supplemental_context to resume here)"
             )
         return f"[{description or 'worker'}] Worktree task {status}.{branch_note}\n\n{detail}{_todo_completion_suffix(passed)}"
 

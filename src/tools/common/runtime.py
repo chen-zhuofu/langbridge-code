@@ -137,10 +137,28 @@ def _safe_extract_member(archive: tarfile.TarFile, member: tarfile.TarInfo, targ
     archive.extract(member, target)
 
 
+def _micromamba_usable(binary: Path) -> bool:
+    if not binary.is_file() or not os.access(binary, os.X_OK):
+        return False
+    try:
+        completed = subprocess.run(
+            [str(binary), "--help"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return completed.returncode == 0
+
+
 def _install_micromamba() -> Path:
     binary = _micromamba_path()
-    if binary.exists():
+    if _micromamba_usable(binary):
         return binary
+    if binary.exists():
+        binary.unlink(missing_ok=True)
 
     root = runtime_root()
     root.mkdir(parents=True, exist_ok=True)
@@ -312,12 +330,16 @@ def _venv_python(directory: Path) -> Path:
 def _python_with_pytest(candidate: str | None) -> str | None:
     if not candidate:
         return None
-    check = subprocess.run(
-        [candidate, "-c", "import pytest"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    try:
+        check = subprocess.run(
+            [candidate, "-c", "import pytest"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError:
+        # Wrong OS binary, missing +x, etc. Treat as unavailable.
+        return None
     if check.returncode == 0:
         return candidate
     return None
@@ -330,6 +352,9 @@ def ensure_managed_test_python() -> str:
     existing = _python_with_pytest(str(python) if python.exists() else None)
     if existing:
         return existing
+    # Drop a stale managed prefix (e.g. Linux binaries copied onto macOS).
+    if directory.exists():
+        shutil.rmtree(directory, ignore_errors=True)
 
     # Eval / preinstalled images often already ship pytest — use that instead of
     # downloading micromamba (which is blocked on the eval egress proxy).

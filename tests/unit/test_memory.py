@@ -5,6 +5,8 @@ import pytest
 
 import langbridge_code.memory as memory_mod
 from langbridge_code.memory import (
+    memory_agent_scope,
+    memory_index_path,
     memory_index_text,
     parse_memory_entry,
     prefetch_memory,
@@ -325,7 +327,7 @@ def test_schedule_memory_writer_runs_tool_agent_in_background(monkeypatch):
 
     started = threading.Event()
 
-    def tracking_run(api_key, model, messages):
+    def tracking_run(api_key, model, messages, **kwargs):
         write_memory(
             "feedback",
             "response-style",
@@ -354,3 +356,36 @@ def test_legacy_entry_remains_readable():
     assert parsed.name == "旧偏好"
     assert parsed.memory_type == "user"
     assert parsed.content == "用户偏好简短回复。"
+
+
+def test_agent_private_memory_paths_differ_from_main():
+    main_user = memory_index_path("user")
+    main_project = memory_index_path("project")
+    with memory_agent_scope("worker"):
+        worker_user = memory_index_path("user")
+        worker_project = memory_index_path("project")
+    with memory_agent_scope("reviewer"):
+        reviewer_user = memory_index_path("user")
+        reviewer_project = memory_index_path("project")
+
+    assert main_user != worker_user != reviewer_user
+    assert main_project != worker_project != reviewer_project
+    assert worker_user.parent.name == "worker"
+    assert reviewer_project.parent.name == "reviewer"
+    assert "agent-memory" in worker_user.parts
+    assert "agent-memory" in reviewer_project.parts
+
+
+def test_agent_writes_do_not_touch_main_memory():
+    with memory_agent_scope("worker"):
+        write_memory(
+            "project",
+            "worker-only-fact",
+            "worker 私有环境事实",
+            "在 worker 里用 python3。",
+        )
+        assert "worker-only-fact.md" in read_memory_index("project")
+        assert "python3" in read_memory_entry("project", "worker-only-fact.md")
+
+    assert read_memory_index("project") == ""
+    assert read_memory_entry("project", "worker-only-fact.md") == ""

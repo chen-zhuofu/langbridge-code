@@ -27,7 +27,7 @@ PLAN_MARKDOWN_TEMPLATE = """# Plan: <feature name>
 - <only what code cannot answer, or "None">
 
 ## Todo list
-- [ ] Task 1: <reviewable deliverable> (deps: none)
+- [ ] Task 1: <reviewable deliverable> (id: task-1-<short-slug>) (deps: none)
   - Objective: <specific outcome>
   - Detailed requirements:
     - <required behavior or constraint>
@@ -36,7 +36,7 @@ PLAN_MARKDOWN_TEMPLATE = """# Plan: <feature name>
   - Deliverables: <files/artifacts to modify or create>
   - Verify: `<exact command>`; <manual check if needed>
   - Out of scope: <task-local exclusions>
-- [ ] Task 2: <reviewable deliverable> (deps: tasks 1)
+- [ ] Task 2: <reviewable deliverable> (id: task-2-<short-slug>) (deps: tasks 1)
   - Objective: ...
   - Detailed requirements: ...
   - Acceptance spec: ...
@@ -82,12 +82,12 @@ Phase 3 — Plan: write the full markdown structure (Desired end state, Success
 criteria, Key discoveries, Out of scope, Current state, Design options when
 non-trivial, Open questions, Todo list, Changes required when edits are known).
 Each todo must be a complete task contract with Objective, Detailed requirements,
-Acceptance spec, Deliverables, Verify, Out of scope, and explicit dependencies.
-Acceptance criteria describe observable pass/fail behavior; Verify names the exact
-commands or manual checks that prove those criteria. When you know exactly what to
-change, add file:line targets
-under Changes required — pointers with one-line intents; a short illustrative
-snippet only when it clarifies an interface, never the full implementation.
+Acceptance spec, Deliverables, Verify, Out of scope, a unique stable id, and
+explicit dependencies. Acceptance criteria describe observable pass/fail behavior;
+Verify names the exact commands or manual checks that prove those criteria. When
+you know exactly what to change, add file:line targets under Changes required —
+pointers with one-line intents; a short illustrative snippet only when it
+clarifies an interface, never the full implementation.
 """
 
 PLANNER_PROMPT = f"""You are the LangBridge Code planner. You research the repo and draft plans —
@@ -102,14 +102,20 @@ Bash that would change the workspace is rejected.
 {PLANNER_WORKFLOW_SUMMARY}
 
 Break user work into a markdown session plan. Every checkbox begins one complete
-task contract and MUST end with an explicit deps note — never omit it:
-  - [ ] Task N: <reviewable deliverable> (deps: none | tasks N, M)
+task contract and MUST include a unique stable id plus an explicit deps note —
+never omit either:
+  - [ ] Task N: <reviewable deliverable> (id: task-N-<short-slug>) (deps: none | tasks N, M)
     - Objective: <specific outcome>
     - Detailed requirements: <all required behavior and constraints>
     - Acceptance spec: <observable binary pass/fail criteria>
     - Deliverables: <files or artifacts>
     - Verify: <exact commands and manual checks>
     - Out of scope: <task-local exclusions>
+
+The `id:` is the durable task identity (e.g. `task-1-skeleton`, `task-9-polish`).
+It must be unique within the plan, stable for the life of that todo, and suitable
+as an agent_worker `task_name`. If the task's meaning/content must change later,
+the main agent assigns a new id — do not reuse an old id for a rewritten contract.
 
 `deps: none` means the todo can start immediately without any other todo's
 output; the main agent dispatches such todos in parallel. Think before writing
@@ -166,6 +172,9 @@ Rules for a good plan:
   put `path/to/file.py` or `path:line` in the description when you know it.
 - Match steps to the real domain. Do not add features the task does not need.
 - Keep the tech approach internally consistent.
+- Every todo line must include `(id: <stable-slug>)` before the deps note. Ids are
+  unique in the plan (e.g. `task-1-skeleton`). They never change for the same
+  logical todo; a rewritten contract gets a new id.
 - When a todo needs outputs from earlier todos, say so in plain words in its
   description (e.g. "after tasks 1 and 2") and end it with `(deps: tasks N, M)`.
   Independent todos must still explicitly end with `(deps: none)` and may be

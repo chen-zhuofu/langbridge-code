@@ -1,0 +1,180 @@
+{
+  "description": "Tasks dropped because the Docker env could not execute the test suite.",
+  "dropped": [
+    {
+      "task_id": "MoonshotAI__kimi-code-934",
+      "reason": "docker build failed for lb-task:MoonshotAI__kimi-code-934:\nSending build context to Docker daemon  3.584kB\n\nStep 1/7 : FROM langbridge-bench:py312\n ---> b43caa9e9ce5\nStep 2/7 : ENV SETUPTOOLS_SCM_PRETEND_VERSION=9999.0.0\n ---> Running in b28935837eaf\n ---> Removed intermediate container b28935837eaf\n ---> 27cd109ce3dd\nStep 3/7 : RUN git config --global user.email \"agent@langbridge.local\"     && git config --global user.name \"LangBridge Agent\"\n ---> Running in 65b2273dbd59\n ---> Removed intermedi",
+      "stage": "env"
+    },
+    {
+      "task_id": "openclaw__openclaw-112723",
+      "reason": "docker build failed for lb-task:openclaw__openclaw-112723:\nSending build context to Docker daemon  3.584kB\n\nStep 1/7 : FROM langbridge-bench:py312\n ---> b43caa9e9ce5\nStep 2/7 : ENV SETUPTOOLS_SCM_PRETEND_VERSION=9999.0.0\n ---> Using cache\n ---> 27cd109ce3dd\nStep 3/7 : RUN git config --global user.email \"agent@langbridge.local\"     && git config --global user.name \"LangBridge Agent\"\n ---> Using cache\n ---> b461df7b11f7\nStep 4/7 : WORKDIR /work/repo\n ---> Using cache\n ---> 4d878e6cde19\nStep 5/7 : ",
+      "stage": "env"
+    },
+    {
+      "task_id": "bytedance__deer-flow-4530",
+      "reason": "docker build failed for lb-task:bytedance__deer-flow-4530:\nSending build context to Docker daemon  3.584kB\n\nStep 1/7 : FROM langbridge-bench:py312\n ---> c21281fae7e1\nStep 2/7 : ENV SETUPTOOLS_SCM_PRETEND_VERSION=9999.0.0\n ---> Using cache\n ---> f0a850a74840\nStep 3/7 : RUN git config --global user.email \"agent@langbridge.local\"     && git config --global user.name \"LangBridge Agent\"\n ---> Running in 7d1ffff5561d\n ---> Removed intermediate container 7d1ffff5561d\n ---> 8362e99173b1\nStep 4/7 : WORKD",
+      "stage": "env"
+    },
+    {
+      "task_id": "bytedance__deer-flow-4405",
+      "reason": "docker build failed for lb-task:bytedance__deer-flow-4405:\nSending build context to Docker daemon  3.584kB\n\nStep 1/7 : FROM langbridge-bench:py312\n ---> c21281fae7e1\nStep 2/7 : ENV SETUPTOOLS_SCM_PRETEND_VERSION=9999.0.0\n ---> Using cache\n ---> f0a850a74840\nStep 3/7 : RUN git config --global user.email \"agent@langbridge.local\"     && git config --global user.name \"LangBridge Agent\"\n ---> Using cache\n ---> 8362e99173b1\nStep 4/7 : WORKDIR /work/repo\n ---> Using cache\n ---> 93fa92ea22a1\nStep 5/7 : ",
+      "stage": "env"
+    },
+    {
+      "task_id": "anomalyco__opencode-38924",
+      "reason": "docker build failed for lb-task:anomalyco__opencode-38924:\nSending build context to Docker daemon  3.584kB\n\nStep 1/7 : FROM langbridge-bench:py312\n ---> c21281fae7e1\nStep 2/7 : ENV SETUPTOOLS_SCM_PRETEND_VERSION=9999.0.0\n ---> Using cache\n ---> f0a850a74840\nStep 3/7 : RUN git config --global user.email \"agent@langbridge.local\"     && git config --global user.name \"LangBridge Agent\"\n ---> Using cache\n ---> 8362e99173b1\nStep 4/7 : WORKDIR /work/repo\n ---> Using cache\n ---> 93fa92ea22a1\nStep 5/7 : ",
+      "stage": "env"
+    },
+    {
+      "task_id": "anomalyco__opencode-39249",
+      "reason": "docker build failed for lb-task:anomalyco__opencode-39249:\nSending build context to Docker daemon  3.584kB\n\nStep 1/7 : FROM langbridge-bench:py312\n ---> c21281fae7e1\nStep 2/7 : ENV SETUPTOOLS_SCM_PRETEND_VERSION=9999.0.0\n ---> Using cache\n ---> f0a850a74840\nStep 3/7 : RUN git config --global user.email \"agent@langbridge.local\"     && git config --global user.name \"LangBridge Agent\"\n ---> Using cache\n ---> 8362e99173b1\nStep 4/7 : WORKDIR /work/repo\n ---> Using cache\n ---> 93fa92ea22a1\nStep 5/7 : ",
+      "stage": "env"
+    },
+    {
+      "task_id": "numpy__numpy-32041",
+      "reason": "docker build failed for lb-task:numpy__numpy-32041:\nthon .refvenv/bin/python -e \".[dev,test,tests,testing]\" pytest         || uv pip install --python .refvenv/bin/python -e . pytest         || uv pip install --python .refvenv/bin/python . pytest)     && uv pip install --python .refvenv/bin/python ruff mypy bandit\n ---> Running in ecc90e965af5\n\u001b[91mUsing CPython 3.12.13 interpreter at: /usr/local/bin/python3\nCreating virtual environment at: .refvenv\n\u001b[0m\u001b[91mUsing Python 3.12.13 environment at: .",
+      "stage": "env"
+    },
+    {
+      "task_id": "openclaw__openclaw-93030",
+      "reason": "docker build failed for lb-task:openclaw__openclaw-93030:\nSending build context to Docker daemon  3.584kB\n\nStep 1/7 : FROM langbridge-bench:py312\n ---> c21281fae7e1\nStep 2/7 : ENV SETUPTOOLS_SCM_PRETEND_VERSION=9999.0.0\n ---> Using cache\n ---> f0a850a74840\nStep 3/7 : RUN git config --global user.email \"agent@langbridge.local\"     && git config --global user.name \"LangBridge Agent\"\n ---> Using cache\n ---> 8362e99173b1\nStep 4/7 : WORKDIR /work/repo\n ---> Using cache\n ---> 93fa92ea22a1\nStep 5/7 : R",
+      "stage": "env"
+    },
+    {
+      "task_id": "openclaw__openclaw-113359",
+      "reason": "docker build failed for lb-task:openclaw__openclaw-113359:\nSending build context to Docker daemon  3.584kB\n\nStep 1/7 : FROM langbridge-bench:py312\n ---> c21281fae7e1\nStep 2/7 : ENV SETUPTOOLS_SCM_PRETEND_VERSION=9999.0.0\n ---> Using cache\n ---> f0a850a74840\nStep 3/7 : RUN git config --global user.email \"agent@langbridge.local\"     && git config --global user.name \"LangBridge Agent\"\n ---> Using cache\n ---> 8362e99173b1\nStep 4/7 : WORKDIR /work/repo\n ---> Using cache\n ---> 93fa92ea22a1\nStep 5/7 : ",
+      "stage": "env"
+    },
+    {
+      "task_id": "bytedance__deer-flow-4497",
+      "reason": "docker build failed for lb-task:bytedance__deer-flow-4497:\nSending build context to Docker daemon  3.584kB\n\nStep 1/7 : FROM langbridge-bench:py312\n ---> c21281fae7e1\nStep 2/7 : ENV SETUPTOOLS_SCM_PRETEND_VERSION=9999.0.0\n ---> Using cache\n ---> f0a850a74840\nStep 3/7 : RUN git config --global user.email \"agent@langbridge.local\"     && git config --global user.name \"LangBridge Agent\"\n ---> Using cache\n ---> 8362e99173b1\nStep 4/7 : WORKDIR /work/repo\n ---> Using cache\n ---> 93fa92ea22a1\nStep 5/7 : ",
+      "stage": "env"
+    },
+    {
+      "task_id": "bytedance__deer-flow-4524",
+      "reason": "docker build failed for lb-task:bytedance__deer-flow-4524:\nSending build context to Docker daemon  3.584kB\n\nStep 1/7 : FROM langbridge-bench:py312\n ---> c21281fae7e1\nStep 2/7 : ENV SETUPTOOLS_SCM_PRETEND_VERSION=9999.0.0\n ---> Using cache\n ---> f0a850a74840\nStep 3/7 : RUN git config --global user.email \"agent@langbridge.local\"     && git config --global user.name \"LangBridge Agent\"\n ---> Using cache\n ---> 8362e99173b1\nStep 4/7 : WORKDIR /work/repo\n ---> Using cache\n ---> 93fa92ea22a1\nStep 5/7 : ",
+      "stage": "env"
+    },
+    {
+      "task_id": "anomalyco__opencode-38330",
+      "reason": "docker build failed for lb-task:anomalyco__opencode-38330:\nSending build context to Docker daemon  3.584kB\n\nStep 1/7 : FROM langbridge-bench:py312\n ---> c21281fae7e1\nStep 2/7 : ENV SETUPTOOLS_SCM_PRETEND_VERSION=9999.0.0\n ---> Using cache\n ---> f0a850a74840\nStep 3/7 : RUN git config --global user.email \"agent@langbridge.local\"     && git config --global user.name \"LangBridge Agent\"\n ---> Using cache\n ---> 8362e99173b1\nStep 4/7 : WORKDIR /work/repo\n ---> Using cache\n ---> 93fa92ea22a1\nStep 5/7 : ",
+      "stage": "env"
+    },
+    {
+      "task_id": "anomalyco__opencode-37982",
+      "reason": "docker build failed for lb-task:anomalyco__opencode-37982:\nSending build context to Docker daemon  3.584kB\n\nStep 1/7 : FROM langbridge-bench:py312\n ---> c21281fae7e1\nStep 2/7 : ENV SETUPTOOLS_SCM_PRETEND_VERSION=9999.0.0\n ---> Using cache\n ---> f0a850a74840\nStep 3/7 : RUN git config --global user.email \"agent@langbridge.local\"     && git config --global user.name \"LangBridge Agent\"\n ---> Using cache\n ---> 8362e99173b1\nStep 4/7 : WORKDIR /work/repo\n ---> Using cache\n ---> 93fa92ea22a1\nStep 5/7 : ",
+      "stage": "env"
+    },
+    {
+      "task_id": "langchain-ai__langgraph-6509",
+      "reason": "docker build failed for lb-task:langchain-ai__langgraph-6509:\nSending build context to Docker daemon  3.584kB\n\nStep 1/7 : FROM langbridge-bench:py312\n ---> c21281fae7e1\nStep 2/7 : ENV SETUPTOOLS_SCM_PRETEND_VERSION=9999.0.0\n ---> Using cache\n ---> f0a850a74840\nStep 3/7 : RUN git config --global user.email \"agent@langbridge.local\"     && git config --global user.name \"LangBridge Agent\"\n ---> Using cache\n ---> 8362e99173b1\nStep 4/7 : WORKDIR /work/repo\n ---> Using cache\n ---> 93fa92ea22a1\nStep 5/7",
+      "stage": "env"
+    },
+    {
+      "task_id": "langchain-ai__langgraph-8053",
+      "reason": "docker build failed for lb-task:langchain-ai__langgraph-8053:\nSending build context to Docker daemon  3.584kB\n\nStep 1/7 : FROM langbridge-bench:py312\n ---> c21281fae7e1\nStep 2/7 : ENV SETUPTOOLS_SCM_PRETEND_VERSION=9999.0.0\n ---> Using cache\n ---> f0a850a74840\nStep 3/7 : RUN git config --global user.email \"agent@langbridge.local\"     && git config --global user.name \"LangBridge Agent\"\n ---> Using cache\n ---> 8362e99173b1\nStep 4/7 : WORKDIR /work/repo\n ---> Using cache\n ---> 93fa92ea22a1\nStep 5/7",
+      "stage": "env"
+    },
+    {
+      "task_id": "numpy__numpy-32061",
+      "reason": "docker build failed for lb-task:numpy__numpy-32061:\nthon .refvenv/bin/python -e \".[dev,test,tests,testing]\" pytest         || uv pip install --python .refvenv/bin/python -e . pytest         || uv pip install --python .refvenv/bin/python . pytest)     && uv pip install --python .refvenv/bin/python ruff mypy bandit\n ---> Running in 2c65f0c11128\n\u001b[91mUsing CPython 3.12.13 interpreter at: /usr/local/bin/python3\nCreating virtual environment at: .refvenv\n\u001b[0m\u001b[91mUsing Python 3.12.13 environment at: .",
+      "stage": "env"
+    },
+    {
+      "task_id": "MoonshotAI__kimi-code-1590",
+      "reason": "docker build failed for lb-task:MoonshotAI__kimi-code-1590:\nSending build context to Docker daemon  3.584kB\n\nStep 1/7 : FROM langbridge-bench:py312\n ---> c21281fae7e1\nStep 2/7 : ENV SETUPTOOLS_SCM_PRETEND_VERSION=9999.0.0\n ---> Using cache\n ---> f0a850a74840\nStep 3/7 : RUN git config --global user.email \"agent@langbridge.local\"     && git config --global user.name \"LangBridge Agent\"\n ---> Using cache\n ---> 8362e99173b1\nStep 4/7 : WORKDIR /work/repo\n ---> Using cache\n ---> 93fa92ea22a1\nStep 5/7 :",
+      "stage": "env"
+    },
+    {
+      "task_id": "openclaw__openclaw-111747",
+      "reason": "docker build failed for lb-task:openclaw__openclaw-111747:\nSending build context to Docker daemon  3.584kB\n\nStep 1/7 : FROM langbridge-bench:py312\n ---> c21281fae7e1\nStep 2/7 : ENV SETUPTOOLS_SCM_PRETEND_VERSION=9999.0.0\n ---> Using cache\n ---> f0a850a74840\nStep 3/7 : RUN git config --global user.email \"agent@langbridge.local\"     && git config --global user.name \"LangBridge Agent\"\n ---> Using cache\n ---> 8362e99173b1\nStep 4/7 : WORKDIR /work/repo\n ---> Using cache\n ---> 93fa92ea22a1\nStep 5/7 : ",
+      "stage": "env"
+    },
+    {
+      "task_id": "openclaw__openclaw-113372",
+      "reason": "docker build failed for lb-task:openclaw__openclaw-113372:\nSending build context to Docker daemon  3.584kB\n\nStep 1/7 : FROM langbridge-bench:py312\n ---> c21281fae7e1\nStep 2/7 : ENV SETUPTOOLS_SCM_PRETEND_VERSION=9999.0.0\n ---> Using cache\n ---> f0a850a74840\nStep 3/7 : RUN git config --global user.email \"agent@langbridge.local\"     && git config --global user.name \"LangBridge Agent\"\n ---> Using cache\n ---> 8362e99173b1\nStep 4/7 : WORKDIR /work/repo\n ---> Using cache\n ---> 93fa92ea22a1\nStep 5/7 : ",
+      "stage": "env"
+    },
+    {
+      "task_id": "MoonshotAI__kimi-code-1580",
+      "reason": "docker build failed for lb-task:MoonshotAI__kimi-code-1580:\nSending build context to Docker daemon  3.584kB\n\nStep 1/7 : FROM langbridge-bench:py312\n ---> c21281fae7e1\nStep 2/7 : ENV SETUPTOOLS_SCM_PRETEND_VERSION=9999.0.0\n ---> Using cache\n ---> f0a850a74840\nStep 3/7 : RUN git config --global user.email \"agent@langbridge.local\"     && git config --global user.name \"LangBridge Agent\"\n ---> Using cache\n ---> 8362e99173b1\nStep 4/7 : WORKDIR /work/repo\n ---> Using cache\n ---> 93fa92ea22a1\nStep 5/7 :",
+      "stage": "env"
+    },
+    {
+      "task_id": "MoonshotAI__kimi-code-1303",
+      "reason": "docker build failed for lb-task:MoonshotAI__kimi-code-1303:\nSending build context to Docker daemon  3.584kB\n\nStep 1/7 : FROM langbridge-bench:py312\n ---> c21281fae7e1\nStep 2/7 : ENV SETUPTOOLS_SCM_PRETEND_VERSION=9999.0.0\n ---> Using cache\n ---> f0a850a74840\nStep 3/7 : RUN git config --global user.email \"agent@langbridge.local\"     && git config --global user.name \"LangBridge Agent\"\n ---> Using cache\n ---> 8362e99173b1\nStep 4/7 : WORKDIR /work/repo\n ---> Using cache\n ---> 93fa92ea22a1\nStep 5/7 :",
+      "stage": "env"
+    },
+    {
+      "task_id": "MoonshotAI__kimi-code-1129",
+      "reason": "docker build failed for lb-task:MoonshotAI__kimi-code-1129:\nSending build context to Docker daemon  3.584kB\n\nStep 1/7 : FROM langbridge-bench:py312\n ---> c21281fae7e1\nStep 2/7 : ENV SETUPTOOLS_SCM_PRETEND_VERSION=9999.0.0\n ---> Using cache\n ---> f0a850a74840\nStep 3/7 : RUN git config --global user.email \"agent@langbridge.local\"     && git config --global user.name \"LangBridge Agent\"\n ---> Using cache\n ---> 8362e99173b1\nStep 4/7 : WORKDIR /work/repo\n ---> Using cache\n ---> 93fa92ea22a1\nStep 5/7 :",
+      "stage": "env"
+    },
+    {
+      "task_id": "MoonshotAI__kimi-code-1094",
+      "reason": "docker build failed for lb-task:MoonshotAI__kimi-code-1094:\nSending build context to Docker daemon  3.584kB\n\nStep 1/7 : FROM langbridge-bench:py312\n ---> c21281fae7e1\nStep 2/7 : ENV SETUPTOOLS_SCM_PRETEND_VERSION=9999.0.0\n ---> Using cache\n ---> f0a850a74840\nStep 3/7 : RUN git config --global user.email \"agent@langbridge.local\"     && git config --global user.name \"LangBridge Agent\"\n ---> Using cache\n ---> 8362e99173b1\nStep 4/7 : WORKDIR /work/repo\n ---> Using cache\n ---> 93fa92ea22a1\nStep 5/7 :",
+      "stage": "env"
+    },
+    {
+      "task_id": "MoonshotAI__kimi-code-1069",
+      "reason": "docker build failed for lb-task:MoonshotAI__kimi-code-1069:\nSending build context to Docker daemon  3.584kB\n\nStep 1/7 : FROM langbridge-bench:py312\n ---> c21281fae7e1\nStep 2/7 : ENV SETUPTOOLS_SCM_PRETEND_VERSION=9999.0.0\n ---> Using cache\n ---> f0a850a74840\nStep 3/7 : RUN git config --global user.email \"agent@langbridge.local\"     && git config --global user.name \"LangBridge Agent\"\n ---> Using cache\n ---> 8362e99173b1\nStep 4/7 : WORKDIR /work/repo\n ---> Using cache\n ---> 93fa92ea22a1\nStep 5/7 :",
+      "stage": "env"
+    },
+    {
+      "task_id": "MoonshotAI__kimi-code-1057",
+      "reason": "docker build failed for lb-task:MoonshotAI__kimi-code-1057:\nSending build context to Docker daemon  3.584kB\n\nStep 1/7 : FROM langbridge-bench:py312\n ---> c21281fae7e1\nStep 2/7 : ENV SETUPTOOLS_SCM_PRETEND_VERSION=9999.0.0\n ---> Using cache\n ---> f0a850a74840\nStep 3/7 : RUN git config --global user.email \"agent@langbridge.local\"     && git config --global user.name \"LangBridge Agent\"\n ---> Using cache\n ---> 8362e99173b1\nStep 4/7 : WORKDIR /work/repo\n ---> Using cache\n ---> 93fa92ea22a1\nStep 5/7 :",
+      "stage": "env"
+    },
+    {
+      "task_id": "openclaw__openclaw-114742",
+      "reason": "remote add origin https://github.com/openclaw/openclaw.git     && git fetch -q origin 2f7f543d9acafbcd6028bb6e939e9b03d323424f     && git checkout -q FETCH_HEAD     && uv venv .refvenv     && (uv pip install --python .refvenv/bin/python -e \".[dev,test,tests,testing]\" pytest         || uv pip install --python .refvenv/bin/python -e . pytest         || uv pip install --python .refvenv/bin/python . pytest)     && uv pip install --python .refvenv/bin/python ruff mypy bandit     && uv cache clean\n ---> Running in 5f527d8b7478\n\u001b[91mUsing CPython 3.12.13 interpreter at: /usr/local/bin/python\nCreating virtual environment at: .refvenv\n\u001b[0m\u001b[91mUsing Python 3.12.13 environment at: .refvenv\n\u001b[0m\u001b[91merror: /work/repo does not appear to be a Python project, as neither `pyproject.toml` nor `setup.py` are present in the directory\n\u001b[0m\u001b[91mUsing Python 3.12.13 environment at: .refvenv\n\u001b[0m\u001b[91merror: /work/repo does not appear to be a Python project, as neither `pyproject.toml` nor `setup.py` are present in the directory\n\u001b[0m\u001b[91mUsing Python 3.12.13 environment at: .refvenv\n\u001b[0m\u001b[91merror: /work/repo does not appear to be a Python project, as neither `pyproject.toml` nor `setup.py` are present in the directory\n\u001b[0m\nDEPRECATED: The legacy builder is deprecated and will be removed in a future release.\n            Install the buildx component to build images with BuildKit:\n            https://docs.docker.com/go/buildx/\n\nThe command '/bin/sh -c git init -q     && git remote add origin https://github.com/openclaw/openclaw.git     && git fetch -q origin 2f7f543d9acafbcd6028bb6e939e9b03d323424f     && git checkout -q FETCH_HEAD     && uv venv .refvenv     && (uv pip install --python .refvenv/bin/python -e \".[dev,test,tests,testing]\" pytest         || uv pip install --python .refvenv/bin/python -e . pytest         || uv pip install --python .refvenv/bin/python . pytest)     && uv pip install --python .refvenv/bin/python ruff mypy bandit     && uv cache clean' returned a non-zero code: 2\n",
+      "stage": "env"
+    },
+    {
+      "task_id": "openclaw__openclaw-115523",
+      "reason": "remote add origin https://github.com/openclaw/openclaw.git     && git fetch -q origin 8e75df55d7dc3314bdafb29532e4e20b7d6555e4     && git checkout -q FETCH_HEAD     && uv venv .refvenv     && (uv pip install --python .refvenv/bin/python -e \".[dev,test,tests,testing]\" pytest         || uv pip install --python .refvenv/bin/python -e . pytest         || uv pip install --python .refvenv/bin/python . pytest)     && uv pip install --python .refvenv/bin/python ruff mypy bandit     && uv cache clean\n ---> Running in 434648261c5a\n\u001b[91mUsing CPython 3.12.13 interpreter at: /usr/local/bin/python\nCreating virtual environment at: .refvenv\n\u001b[0m\u001b[91mUsing Python 3.12.13 environment at: .refvenv\n\u001b[0m\u001b[91merror: /work/repo does not appear to be a Python project, as neither `pyproject.toml` nor `setup.py` are present in the directory\n\u001b[0m\u001b[91mUsing Python 3.12.13 environment at: .refvenv\n\u001b[0m\u001b[91merror: /work/repo does not appear to be a Python project, as neither `pyproject.toml` nor `setup.py` are present in the directory\n\u001b[0m\u001b[91mUsing Python 3.12.13 environment at: .refvenv\n\u001b[0m\u001b[91merror: /work/repo does not appear to be a Python project, as neither `pyproject.toml` nor `setup.py` are present in the directory\n\u001b[0m\nDEPRECATED: The legacy builder is deprecated and will be removed in a future release.\n            Install the buildx component to build images with BuildKit:\n            https://docs.docker.com/go/buildx/\n\nThe command '/bin/sh -c git init -q     && git remote add origin https://github.com/openclaw/openclaw.git     && git fetch -q origin 8e75df55d7dc3314bdafb29532e4e20b7d6555e4     && git checkout -q FETCH_HEAD     && uv venv .refvenv     && (uv pip install --python .refvenv/bin/python -e \".[dev,test,tests,testing]\" pytest         || uv pip install --python .refvenv/bin/python -e . pytest         || uv pip install --python .refvenv/bin/python . pytest)     && uv pip install --python .refvenv/bin/python ruff mypy bandit     && uv cache clean' returned a non-zero code: 2\n",
+      "stage": "env"
+    },
+    {
+      "task_id": "bytedance__deer-flow-4534",
+      "reason": "te add origin https://github.com/bytedance/deer-flow.git     && git fetch -q origin d1d869c06c6b2067e2c358d823086ca1e9a170b3     && git checkout -q FETCH_HEAD     && uv venv .refvenv     && (uv pip install --python .refvenv/bin/python -e \".[dev,test,tests,testing]\" pytest         || uv pip install --python .refvenv/bin/python -e . pytest         || uv pip install --python .refvenv/bin/python . pytest)     && uv pip install --python .refvenv/bin/python ruff mypy bandit     && uv cache clean\n ---> Running in 72fe20388fa9\n\u001b[91mUsing CPython 3.12.13 interpreter at: /usr/local/bin/python\nCreating virtual environment at: .refvenv\n\u001b[0m\u001b[91mUsing Python 3.12.13 environment at: .refvenv\n\u001b[0m\u001b[91merror: /work/repo does not appear to be a Python project, as neither `pyproject.toml` nor `setup.py` are present in the directory\n\u001b[0m\u001b[91mUsing Python 3.12.13 environment at: .refvenv\n\u001b[0m\u001b[91merror: /work/repo does not appear to be a Python project, as neither `pyproject.toml` nor `setup.py` are present in the directory\n\u001b[0m\u001b[91mUsing Python 3.12.13 environment at: .refvenv\n\u001b[0m\u001b[91merror: /work/repo does not appear to be a Python project, as neither `pyproject.toml` nor `setup.py` are present in the directory\n\u001b[0m\nDEPRECATED: The legacy builder is deprecated and will be removed in a future release.\n            Install the buildx component to build images with BuildKit:\n            https://docs.docker.com/go/buildx/\n\nThe command '/bin/sh -c git init -q     && git remote add origin https://github.com/bytedance/deer-flow.git     && git fetch -q origin d1d869c06c6b2067e2c358d823086ca1e9a170b3     && git checkout -q FETCH_HEAD     && uv venv .refvenv     && (uv pip install --python .refvenv/bin/python -e \".[dev,test,tests,testing]\" pytest         || uv pip install --python .refvenv/bin/python -e . pytest         || uv pip install --python .refvenv/bin/python . pytest)     && uv pip install --python .refvenv/bin/python ruff mypy bandit     && uv cache clean' returned a non-zero code: 2\n",
+      "stage": "env"
+    },
+    {
+      "task_id": "pandas-dev__pandas-65389",
+      "reason": "docker build failed for lb-task:pandas-dev__pandas-65389:\n\nDEPRECATED: The legacy builder is deprecated and will be removed in a future release.\n            Install the buildx component to build images with BuildKit:\n            https://docs.docker.com/go/buildx/\n\npermission denied while trying to connect to the docker API at unix:///Users/zhuofuchen/.colima/default/docker.sock\n",
+      "stage": "env"
+    },
+    {
+      "task_id": "anomalyco__opencode-36258",
+      "reason": "mote add origin https://github.com/anomalyco/opencode.git     && git fetch -q origin d36a2d8981bad2a456835c65794fc96d980187ff     && git checkout -q FETCH_HEAD     && uv venv .refvenv     && (uv pip install --python .refvenv/bin/python -e \".[dev,test,tests,testing]\" pytest         || uv pip install --python .refvenv/bin/python -e . pytest         || uv pip install --python .refvenv/bin/python . pytest)     && uv pip install --python .refvenv/bin/python ruff mypy bandit     && uv cache clean\n ---> Running in a619a103a341\n\u001b[91mUsing CPython 3.12.13 interpreter at: /usr/local/bin/python\nCreating virtual environment at: .refvenv\n\u001b[0m\u001b[91mUsing Python 3.12.13 environment at: .refvenv\n\u001b[0m\u001b[91merror: /work/repo does not appear to be a Python project, as neither `pyproject.toml` nor `setup.py` are present in the directory\n\u001b[0m\u001b[91mUsing Python 3.12.13 environment at: .refvenv\n\u001b[0m\u001b[91merror: /work/repo does not appear to be a Python project, as neither `pyproject.toml` nor `setup.py` are present in the directory\n\u001b[0m\u001b[91mUsing Python 3.12.13 environment at: .refvenv\n\u001b[0m\u001b[91merror: /work/repo does not appear to be a Python project, as neither `pyproject.toml` nor `setup.py` are present in the directory\n\u001b[0m\nDEPRECATED: The legacy builder is deprecated and will be removed in a future release.\n            Install the buildx component to build images with BuildKit:\n            https://docs.docker.com/go/buildx/\n\nThe command '/bin/sh -c git init -q     && git remote add origin https://github.com/anomalyco/opencode.git     && git fetch -q origin d36a2d8981bad2a456835c65794fc96d980187ff     && git checkout -q FETCH_HEAD     && uv venv .refvenv     && (uv pip install --python .refvenv/bin/python -e \".[dev,test,tests,testing]\" pytest         || uv pip install --python .refvenv/bin/python -e . pytest         || uv pip install --python .refvenv/bin/python . pytest)     && uv pip install --python .refvenv/bin/python ruff mypy bandit     && uv cache clean' returned a non-zero code: 2\n",
+      "stage": "env"
+    },
+    {
+      "task_id": "langchain-ai__langgraph-8057",
+      "reason": " origin https://github.com/langchain-ai/langgraph.git     && git fetch -q origin 1a9baae9592e0c21336f6e09c891ba75481fd657     && git checkout -q FETCH_HEAD     && uv venv .refvenv     && (uv pip install --python .refvenv/bin/python -e \".[dev,test,tests,testing]\" pytest         || uv pip install --python .refvenv/bin/python -e . pytest         || uv pip install --python .refvenv/bin/python . pytest)     && uv pip install --python .refvenv/bin/python ruff mypy bandit     && uv cache clean\n ---> Running in c6cfdc5ace17\n\u001b[91mUsing CPython 3.12.13 interpreter at: /usr/local/bin/python\nCreating virtual environment at: .refvenv\n\u001b[0m\u001b[91mUsing Python 3.12.13 environment at: .refvenv\n\u001b[0m\u001b[91merror: /work/repo does not appear to be a Python project, as neither `pyproject.toml` nor `setup.py` are present in the directory\n\u001b[0m\u001b[91mUsing Python 3.12.13 environment at: .refvenv\n\u001b[0m\u001b[91merror: /work/repo does not appear to be a Python project, as neither `pyproject.toml` nor `setup.py` are present in the directory\n\u001b[0m\u001b[91mUsing Python 3.12.13 environment at: .refvenv\n\u001b[0m\u001b[91merror: /work/repo does not appear to be a Python project, as neither `pyproject.toml` nor `setup.py` are present in the directory\n\u001b[0m\nDEPRECATED: The legacy builder is deprecated and will be removed in a future release.\n            Install the buildx component to build images with BuildKit:\n            https://docs.docker.com/go/buildx/\n\nThe command '/bin/sh -c git init -q     && git remote add origin https://github.com/langchain-ai/langgraph.git     && git fetch -q origin 1a9baae9592e0c21336f6e09c891ba75481fd657     && git checkout -q FETCH_HEAD     && uv venv .refvenv     && (uv pip install --python .refvenv/bin/python -e \".[dev,test,tests,testing]\" pytest         || uv pip install --python .refvenv/bin/python -e . pytest         || uv pip install --python .refvenv/bin/python . pytest)     && uv pip install --python .refvenv/bin/python ruff mypy bandit     && uv cache clean' returned a non-zero code: 2\n",
+      "stage": "env"
+    },
+    {
+      "task_id": "numpy__numpy-32030",
+      "reason": "     [stdout]\n\n      meson-python: error: Could not find the specified meson:\n      \"vendored-meson/meson/meson.py\"\n\n\nhint: Build failures usually indicate a problem with the package or the build environment\u001b[0m\u001b[91mUsing Python 3.12.13 environment at: .refvenv\n\u001b[0m\u001b[91mResolved 6 packages in 1ms\n\u001b[0m\u001b[91m   Building numpy @ file:///work/repo\n\u001b[0m\u001b[91m  × Failed to build `numpy @ file:///work/repo`\n  ├─▶ The build backend returned an error\n  ╰─▶ Call to `mesonpy.build_editable` failed (exit status: 1)\n\n      [stdout]\n\n      meson-python: error: Could not find the specified meson:\n      \"vendored-meson/meson/meson.py\"\n\n\nhint: Build failures usually indicate a problem with the package or the build environment\u001b[0m\u001b[91mUsing Python 3.12.13 environment at: .refvenv\n\u001b[0m\u001b[91mResolved 6 packages in 1ms\n\u001b[0m\u001b[91m   Building numpy @ file:///work/repo\n\u001b[0m\u001b[91m  × Failed to build `numpy @ file:///work/repo`\n  ├─▶ The build backend returned an error\n  ╰─▶ Call to `mesonpy.build_wheel` failed (exit status: 1)\n\n      [stdout]\n\n      meson-python: error: Could not find the specified meson:\n      \"vendored-meson/meson/meson.py\"\n\n\nhint: Build failures usually indicate a problem with the package or the build environment\u001b[0m\nDEPRECATED: The legacy builder is deprecated and will be removed in a future release.\n            Install the buildx component to build images with BuildKit:\n            https://docs.docker.com/go/buildx/\n\nThe command '/bin/sh -c git init -q     && git remote add origin https://github.com/numpy/numpy.git     && git fetch -q origin b0401b6f8d1e00736d80d4954c46594ab60250c0     && git checkout -q FETCH_HEAD     && uv venv .refvenv     && (uv pip install --python .refvenv/bin/python -e \".[dev,test,tests,testing]\" pytest         || uv pip install --python .refvenv/bin/python -e . pytest         || uv pip install --python .refvenv/bin/python . pytest)     && uv pip install --python .refvenv/bin/python ruff mypy bandit     && uv cache clean' returned a non-zero code: 1\n",
+      "stage": "env"
+    },
+    {
+      "task_id": "numpy__numpy-31985",
+      "reason": "     [stdout]\n\n      meson-python: error: Could not find the specified meson:\n      \"vendored-meson/meson/meson.py\"\n\n\nhint: Build failures usually indicate a problem with the package or the build environment\u001b[0m\u001b[91mUsing Python 3.12.13 environment at: .refvenv\n\u001b[0m\u001b[91mResolved 6 packages in 1ms\n\u001b[0m\u001b[91m   Building numpy @ file:///work/repo\n\u001b[0m\u001b[91m  × Failed to build `numpy @ file:///work/repo`\n  ├─▶ The build backend returned an error\n  ╰─▶ Call to `mesonpy.build_editable` failed (exit status: 1)\n\n      [stdout]\n\n      meson-python: error: Could not find the specified meson:\n      \"vendored-meson/meson/meson.py\"\n\n\nhint: Build failures usually indicate a problem with the package or the build environment\u001b[0m\u001b[91mUsing Python 3.12.13 environment at: .refvenv\n\u001b[0m\u001b[91mResolved 6 packages in 1ms\n\u001b[0m\u001b[91m   Building numpy @ file:///work/repo\n\u001b[0m\u001b[91m  × Failed to build `numpy @ file:///work/repo`\n  ├─▶ The build backend returned an error\n  ╰─▶ Call to `mesonpy.build_wheel` failed (exit status: 1)\n\n      [stdout]\n\n      meson-python: error: Could not find the specified meson:\n      \"vendored-meson/meson/meson.py\"\n\n\nhint: Build failures usually indicate a problem with the package or the build environment\u001b[0m\nDEPRECATED: The legacy builder is deprecated and will be removed in a future release.\n            Install the buildx component to build images with BuildKit:\n            https://docs.docker.com/go/buildx/\n\nThe command '/bin/sh -c git init -q     && git remote add origin https://github.com/numpy/numpy.git     && git fetch -q origin 279da819df8cfdfd568ffde0166d6950f6e40ce4     && git checkout -q FETCH_HEAD     && uv venv .refvenv     && (uv pip install --python .refvenv/bin/python -e \".[dev,test,tests,testing]\" pytest         || uv pip install --python .refvenv/bin/python -e . pytest         || uv pip install --python .refvenv/bin/python . pytest)     && uv pip install --python .refvenv/bin/python ruff mypy bandit     && uv cache clean' returned a non-zero code: 1\n",
+      "stage": "env"
+    },
+    {
+      "task_id": "numpy__numpy-31975",
+      "reason": "     [stdout]\n\n      meson-python: error: Could not find the specified meson:\n      \"vendored-meson/meson/meson.py\"\n\n\nhint: Build failures usually indicate a problem with the package or the build environment\u001b[0m\u001b[91mUsing Python 3.12.13 environment at: .refvenv\n\u001b[0m\u001b[91mResolved 6 packages in 1ms\n\u001b[0m\u001b[91m   Building numpy @ file:///work/repo\n\u001b[0m\u001b[91m  × Failed to build `numpy @ file:///work/repo`\n  ├─▶ The build backend returned an error\n  ╰─▶ Call to `mesonpy.build_editable` failed (exit status: 1)\n\n      [stdout]\n\n      meson-python: error: Could not find the specified meson:\n      \"vendored-meson/meson/meson.py\"\n\n\nhint: Build failures usually indicate a problem with the package or the build environment\u001b[0m\u001b[91mUsing Python 3.12.13 environment at: .refvenv\n\u001b[0m\u001b[91mResolved 6 packages in 1ms\n\u001b[0m\u001b[91m   Building numpy @ file:///work/repo\n\u001b[0m\u001b[91m  × Failed to build `numpy @ file:///work/repo`\n  ├─▶ The build backend returned an error\n  ╰─▶ Call to `mesonpy.build_wheel` failed (exit status: 1)\n\n      [stdout]\n\n      meson-python: error: Could not find the specified meson:\n      \"vendored-meson/meson/meson.py\"\n\n\nhint: Build failures usually indicate a problem with the package or the build environment\u001b[0m\nDEPRECATED: The legacy builder is deprecated and will be removed in a future release.\n            Install the buildx component to build images with BuildKit:\n            https://docs.docker.com/go/buildx/\n\nThe command '/bin/sh -c git init -q     && git remote add origin https://github.com/numpy/numpy.git     && git fetch -q origin 71d523a529c873cde8a11af2d4935a4082d4a60e     && git checkout -q FETCH_HEAD     && uv venv .refvenv     && (uv pip install --python .refvenv/bin/python -e \".[dev,test,tests,testing]\" pytest         || uv pip install --python .refvenv/bin/python -e . pytest         || uv pip install --python .refvenv/bin/python . pytest)     && uv pip install --python .refvenv/bin/python ruff mypy bandit     && uv cache clean' returned a non-zero code: 1\n",
+      "stage": "env"
+    },
+    {
+      "task_id": "numpy__numpy-31996",
+      "reason": "     [stdout]\n\n      meson-python: error: Could not find the specified meson:\n      \"vendored-meson/meson/meson.py\"\n\n\nhint: Build failures usually indicate a problem with the package or the build environment\u001b[0m\u001b[91mUsing Python 3.12.13 environment at: .refvenv\n\u001b[0m\u001b[91mResolved 6 packages in 1ms\n\u001b[0m\u001b[91m   Building numpy @ file:///work/repo\n\u001b[0m\u001b[91m  × Failed to build `numpy @ file:///work/repo`\n  ├─▶ The build backend returned an error\n  ╰─▶ Call to `mesonpy.build_editable` failed (exit status: 1)\n\n      [stdout]\n\n      meson-python: error: Could not find the specified meson:\n      \"vendored-meson/meson/meson.py\"\n\n\nhint: Build failures usually indicate a problem with the package or the build environment\u001b[0m\u001b[91mUsing Python 3.12.13 environment at: .refvenv\n\u001b[0m\u001b[91mResolved 6 packages in 1ms\n\u001b[0m\u001b[91m   Building numpy @ file:///work/repo\n\u001b[0m\u001b[91m  × Failed to build `numpy @ file:///work/repo`\n  ├─▶ The build backend returned an error\n  ╰─▶ Call to `mesonpy.build_wheel` failed (exit status: 1)\n\n      [stdout]\n\n      meson-python: error: Could not find the specified meson:\n      \"vendored-meson/meson/meson.py\"\n\n\nhint: Build failures usually indicate a problem with the package or the build environment\u001b[0m\nDEPRECATED: The legacy builder is deprecated and will be removed in a future release.\n            Install the buildx component to build images with BuildKit:\n            https://docs.docker.com/go/buildx/\n\nThe command '/bin/sh -c git init -q     && git remote add origin https://github.com/numpy/numpy.git     && git fetch -q origin 5528ef840237704d55e06992e5c528f03a15a299     && git checkout -q FETCH_HEAD     && uv venv .refvenv     && (uv pip install --python .refvenv/bin/python -e \".[dev,test,tests,testing]\" pytest         || uv pip install --python .refvenv/bin/python -e . pytest         || uv pip install --python .refvenv/bin/python . pytest)     && uv pip install --python .refvenv/bin/python ruff mypy bandit     && uv cache clean' returned a non-zero code: 1\n",
+      "stage": "env"
+    }
+  ]
+}

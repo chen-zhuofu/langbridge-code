@@ -1,0 +1,53 @@
+{
+  "curate_out": 31,
+  "eval_specs": 22,
+  "pipeline_dropped": 2,
+  "llm_kept": [],
+  "llm_rewritten": [],
+  "llm_dropped": [],
+  "skipped_kept": 31,
+  "skipped_drop": 2,
+  "attempted": 0,
+  "sync": {
+    "copied": [],
+    "skipped_exists": [
+      "NousResearch__hermes-agent-64607",
+      "NousResearch__hermes-agent-64623",
+      "NousResearch__hermes-agent-64686",
+      "NousResearch__hermes-agent-65040",
+      "NousResearch__hermes-agent-71434",
+      "NousResearch__hermes-agent-71680",
+      "NousResearch__hermes-agent-71782",
+      "NousResearch__hermes-agent-72029",
+      "NousResearch__hermes-agent-72090",
+      "NousResearch__hermes-agent-72183",
+      "NousResearch__hermes-agent-72224",
+      "NousResearch__hermes-agent-72320",
+      "NousResearch__hermes-agent-72322",
+      "NousResearch__hermes-agent-72354",
+      "NousResearch__hermes-agent-72360",
+      "NousResearch__hermes-agent-72366",
+      "NousResearch__hermes-agent-72403",
+      "NousResearch__hermes-agent-72622",
+      "NousResearch__hermes-agent-73362",
+      "NousResearch__hermes-agent-73560",
+      "NousResearch__hermes-agent-73668",
+      "NousResearch__hermes-agent-73681"
+    ],
+    "skipped_human_drop": [
+      "NousResearch__hermes-agent-67192",
+      "NousResearch__hermes-agent-71104",
+      "NousResearch__hermes-agent-71924",
+      "NousResearch__hermes-agent-72230",
+      "NousResearch__hermes-agent-72525",
+      "NousResearch__hermes-agent-73323",
+      "NousResearch__hermes-agent-73538",
+      "pytest-dev__pytest-14645",
+      "pytest-dev__pytest-14694"
+    ]
+  },
+  "errors": [],
+  "curate_out_dir": "/Users/zhuofuchen/Desktop/Repo/langbridge-code/eval/data-pipeline/curate/out",
+  "specs_dir": "/Users/zhuofuchen/Desktop/Repo/langbridge-code/eval/data/langbridge-bench/specs",
+  "pipeline_drop": "/Users/zhuofuchen/Desktop/Repo/langbridge-code/eval/data-pipeline/curate/out/drop.json"
+}

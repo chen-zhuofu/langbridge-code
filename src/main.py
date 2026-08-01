@@ -57,7 +57,11 @@ def main():
     except ValueError as error:
         print(str(error), file=sys.stderr)
         raise SystemExit(1) from error
-    raise SystemExit(subprocess.run([node, str(TUI_DIST)], cwd=os.getcwd()).returncode)
+    try:
+        raise SystemExit(subprocess.run([node, str(TUI_DIST)], cwd=os.getcwd()).returncode)
+    except KeyboardInterrupt:
+        # Ctrl+C while waiting on the TUI — exit quietly (128 + SIGINT).
+        raise SystemExit(130) from None
 
 
 if __name__ == "__main__":

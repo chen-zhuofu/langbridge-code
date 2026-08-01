@@ -5,24 +5,18 @@
   "repo": "adhishthite/anthropic-clio-impl",
   "base_commit": "97d49d4624d23b2bb1bacac5ff58bcac62539615",
   "gold_commit": "6af2666ee243a1643dd89bff4fe1b1292c63c2db",
-  "instruction": "Increase the UI file upload size limit to 1 GB (clio-ui-v2 MAX_UPLOAD_BYTES). Also implement embedding batch checkpointing in the Python pipeline: extend embed_texts_in_batches so that when checkpoint_path is provided, partial embeddings are saved after each batch, resumed on restart, and the checkpoint file is removed on full success; when checkpoint_path is omitted, behavior stays a no-op.",
+  "instruction": "Implement embedding batch checkpointing in the Python pipeline. Extend embed_texts_in_batches so that when checkpoint_path is provided, partial embeddings are saved after each completed batch, resumed on restart without re-embedding completed texts, and the checkpoint file is removed after full success. When checkpoint_path is omitted, preserve the existing behavior without creating a checkpoint.",
   "intents": [
     {
       "id": "i1",
-      "text": "Increase UI file upload size limit to 1 GB",
-      "source_turn": 0,
-      "revealed_at_start": true
-    },
-    {
-      "id": "i2",
       "text": "Add embedding batch checkpoint save/resume/cleanup via checkpoint_path on embed_texts_in_batches",
       "source_turn": 1,
-      "revealed_at_start": false
+      "revealed_at_start": true
     }
   ],
   "baseline": {
     "prompt_count": 43,
-    "agent_runtime_sec": 3034.5570000000052,
+    "agent_runtime_sec": 4074.1640000000007,
     "user_persona": "Vague Requester"
   },
   "sim": {
@@ -34,8 +28,8 @@
     ],
     "noop_message": "continue",
     "max_consecutive_noops": 4,
-    "timeout_sec": 6069.1140000000105,
-    "session_analysis": "Both upload-limit and embedding-checkpoint work are in scope from the start. Stay silent while the agent makes progress. Steer if it drifts to unrelated refactors."
+    "timeout_sec": 8148.328000000001,
+    "session_analysis": "Embedding checkpoint save/resume/cleanup is the full scope from the start. Stay silent while the agent makes progress. Steer if it drifts to unrelated UI or refactor work."
   },
   "fail_to_pass": [
     "tests/test_embedding.py::TestEmbedTextsInBatches::test_checkpoint_cleaned_up_on_full_success",
@@ -54,7 +48,7 @@
   ],
   "docker_image": "lb-interactive:adhishthite__anthropic-clio-impl__0280ad20",
   "task_type": "feature",
-  "difficulty": "hard",
+  "difficulty": "medium",
   "metadata": {
     "canonical_checkpoint_pk": "adhishthite/anthropic-clio-impl#6e5512b12d17",
     "checkpoint_ids": [
@@ -68,6 +62,9 @@
       "scripts/promote_partial_phase2.py"
     ],
     "branch": "main",
-    "agent": "Claude Code"
-  }
+    "agent": "Claude Code",
+    "human_rewrite_reason": "Removed the unrelated 1 GB UI-upload requirement because all three FAIL_TO_PASS tests exclusively cover embedding checkpoint save/resume/cleanup.",
+    "baseline_comparable_after_rewrite": false
+  },
+  "horizon": "long"
 }

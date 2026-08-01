@@ -6,8 +6,11 @@ Layout per scope:
 
 User memory is about the PERSON using LangBridge — their preferences and
 standing feedback across projects. Project memory is specific to this repo.
-The main agent, workers, and reviewers all share the same indexes: they
-prefetch into a <memory> block and may fork the Memory Writer to update them.
+
+Each agent role owns a separate store. The main agent uses the default roots
+(``USER_MEMORY_PATH`` / ``PROJECT_MEMORY_PATH``). Workers and reviewers use
+private trees under ``agent-memory/<role>/`` beside those roots. Prefetch and
+Memory Writer mechanics are the same; only the on-disk roots differ.
 
 Reads (prefetch): one LLM pass looks at the combined memory.md index and the
 current task, picks relevant files; the workflow reads them into a <memory>
@@ -39,6 +42,8 @@ import re
 import threading
 import json
 import shutil
+from contextlib import contextmanager
+from contextvars import ContextVar
 from difflib import SequenceMatcher
 from dataclasses import dataclass
 from pathlib import Path
@@ -48,6 +53,11 @@ from langbridge_code.settings import PROJECT_MEMORY_PATH, USER_MEMORY_PATH
 SCOPE_PROJECT = "project"
 SCOPE_USER = "user"
 SCOPES = (SCOPE_USER, SCOPE_PROJECT)
+
+# None = main agent roots. Worker/reviewer use private agent-memory/<role>/.
+MEMORY_AGENT_WORKER = "worker"
+MEMORY_AGENT_REVIEWER = "reviewer"
+_MEMORY_AGENT: ContextVar[str | None] = ContextVar("langbridge_memory_agent", default=None)
 TYPE_USER = "user"
 TYPE_FEEDBACK = "feedback"
 TYPE_PROJECT = "project"
@@ -89,12 +99,34 @@ def valid_scope_type(scope: str, memory_type: str) -> bool:
     return memory_type in SCOPE_MEMORY_TYPES.get(scope, ())
 
 
-def memory_index_path(scope: str) -> Path:
+def current_memory_agent() -> str | None:
+    return _MEMORY_AGENT.get()
+
+
+@contextmanager
+def memory_agent_scope(agent: str | None):
+    """Route prefetch/writer path helpers to main or a private agent store."""
+    token = _MEMORY_AGENT.set(agent)
+    try:
+        yield
+    finally:
+        _MEMORY_AGENT.reset(token)
+
+
+def _base_memory_index_path(scope: str) -> Path:
     if scope == SCOPE_PROJECT:
         return Path(PROJECT_MEMORY_PATH)
     if scope == SCOPE_USER:
         return Path(USER_MEMORY_PATH)
     raise ValueError(f"Unknown memory scope: {scope}")
+
+
+def memory_index_path(scope: str) -> Path:
+    base = _base_memory_index_path(scope)
+    agent = current_memory_agent()
+    if not agent:
+        return base
+    return base.parent / "agent-memory" / agent / "memory.md"
 
 
 def memory_dir(scope: str) -> Path:
@@ -525,15 +557,15 @@ def _sync_staged_memories(root: Path) -> None:
             _rebuild_memory_index(scope)
 
 
-def run_memory_writer_agent(api_key, model, messages) -> str:
+def run_memory_writer_agent(api_key, model, messages, *, memory_agent=None) -> str:
     """Run a prefix-cache-friendly, tool-using Memory Writer fork (blocking)."""
     from langbridge_code.tools.memory_writer import run_memory_writer_agent as _run
 
-    return _run(api_key, model, messages)
+    return _run(api_key, model, messages, memory_agent=memory_agent)
 
 
-def schedule_memory_writer(api_key, model, messages) -> str:
+def schedule_memory_writer(api_key, model, messages, *, memory_agent=None) -> str:
     """Schedule the Memory Writer fork in a background thread."""
     from langbridge_code.tools.memory_writer import schedule_memory_writer as _schedule
 
-    return _schedule(api_key, model, messages)
+    return _schedule(api_key, model, messages, memory_agent=memory_agent)

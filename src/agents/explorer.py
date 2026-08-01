@@ -158,10 +158,9 @@ AGENT_EXPLORER_TOOL_SCHEMA = {
             "task_name": {
                 "type": "string",
                 "description": (
-                    "Stable name for this investigation (e.g. 'explore-auth-flow'). "
-                    "Names the task's progress note file: findings noted there are "
-                    "shown to the next explorer dispatched with the SAME task_name — "
-                    "reuse the exact name when continuing an investigation."
+                    "Stable id for this investigation (e.g. 'explore-auth-flow'). "
+                    "Keys the progress note and traces — reuse the exact id when "
+                    "continuing the same investigation; use a new id for a new one."
                 ),
             },
             "thoroughness": {
@@ -318,6 +317,7 @@ class ExploreSession:
     def send(self, user_prompt):
         from langbridge_code.skills import (
             EXPLORER_SKILL_NAMES,
+            attach_skill_tracking,
             ensure_skill_index_block,
             skill_catalog_text_for,
         )
@@ -328,8 +328,9 @@ class ExploreSession:
             self.model,
             user_prompt,
             skill_catalog_text_for(EXPLORER_SKILL_NAMES),
-            label=f"{self.label} skill prefetch",
+            label=f"{self.label} skill listing",
         )
+        attach_skill_tracking(self.context.stack, self.tools, role="explorer")
         self.context.begin_turn(user_prompt)
         write_worklog_received(self.run_log_path, self.label, self.worklog_id, self.turn_id, user_prompt)
         foreground = ForegroundTracker(self.label, self.messages, self.model)

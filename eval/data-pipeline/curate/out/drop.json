@@ -1,0 +1,15 @@
+{
+  "description": "LLM/pipeline curate drops. Code reads this for resume. Human error-analysis drops go in eval/data/langbridge-bench/drop/ instead. Not synced to eval/data/langbridge-bench/specs/.",
+  "dropped": [
+    {
+      "task_id": "NousResearch__hermes-agent-72241",
+      "reason": "Problem statement describes notifier_profile auto-subscribe behavior, but hidden failing test targets a different issue (dispatcher spawn env should strip stale HERMES_SESSION_* vars). This mismatch makes the task unreliable for agents and not salvageable without replacing it with unrelated behavior.",
+      "stage": "curate"
+    },
+    {
+      "task_id": "NousResearch__hermes-agent-72234",
+      "reason": "Problem statement is about dashboard ChatPage header buttons, but hidden test targets unrelated messaging platform catalog enum/plugin label behavior in web server; mismatch means the task is not reliable/salvageable without replacing core issue.",
+      "stage": "curate"
+    }
+  ]
+}

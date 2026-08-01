@@ -1,4 +1,9 @@
-"""End-to-end: enrich → (intent inside curate) → stub eval (all offline)."""
+"""End-to-end: enrich → intent analyze → curate → stub eval (all offline).
+
+Stage order in the real pipeline is enrich → env → reference → curate
+(intent LLM lives inside curate); this test skips Docker and calls the pure
+functions directly.
+"""
 from __future__ import annotations
 
 import json
@@ -75,11 +80,30 @@ def test_offline_pipeline_to_stub_eval(tmp_path):
     assert not enriched.get("_drop"), enriched.get("reason")
     assert enriched["instruction"] == "Change widgetmod to return 2"
     assert enriched["task_type"] == "feature"
-    assert enriched["difficulty"] == "easy"
+    assert enriched["horizon"] == "short"
 
-    with patch("intent.analyze.chat_json", return_value=None):
+    llm = {
+        "intents": [
+            {
+                "id": "i1",
+                "text": "Change widgetmod to return 2",
+                "source_turn": 0,
+                "revealed_at_start": True,
+            },
+            {
+                "id": "i2",
+                "text": "Cover the new return value in tests",
+                "source_turn": 1,
+                "revealed_at_start": False,
+            },
+        ],
+        "session_analysis": "Reveal i2 after i1.",
+        "task_type": "feature",
+    }
+    with patch("intent.analyze.chat_json_ex", return_value=(llm, None)):
         analyzed = analyze_one(enriched, data_dir=None)
     assert len(analyzed["intents"]) == 2
+    assert analyzed["intent_source"] == "llm"
 
     # Simulate reference success
     analyzed["fail_to_pass"] = ["tests/test_widgetmod.py::test_return"]
@@ -88,6 +112,9 @@ def test_offline_pipeline_to_stub_eval(tmp_path):
     spec_path = tmp_path / f"{spec['task_id']}.json"
     spec_path.write_text(json.dumps(spec), encoding="utf-8")
     loaded = json.loads(spec_path.read_text(encoding="utf-8"))
+    # Real specs never set this; the offline walkthrough opts in so the sim
+    # stays quiet instead of voiding the episode with SimUnavailable.
+    loaded["sim"]["allow_offline"] = True
 
     episode = run_episode(loaded, make_stub_agent(max_agent_turns=3))
     scored = score_episode(loaded, episode, tests_passed=True)

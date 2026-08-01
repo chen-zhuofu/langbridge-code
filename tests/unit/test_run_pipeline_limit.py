@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-PIPELINE = Path(__file__).resolve().parents[2] / "eval" / "data" / "data-pipeline"
+PIPELINE = Path(__file__).resolve().parents[2] / "eval" / "data-pipeline"
 sys.path.insert(0, str(PIPELINE))
 
 import run_pipeline as rp  # noqa: E402
@@ -110,3 +110,107 @@ def test_pending_skips_drops(pipeline_tree):
     _write_drop(pipeline_tree["ref_drop"], ["x"])
     assert rp.pending_for("reference") == set()
     assert rp.pending_for("env") == {"y"}
+
+
+def test_repo_progress_counts_only_current_run(pipeline_tree):
+    _write_jsonl(
+        pipeline_tree["collect"],
+        [
+            {"task_id": "old", "repo": "owner/old"},
+            {"task_id": "new-pending", "repo": "owner/a"},
+            {"task_id": "new-dropped", "repo": "owner/b"},
+        ],
+    )
+    _write_drop(pipeline_tree["env_drop"], ["new-dropped"])
+    (pipeline_tree["specs"] / "new-done.json").write_text(
+        json.dumps({"task_id": "new-done", "repo": "owner/a"}),
+        encoding="utf-8",
+    )
+
+    assert rp.repo_progress(
+        before_specs=set(),
+        before_collect={"old"},
+    ) == {
+        "owner/a": {"done": 1, "pending": 1, "failed": 0},
+        "owner/b": {"done": 0, "pending": 0, "failed": 1},
+    }
+
+
+def test_repo_progress_marks_structural_env_mismatch_exhausted(pipeline_tree):
+    _write_jsonl(
+        pipeline_tree["collect"],
+        [{"task_id": "node-task", "repo": "owner/node"}],
+    )
+    pipeline_tree["env_drop"].write_text(
+        json.dumps(
+            {
+                "dropped": [
+                    {
+                        "task_id": "node-task",
+                        "reason": (
+                            "/work/repo does not appear to be a Python project"
+                        ),
+                        "stage": "env",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert rp.repo_progress(
+        before_specs=set(),
+        before_collect=set(),
+    ) == {
+        "owner/node": {
+            "done": 0,
+            "pending": 0,
+            "failed": 1,
+            "exhausted": True,
+        }
+    }
+
+
+def test_repo_progress_exhausts_empty_repo_after_failure_budget(pipeline_tree):
+    rows = [
+        {"task_id": f"failed-{index}", "repo": "owner/empty"}
+        for index in range(rp.MAX_FAILED_ATTEMPTS_PER_EMPTY_REPO)
+    ]
+    _write_jsonl(pipeline_tree["collect"], rows)
+    _write_drop(
+        pipeline_tree["env_drop"],
+        [row["task_id"] for row in rows],
+    )
+
+    assert rp.repo_progress(
+        before_specs=set(),
+        before_collect=set(),
+    ) == {
+        "owner/empty": {
+            "done": 0,
+            "pending": 0,
+            "failed": rp.MAX_FAILED_ATTEMPTS_PER_EMPTY_REPO,
+            "exhausted": True,
+        }
+    }
+
+
+def test_collect_exhaustion_redistributes_before_stuck(pipeline_tree, monkeypatch):
+    specs: set[str] = set()
+    calls = 0
+
+    monkeypatch.setattr(rp, "eval_spec_ids", lambda: set(specs))
+    monkeypatch.setattr(rp, "pending_for", lambda _stage: set())
+
+    def fake_collect(**_kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return 0, {"owner/exhausted"}
+        specs.add("new-task")
+        return 0, set()
+
+    monkeypatch.setattr(rp, "run_collect_balanced", fake_collect)
+
+    assert rp.run_until_benches(["collect"], target=1) == 0
+    assert calls == 2

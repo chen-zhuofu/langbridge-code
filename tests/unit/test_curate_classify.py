@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-_CURATE = Path(__file__).resolve().parents[2] / "eval" / "data" / "data-pipeline" / "curate"
+_CURATE = Path(__file__).resolve().parents[2] / "eval" / "data-pipeline" / "curate"
 if str(_CURATE) not in sys.path:
     sys.path.insert(0, str(_CURATE))
 

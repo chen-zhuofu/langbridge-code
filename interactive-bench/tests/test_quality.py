@@ -15,6 +15,8 @@ from _lib.quality import (  # noqa: E402
     f2p_fingerprint,
     filter_intents,
     is_meta_intent,
+    is_noise_user_message,
+    normalize_user_prompt,
     oracle_aligned,
 )
 
@@ -41,6 +43,27 @@ def test_meta_intent_filters_commit_push():
     assert not is_meta_intent("Add a dark/light mode toggle")
 
 
+def test_noise_filters_skill_chrome_and_notifications():
+    assert is_noise_user_message(
+        "<command-message>superpowers:executing-plans</command-message>\n"
+        "<command-name>/superpowers:executing-plans</command-name>"
+    )
+    assert is_noise_user_message("[Request interrupted by user]")
+    assert is_noise_user_message(
+        "Base directory for this skill: /tmp/skills/executing-plans\n\n# Executing Plans\n"
+    )
+    assert is_noise_user_message(
+        "<task-notification><summary>Agent done</summary></task-notification>"
+    )
+    args_msg = (
+        "<command-message>superpowers:executing-plans</command-message>\n"
+        "<command-name>/superpowers:executing-plans</command-name>\n"
+        "<command-args>@docs/HANDOFF.md execute RED-GREEN-OBSERVER cycle</command-args>"
+    )
+    assert not is_noise_user_message(args_msg)
+    assert "HANDOFF.md" in normalize_user_prompt(args_msg)
+
+
 def test_filter_intents_drops_meta_and_caps():
     raw = [
         {"id": "i1", "text": "Restructure frontend", "source_turn": 0, "revealed_at_start": True},
@@ -51,6 +74,30 @@ def test_filter_intents_drops_meta_and_caps():
     assert len(out) == 1
     assert out[0]["id"] == "i1"
     assert out[0]["revealed_at_start"] is True
+
+
+def test_filter_intents_unwraps_command_args_and_drops_notifications():
+    raw = [
+        {
+            "id": "i1",
+            "text": (
+                "<command-message>x</command-message>"
+                "<command-args>Run RED-GREEN cycle on HANDOFF.md</command-args>"
+            ),
+            "source_turn": 0,
+            "revealed_at_start": True,
+        },
+        {
+            "id": "i2",
+            "text": "<task-notification><summary>done</summary></task-notification>",
+            "source_turn": 1,
+            "revealed_at_start": False,
+        },
+    ]
+    out = filter_intents(raw)
+    assert len(out) == 1
+    assert "HANDOFF.md" in out[0]["text"]
+    assert "<command" not in out[0]["text"]
 
 
 def test_oracle_aligned_detects_mismatch():

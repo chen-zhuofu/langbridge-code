@@ -1,5 +1,7 @@
 """Build per-task ``lb-interactive:<id>`` Docker images.
 
+Reads enrich output (before curate/LLM) so Docker work is not gated on LLM spend.
+
 ```bash
 uv run python interactive-bench/data-pipeline/env/build_env.py --limit 1
 ```

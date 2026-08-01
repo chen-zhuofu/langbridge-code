@@ -41,6 +41,7 @@ def build_interactive_spec(inst: dict[str, Any]) -> dict[str, Any]:
         "docker_image": inst.get("docker_image") or paths.task_image(task_id),
         "task_type": inst.get("task_type") or "other",
         "difficulty": inst.get("difficulty") or "unknown",
+        "horizon": inst.get("horizon") or "unknown",
     }
     meta = dict(inst.get("metadata") or {})
     for key in (
@@ -49,6 +50,7 @@ def build_interactive_spec(inst: dict[str, Any]) -> dict[str, Any]:
         "files_touched",
         "branch",
         "agent",
+        "intent_model",
     ):
         if inst.get(key) is not None:
             meta.setdefault(key, inst[key])

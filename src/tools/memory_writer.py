@@ -48,7 +48,7 @@ _pending_threads: list[threading.Thread] = []
 _atexit_registered = False
 
 
-def run_memory_writer_agent(api_key, model, messages) -> str:
+def run_memory_writer_agent(api_key, model, messages, *, memory_agent=None) -> str:
     """Run a prefix-cache-friendly, tool-using Memory Writer fork (blocking)."""
     from langbridge_code.agents.common.fork import fork_agent
     from langbridge_code.agents.common.workspace import workspace_scope
@@ -65,29 +65,34 @@ def run_memory_writer_agent(api_key, model, messages) -> str:
     tools = {
         name: available_tools[name] for name in memory_mod.MEMORY_FILE_TOOL_NAMES
     }
-    with memory_mod._memory_writer_lock:
-        with tempfile.TemporaryDirectory(prefix="langbridge-memory-") as temporary:
-            root = Path(temporary)
-            memory_mod._stage_memory_workspace(root)
-            with workspace_scope(root):
-                report = fork_agent(
-                    api_key,
-                    model,
-                    list(messages),
-                    MEMORY_WRITER_INSTRUCTION,
-                    tool_schemas=schemas,
-                    tools=tools,
-                    label="Memory Writer",
-                )
-            memory_mod._sync_staged_memories(root)
+    agent = memory_agent if memory_agent is not None else memory_mod.current_memory_agent()
+    with memory_mod.memory_agent_scope(agent):
+        with memory_mod._memory_writer_lock:
+            with tempfile.TemporaryDirectory(prefix="langbridge-memory-") as temporary:
+                root = Path(temporary)
+                memory_mod._stage_memory_workspace(root)
+                with workspace_scope(root):
+                    report = fork_agent(
+                        api_key,
+                        model,
+                        list(messages),
+                        MEMORY_WRITER_INSTRUCTION,
+                        tool_schemas=schemas,
+                        tools=tools,
+                        label="Memory Writer",
+                    )
+                memory_mod._sync_staged_memories(root)
     return report or "Memory Writer finished."
 
 
-def schedule_memory_writer(api_key, model, messages) -> str:
+def schedule_memory_writer(api_key, model, messages, *, memory_agent=None) -> str:
     """Run the Memory Writer fork in a background thread; return immediately."""
     if not (api_key and model and messages):
         return _SCHEDULED_MESSAGE
+    from langbridge_code import memory as memory_mod
+
     snapshot = list(messages)
+    agent = memory_agent if memory_agent is not None else memory_mod.current_memory_agent()
     # threading.local TraceContext does not follow ThreadPool/daemon threads.
     from langbridge_code.util.trace_log import get_trace_context, set_trace_context
 
@@ -98,7 +103,7 @@ def schedule_memory_writer(api_key, model, messages) -> str:
         if parent_ctx is not None:
             set_trace_context(parent_ctx)
         try:
-            run_memory_writer_agent(api_key, model, snapshot)
+            run_memory_writer_agent(api_key, model, snapshot, memory_agent=agent)
         except Exception:
             pass
         finally:

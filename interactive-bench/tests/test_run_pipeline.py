@@ -76,6 +76,17 @@ def test_pending_and_next_stage(tmp_path, monkeypatch):
     )
     assert rp.pending_for("resolve") == {"c"}
     assert rp.pending_for("enrich") == {"a"}
-    assert rp.pending_for("env") == set()  # enrich empty → nothing for env
+    assert rp.pending_for("env") == set()
     # Prefer draining enrich before resolve when both pending
     assert rp.next_stage(list(rp.STAGES)) == "enrich"
+
+    # After enrich lands, env is next — curate waits for F2P via reference.
+    write_jsonl(enrich, [{"task_id": "a"}])
+    assert rp.pending_for("env") == {"a"}
+    assert rp.pending_for("curate") == set()
+    assert rp.next_stage(list(rp.STAGES)) == "env"
+
+    write_jsonl(env, [{"task_id": "a"}])
+    write_jsonl(ref, [{"task_id": "a"}])
+    assert rp.pending_for("curate") == {"a"}
+    assert rp.next_stage(list(rp.STAGES)) == "curate"

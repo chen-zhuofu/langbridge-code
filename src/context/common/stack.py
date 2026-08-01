@@ -6,7 +6,8 @@ Assembled message order:
   [ASSIGNED_TASK] pinned user   (subagents)
   <progress>…</progress>        (main agent: progress.md)
   <subagent_state>…</subagent_state>  (main agent: live runner + branch registry)
-  <skill_index>…</skill_index>  (task-relevant skill index lines)
+  <skill_index>…</skill_index>  (full skill listing — cleared after compaction)
+  <invoked_skills>…</invoked_skills>  (invoked skill bodies re-pinned after compaction)
   …raw rounds (tail)…
 
 Hyperparameters (settings):
@@ -21,7 +22,8 @@ Flow after each agent step:
   2. When tokens >= COMPACT_THRESHOLD_TOKENS (or the caller's tighter budget):
      drop every round except the last COMPACT_RAW_KEEP. History lives in
      progress.md and on-disk agent traces — no LLM prose summary. Then
-     ``on_compacted`` fires so the owner can refresh <memory> / <progress>.
+     ``on_compacted`` fires so the owner can refresh <memory> / <progress>
+     and re-pin invoked skill bodies (skill listing is dropped).
   3. Rebuild flat messages[] for the next model call.
 """
 from __future__ import annotations
@@ -43,6 +45,7 @@ MEMORY_TAG = "memory"
 PROGRESS_TAG = "progress"
 SUBAGENT_STATE_TAG = "subagent_state"
 SKILL_INDEX_TAG = "skill_index"
+INVOKED_SKILLS_TAG = "invoked_skills"
 
 
 def wrap_block(tag: str, content: str) -> str:
@@ -83,6 +86,11 @@ class ContextStack:
         self.progress_block: str | None = None
         self.subagent_state_block: str | None = None
         self.skill_index_block: str | None = None
+        self.invoked_skills_block: str | None = None
+        # Oldest → newest; compaction re-pins most recent first under a budget.
+        self.invoked_skills: list[dict] = []
+        # After compaction the full listing is dropped (Claude Code alignment).
+        self.skills_listing_cleared = False
         self.raw_rounds: list[list[dict]] = []
         self.dropped_round_count = 0
         # Called after a successful drop so the owner can refresh
@@ -110,6 +118,20 @@ class ContextStack:
 
     def set_skill_index_block(self, content: str | None) -> None:
         self._set_block("skill_index_block", content)
+
+    def set_invoked_skills_block(self, content: str | None) -> None:
+        self._set_block("invoked_skills_block", content)
+
+    def record_invoked_skill(self, name: str, body: str) -> None:
+        """Track a successfully loaded skill; re-invoke moves it to most-recent."""
+        skill_name = (name or "").strip()
+        text = (body or "").strip()
+        if not skill_name or not text:
+            return
+        self.invoked_skills = [
+            entry for entry in self.invoked_skills if entry.get("name") != skill_name
+        ]
+        self.invoked_skills.append({"name": skill_name, "body": text})
 
     def set_pinned_user(self, content: str | None) -> None:
         """Fixed user message prepended on every to_messages(); never compacted."""
@@ -162,7 +184,13 @@ class ContextStack:
                     continue
                 if any(
                     content.startswith(f"<{tag}>")
-                    for tag in (MEMORY_TAG, PROGRESS_TAG, SUBAGENT_STATE_TAG, SKILL_INDEX_TAG)
+                    for tag in (
+                        MEMORY_TAG,
+                        PROGRESS_TAG,
+                        SUBAGENT_STATE_TAG,
+                        SKILL_INDEX_TAG,
+                        INVOKED_SKILLS_TAG,
+                    )
                 ):
                     index += 1
                     continue
@@ -199,10 +227,14 @@ class ContextStack:
             (PROGRESS_TAG, "progress_block"),
             (SUBAGENT_STATE_TAG, "subagent_state_block"),
             (SKILL_INDEX_TAG, "skill_index_block"),
+            (INVOKED_SKILLS_TAG, "invoked_skills_block"),
         ):
             body = unwrap_block(tag, content)
             if body is not None:
                 setattr(self, attr, body or None)
+                if tag == INVOKED_SKILLS_TAG and body:
+                    # Resume after a compacted session: listing was dropped.
+                    self.skills_listing_cleared = True
                 return True
         return False
 
@@ -266,6 +298,13 @@ class ContextStack:
             messages.append(
                 {"role": "user", "content": wrap_block(SKILL_INDEX_TAG, self.skill_index_block)}
             )
+        if self.invoked_skills_block:
+            messages.append(
+                {
+                    "role": "user",
+                    "content": wrap_block(INVOKED_SKILLS_TAG, self.invoked_skills_block),
+                }
+            )
         for round_messages in self.raw_rounds:
             messages.extend(copy.deepcopy(round_messages))
         if self._pending_user is not None:
@@ -282,6 +321,8 @@ class ContextStack:
             "progress_block": bool(self.progress_block),
             "subagent_state_block": bool(self.subagent_state_block),
             "skill_index_block": bool(self.skill_index_block),
+            "invoked_skills_block": bool(self.invoked_skills_block),
+            "invoked_skill_count": len(self.invoked_skills),
             "raw_round_count": len(self.raw_rounds),
             "dropped_round_count": self.dropped_round_count,
             "pending_user": self._pending_user is not None,

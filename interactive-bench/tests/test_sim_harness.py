@@ -10,9 +10,12 @@ for _p in (_PIPELINE, _INTERACTIVE):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 
+import pytest  # noqa: E402
+
 from harness.score import score_episode  # noqa: E402
 from harness.sim import (  # noqa: E402
     EpisodeState,
+    SimUnavailable,
     apply_decision,
     decide_sim,
     run_episode,
@@ -45,6 +48,7 @@ def _spec(**kwargs):
             "max_consecutive_noops": 4,
             "timeout_sec": 10_000,
             "session_analysis": "Stay quiet until done, then reveal next.",
+            "allow_offline": True,  # no LLM in tests → stay quiet instead of raising
         },
     }
     base.update(kwargs)
@@ -109,3 +113,26 @@ def test_decide_sim_noops_without_llm():
         state=state,
     )
     assert decision.action in {"reveal_next", "no-op"}
+
+
+def test_decide_sim_raises_when_llm_unavailable_and_not_offline():
+    spec = _spec()
+    del spec["sim"]["allow_offline"]
+    with pytest.raises(SimUnavailable):
+        decide_sim(spec=spec, agent_text="working", state=EpisodeState())
+
+
+def test_sim_failure_voids_episode_instead_of_failing_the_agent():
+    spec = _spec()
+    del spec["sim"]["allow_offline"]
+
+    def agent_turn(_user: str):
+        return {"assistant_text": "working", "done": False}
+
+    episode = run_episode(spec, agent_turn, max_turns=10)
+    assert episode["stop_reason"] == "sim_error"
+    assert episode["sim_error"]
+    # A void episode must never be reported as an agent pass or failure.
+    scored = score_episode(spec, episode, tests_passed=True)
+    assert scored["valid"] is False
+    assert scored["pass"] is False

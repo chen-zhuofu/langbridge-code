@@ -41,7 +41,9 @@ findings (key files/symbols), not after every search and not for long RCA essays
 The next agent dispatched on this task will see that progress file.
 
 Your context may include a <skill_index> block listing expertise playbooks;
-load one with read_skill when it fits the investigation.
+load one with read_skill when it fits the investigation. After compaction the
+listing is dropped and previously invoked skill bodies may reappear under
+<invoked_skills>.
 
 # Evidence before claims
 

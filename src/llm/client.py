@@ -1,4 +1,10 @@
-"""LLM client — OpenAI Responses API, or chat completions for Moonshot/Kimi and DeepSeek."""
+"""LLM client — OpenAI Responses API, or chat completions for other providers.
+
+Routing:
+  - ``openai`` → Responses API (``client.responses.create``)
+  - ``moonshot`` / ``deepseek`` / ``anthropic`` → chat completions
+    Anthropic uses its OpenAI-compatible endpoint (``api.anthropic.com/v1``).
+"""
 import os
 import time
 import uuid
@@ -57,7 +63,7 @@ def make_client(api_key, *, base_url=None):
     """Build an OpenAI-compatible client.
 
     ``base_url`` overrides the active provider default so one process can talk
-    to Moonshot and DeepSeek (or OpenAI) in the same session.
+    to Moonshot, DeepSeek, Anthropic, and OpenAI in the same session.
     """
     kwargs = {
         "api_key": api_key,
@@ -71,6 +77,7 @@ def make_client(api_key, *, base_url=None):
 
 
 def uses_responses_api(provider=None):
+    """Only OpenAI uses the Responses API; everyone else uses chat completions."""
     return (provider or settings.API_PROVIDER) == "openai"
 
 
@@ -260,8 +267,9 @@ def _stream_chat_completion(client, kwargs, *, label, stream_sink):
         if not chunk.choices:
             continue
         choice = chunk.choices[0]
-        if choice.finish_reason:
-            finish_reason = choice.finish_reason
+        choice_finish_reason = getattr(choice, "finish_reason", None)
+        if choice_finish_reason:
+            finish_reason = choice_finish_reason
         delta = choice.delta
         reasoning_delta = getattr(delta, "reasoning_content", None)
         if reasoning_delta:
@@ -330,14 +338,20 @@ def _stream_chat_completion(client, kwargs, *, label, stream_sink):
     return {"output": from_chat_message(message), "finish_reason": finish_reason}
 
 
-DEFAULT_OPENAI_REASONING = {"summary": "auto"}
+# OpenAI Responses API: GPT-5.6 supports effort "max"; earlier GPT-5.x tops at "xhigh".
+DEFAULT_OPENAI_REASONING_SUMMARY = "auto"
+DEFAULT_OPENAI_REASONING_EFFORT = "xhigh"
+DEFAULT_OPENAI_REASONING_EFFORT_MAX = "max"
 # Moonshot K2.x: keep=all is required so prior reasoning survives multi-step tools.
 DEFAULT_MOONSHOT_THINKING = {"type": "enabled", "keep": "all"}
 # Moonshot K3: always thinks; configure effort via top-level reasoning_effort
 # (low|high|max). Do not send the K2.x thinking/keep body — K3 rejects it (400).
 DEFAULT_KIMI_K3_REASONING_EFFORT = "max"
-# DeepSeek V4: same thinking switch, but "keep" is not part of its API.
+# DeepSeek V4: thinking switch + reasoning_effort (high|max). "keep" is not supported.
 DEFAULT_DEEPSEEK_THINKING = {"type": "enabled"}
+DEFAULT_DEEPSEEK_REASONING_EFFORT = "max"
+# Anthropic Fable 5+: thinking is always on; depth is output_config.effort (…|max).
+DEFAULT_ANTHROPIC_OUTPUT_CONFIG = {"effort": "max"}
 
 
 def _is_kimi_k3(model: str | None) -> bool:
@@ -345,14 +359,35 @@ def _is_kimi_k3(model: str | None) -> bool:
     return name == "kimi-k3" or name.startswith("kimi-k3-")
 
 
+def _is_gpt_5_6(model: str | None) -> bool:
+    name = (model or "").strip().lower().rsplit("/", 1)[-1]
+    return name == "gpt-5.6" or name.startswith("gpt-5.6-")
+
+
+def _openai_reasoning(model: str | None = None) -> dict:
+    """Highest think effort for the model family."""
+    effort = (
+        DEFAULT_OPENAI_REASONING_EFFORT_MAX
+        if _is_gpt_5_6(model)
+        else DEFAULT_OPENAI_REASONING_EFFORT
+    )
+    return {"effort": effort, "summary": DEFAULT_OPENAI_REASONING_SUMMARY}
+
+
 def _chat_extra_body(model: str | None = None, *, provider: str | None = None):
+    """Provider-specific chat extras — always request the highest think mode."""
     resolved = provider or settings.infer_provider_for_model(model) or settings.API_PROVIDER
     if resolved == "moonshot":
         if _is_kimi_k3(model):
             return {"reasoning_effort": DEFAULT_KIMI_K3_REASONING_EFFORT}
         return {"thinking": DEFAULT_MOONSHOT_THINKING}
     if resolved == "deepseek":
-        return {"thinking": DEFAULT_DEEPSEEK_THINKING}
+        return {
+            "thinking": DEFAULT_DEEPSEEK_THINKING,
+            "reasoning_effort": DEFAULT_DEEPSEEK_REASONING_EFFORT,
+        }
+    if resolved == "anthropic":
+        return {"output_config": DEFAULT_ANTHROPIC_OUTPUT_CONFIG}
     return None
 
 
@@ -395,7 +430,7 @@ def create_model_response(
                 kwargs = {
                     "model": model,
                     "input": agent_input,
-                    "reasoning": reasoning if reasoning is not None else DEFAULT_OPENAI_REASONING,
+                    "reasoning": reasoning if reasoning is not None else _openai_reasoning(model),
                     "max_output_tokens": max_tokens,
                 }
                 if tool_schemas:

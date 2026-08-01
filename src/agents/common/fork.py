@@ -1,11 +1,10 @@
 """Forks of a live agent context (prefix-cache friendly).
 
 A fork reuses the agent's message list verbatim and appends one instruction,
-so the provider can serve the shared prefix from cache. One-pass forks write
-plain-text replies (they may pass the parent's tool_schemas for cache-key match,
-but never execute tools). Tool-using forks handle bounded side workflows such
-as memory maintenance and Edit-restricted progress notes. A fresh LLM cannot
-read the raw traces, but the live context already has everything.
+so the provider can serve the shared prefix from cache. Tool-using forks handle
+bounded side workflows such as memory maintenance and Edit-restricted progress
+notes. A fresh LLM cannot read the raw traces, but the live context already has
+everything.
 
 When a session TraceContext is active, fork model steps are written to
 session.md under the fork label (same channel as agent traces).
@@ -13,34 +12,15 @@ session.md under the fork label (same channel as agent traces).
 from __future__ import annotations
 
 import json
-import re
 from pathlib import Path
 
 from langbridge_code.agents.common import control
 from langbridge_code.settings import MAX_AGENT_STEPS
 from langbridge_code.tools.common.description import without_description
 
-# One-pass forks may pass the parent's tool_schemas for prompt-cache key match
-# (Claude Code compact path). Never execute tools — reject and retry.
-_ONE_PASS_RETRIES = 2
 # Progress-note Edit loops are short; bound them so a stubborn model cannot
 # burn the full main-agent step budget on denials.
 _PROGRESS_NOTE_MAX_STEPS = 8
-_TOOL_MARKUP_RE = re.compile(
-    r"(?is)("
-    r"\bDSML\b"
-    r"|<\s*/?\s*tool_call\b"
-    r"|function_call\b"
-    r"|tool_calls\b"
-    r"|invoke\s+name\s*="
-    r"|<\|\w*tool"
-    r")"
-)
-_REJECT_TOOL_CALLS = (
-    "Rejected: do NOT call any tools. Respond with plain markdown note text "
-    "only. Tool calls waste your turn and fail the task. Reply again with "
-    "the note only — no XML, DSML, or invoke markup."
-)
 
 
 def _trace_fork_input(label: str, instruction: str, message_count: int) -> None:
@@ -63,65 +43,6 @@ def _trace_fork_tool(label: str, name: str, result: str) -> None:
     from langbridge_code.util.trace_log import log_tool_result
 
     log_tool_result(label, name, result)
-
-
-def _trace_fork_reject(label: str, reason: str) -> None:
-    from langbridge_code.util.trace_log import write_line
-
-    write_line(label, f"reject: {reason}")
-
-
-def _one_pass_tool_call_reason(output, text: str) -> str | None:
-    """Return a short reason if the one-pass reply tried to use tools."""
-    calls = [item for item in output if item.get("type") == "function_call"]
-    if calls:
-        names = ", ".join(str(item.get("name") or "tool") for item in calls)
-        return f"function_call ({names})"
-    if text and _TOOL_MARKUP_RE.search(text):
-        return "tool markup in text"
-    return None
-
-
-def fork_one_pass(
-    api_key,
-    model,
-    messages: list[dict],
-    instruction: str,
-    *,
-    label: str = "fork",
-    tool_schemas=None,
-) -> str:
-    """One LLM pass on the live prefix. Retries if the model emits tool calls.
-
-    Pass the parent's ``tool_schemas`` when available so the request shares the
-    prompt-cache key with the live agent. Tools are never executed here.
-    """
-    from langbridge_code.llm.client import create_model_response
-    from langbridge_code.llm.parse import extract_output_text
-
-    forked = list(messages) + [{"role": "user", "content": instruction}]
-    _trace_fork_input(label, instruction, len(messages))
-    for attempt in range(_ONE_PASS_RETRIES + 1):
-        data = create_model_response(
-            api_key,
-            model,
-            forked,
-            tool_schemas=tool_schemas,
-            label=label,
-        )
-        output = list(data.get("output") or [])
-        _trace_fork_output(label, output)
-        text = extract_output_text(output).strip()
-        reason = _one_pass_tool_call_reason(output, text)
-        if reason is None:
-            return text
-        _trace_fork_reject(label, reason)
-        if attempt >= _ONE_PASS_RETRIES:
-            break
-        forked.extend(output)
-        forked.append({"role": "user", "content": _REJECT_TOOL_CALLS})
-    # Do not record tool markup as a progress note.
-    return ""
 
 
 def fork_agent(

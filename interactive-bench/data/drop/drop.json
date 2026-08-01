@@ -31,6 +31,26 @@
     {
       "task_id": "oddessentials__ado-git-repo-insights__a19c0e3e",
       "reason": "human: vague cross-platform DX mega-task; intents are process chatter ('proceed', 'check if okay')"
+    },
+    {
+      "task_id": "ASRagab__optimize-anything__eaecf7fb",
+      "reason": "human: turn 0 is only a skill invocation; 11/12 intents are skill dumps, interruptions, or notifications, while the sole F2P only tests incidental Markdown-fence JSON parsing"
+    },
+    {
+      "task_id": "cyyeh__duckdb-data-agent__3d7ddc1a",
+      "reason": "human: a one-line chart symptom is scored against a 17-file subagent architecture and 20 implementation-specific F2P; 19 F2P overlap bf8e8c7b"
+    },
+    {
+      "task_id": "cyyeh__duckdb-data-agent__4603cabf",
+      "reason": "human: the render_chart array-schema 400 has no matching F2P; 34 F2P instead require unrelated container cleanup, model routing, proxy, and subagent work"
+    },
+    {
+      "task_id": "cyyeh__duckdb-data-agent__bf8e8c7b",
+      "reason": "human: vague chart bug shares base and 19 F2P with 3d7ddc1a, plus 21 unrelated ask-user/MCP/pending-question F2P"
+    },
+    {
+      "task_id": "oddessentials__ado-git-repo-insights__8db885ae",
+      "reason": "human: mixed mypy, gitleaks, and pre-push requests are not covered; F2P only scores a CI smoke fixture and pytest subset selectors"
     }
   ]
 }

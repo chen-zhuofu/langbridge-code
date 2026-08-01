@@ -31,6 +31,11 @@ _META_INTENT_RE = re.compile(
     r"|look\s+at\s+(the\s+)?(attached\s+)?screenshot"
     r")\b"
 )
+_COMMAND_ARGS_RE = re.compile(
+    r"<command-args>(.*?)</command-args>", re.IGNORECASE | re.DOTALL
+)
+_INTERRUPTED_RE = re.compile(r"(?i)\[Request interrupted[^\]]*\]")
+_SKILL_DUMP_RE = re.compile(r"(?i)^\s*Base directory for this skill\s*:")
 
 # Prefer short windows: long base→gold spans pull in unrelated tip tests.
 MAX_WINDOW_COMMITS = 15
@@ -53,6 +58,23 @@ def clean_user_text(text: str | None) -> str:
     return out.strip()
 
 
+def normalize_user_prompt(text: str | None) -> str:
+    """Clean user text and unwrap skill/command chrome when possible.
+
+    Claude Code sessions often wrap the real ask in ``<command-args>``. Prefer
+    that body over the slash-command shell so intents stay coding-relevant.
+    """
+    out = clean_user_text(text)
+    if not out:
+        return ""
+    match = _COMMAND_ARGS_RE.search(out)
+    if match:
+        args = clean_user_text(match.group(1))
+        if args:
+            return args
+    return out
+
+
 def is_meta_intent(text: str | None) -> bool:
     """True for commit/push/screenshot-only intents (not coding work)."""
     if not text or not str(text).strip():
@@ -60,14 +82,45 @@ def is_meta_intent(text: str | None) -> bool:
     return bool(_META_INTENT_RE.match(str(text).strip()))
 
 
+def is_noise_user_message(text: str | None) -> bool:
+    """True for chat chrome that should not become coding intents.
+
+    Covers commit/push meta, interrupted stubs, skill dumps, subagent
+    task-notifications, and bare slash-command wrappers with no real ask.
+    """
+    raw = normalize_user_prompt(text)
+    if not raw:
+        return True
+    if is_meta_intent(raw):
+        return True
+    if _SKILL_DUMP_RE.match(raw):
+        return True
+    low = raw.lower()
+    if "<task-notification>" in low:
+        return True
+    interrupted_only = _INTERRUPTED_RE.sub("", raw).strip()
+    if _INTERRUPTED_RE.search(raw) and len(interrupted_only) < MIN_INSTRUCTION_CHARS:
+        return True
+    # Bare /skill invoke without command-args is chrome, not a coding ask.
+    original = clean_user_text(text)
+    if "<command-message>" in original.lower() or "<command-name>" in original.lower():
+        if _COMMAND_ARGS_RE.search(original):
+            return False
+        return True
+    return False
+
+
 def filter_intents(intents: Iterable[dict[str, Any]], *, max_intents: int = MAX_INTENTS) -> list[dict]:
-    """Drop meta intents, renumber ids, keep at most ``max_intents``."""
+    """Drop noise/meta intents, renumber ids, keep at most ``max_intents``."""
     kept: list[dict] = []
     for item in intents:
         if not isinstance(item, dict):
             continue
-        text = clean_user_text(str(item.get("text") or ""))
-        if not text or is_meta_intent(text):
+        original = str(item.get("text") or "")
+        if is_noise_user_message(original):
+            continue
+        text = normalize_user_prompt(original)
+        if not text or is_noise_user_message(text):
             continue
         kept.append({**item, "text": text})
         if len(kept) >= max_intents:
@@ -171,10 +224,10 @@ def has_python_tests(test_files: Iterable[str]) -> bool:
 
 
 def is_thin_instruction(text: str | None) -> bool:
-    cleaned = clean_user_text(text)
+    cleaned = normalize_user_prompt(text)
     if not cleaned:
         return True
-    if is_meta_intent(cleaned):
+    if is_noise_user_message(text) or is_noise_user_message(cleaned):
         return True
     # Short openers ("ok", "1 GB" after image strip) are not usable task statements.
     if len(cleaned) < MIN_INSTRUCTION_CHARS:
@@ -186,14 +239,15 @@ def is_thin_instruction(text: str | None) -> bool:
 
 def pick_instruction(prompts: Iterable[str], *, fallback: str = "") -> tuple[str, list[str]]:
     """Pick the first substantive user prompt; return (instruction, followups)."""
-    cleaned = [clean_user_text(p) for p in prompts]
+    cleaned = [normalize_user_prompt(p) for p in prompts]
     cleaned = [p for p in cleaned if p]
     if not cleaned:
-        fb = clean_user_text(fallback)
+        fb = normalize_user_prompt(fallback)
         return fb, []
     for index, text in enumerate(cleaned):
         if is_thin_instruction(text):
             continue
+        # Follow-ups stay normalized; drop trailing noise later in curate (intent LLM).
         return text, cleaned[index + 1 :]
     # Fall back to longest non-empty prompt if all look thin.
     best = max(cleaned, key=len)
@@ -222,7 +276,7 @@ def score_testful_window(
     intents = [
         {"text": t}
         for t in ([instruction] + list(followups or []))[:8]
-        if t and not is_meta_intent(t)
+        if t and not is_noise_user_message(t)
     ]
     hits = oracle_token_hits(
         instruction=instruction,

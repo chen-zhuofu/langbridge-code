@@ -113,7 +113,12 @@ def reference_docker(instance: dict, timeout: int = 600) -> dict:
     if instance.get("test_files"):
         task["test_files"] = instance["test_files"]
 
-    with tempfile.TemporaryDirectory(prefix="lb-ix-ref-") as tmp:
+    # Must live under the repo (not the OS tempdir): Docker contexts like Colima
+    # only bind-mount paths under $HOME by default, and silently turn a missing
+    # source file into an empty directory instead of erroring — the container
+    # then sees /opt/lb/task.json as a directory (IsADirectoryError).
+    paths.REFERENCE_OUT.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="lb-ix-ref-", dir=paths.REFERENCE_OUT) as tmp:
         local_task = Path(tmp) / "task.json"
         local_task.write_text(json.dumps(task), encoding="utf-8")
         result = docker(

@@ -38,6 +38,7 @@ from langbridge_code.util.trace_log import (
     trace_sink as write_trace_event,
 )
 from langbridge_code.settings import (
+    FINALIZE_RESERVE_SECONDS,
     MAX_AGENT_SECONDS,
     MAX_AGENT_STEPS,
     PROGRESS_NOTE_REMINDER_ROUNDS,
@@ -73,6 +74,22 @@ MAIN_AGENT_TOOL_SCHEMAS = (
     + [ASK_USER_TOOL_SCHEMA, NOTE_PROGRESS_TOOL_SCHEMA, MEMORY_WRITER_TOOL_SCHEMA]
     + list(SUBAGENT_TOOL_SCHEMAS)
 )
+SUBAGENT_TOOL_NAMES = frozenset(
+    {"agent_planner", "agent_worker", "agent_explorer"}
+)
+FINALIZATION_TOOL_SCHEMAS = [
+    schema
+    for schema in MAIN_AGENT_TOOL_SCHEMAS
+    if schema.get("name") not in SUBAGENT_TOOL_NAMES
+]
+
+FINALIZATION_NOTICE = (
+    "[EVAL_DEADLINE]\n"
+    "The run is in its finalization window. Do not start new planning, exploration, "
+    "or worker tasks. Collect completed background results, merge only ready reviewed "
+    "branches, preserve partial work, run only short targeted checks, and return the "
+    "best implementation before the deadline."
+)
 
 BACKGROUND_PENDING = (
     "Background task started and is still running. Its real result will arrive "
@@ -93,6 +110,20 @@ def ensure_langbridge_system_prompt(messages):
         messages[0]["content"] = prompt
         return messages
     return [{"role": "system", "content": prompt}, *messages]
+
+
+def in_finalization_window(start_time: float) -> bool:
+    if FINALIZE_RESERVE_SECONDS <= 0 or MAX_AGENT_SECONDS is None:
+        return False
+    threshold = max(0, MAX_AGENT_SECONDS - FINALIZE_RESERVE_SECONDS)
+    return over_time_budget(start_time, threshold)
+
+
+def request_messages(messages, model: str, *, finalizing: bool) -> list:
+    request = messages_with_budget_notice(messages, model)
+    if finalizing:
+        request.append({"role": "user", "content": FINALIZATION_NOTICE})
+    return request
 
 
 class MainAgentSession:
@@ -127,6 +158,8 @@ class MainAgentSession:
         self._rounds_since_progress_note = 0
         self._last_user_prompt = ""
         self._memory_writer_ran_this_send = False
+        self._deadline_finalizing = False
+        self._turn_start_time = None
         self._context_lock = threading.RLock()
         # <memory>/<progress>/<skill_index> blocks are prefetched on first send.
         del history_briefing_pending  # superseded by the pinned context blocks
@@ -330,8 +363,12 @@ class MainAgentSession:
         )
 
     def _init_context_blocks(self, user_prompt):
-        """First-send prefetch: <memory> + <progress> + <skill_index>."""
-        from langbridge_code.skills import ensure_skill_index_block, langbridge_skill_catalog
+        """First-send pin: <memory> + <progress> + full <skill_index> listing."""
+        from langbridge_code.skills import (
+            attach_skill_tracking,
+            ensure_skill_index_block,
+            langbridge_skill_catalog,
+        )
 
         self._refresh_memory_and_progress_blocks(task=user_prompt, include_traces=True)
         ensure_skill_index_block(
@@ -340,11 +377,20 @@ class MainAgentSession:
             self.model,
             user_prompt,
             langbridge_skill_catalog(),
-            label="LangBridge skill prefetch",
+            label="LangBridge skill listing",
         )
-        self.context.stack.on_compacted = (
-            lambda _stack: self._refresh_memory_and_progress_blocks()
-        )
+        attach_skill_tracking(self.context.stack, self.tools, role="langbridge")
+        previous = self.context.stack.on_compacted
+
+        def on_compacted(_stack):
+            if previous is not None:
+                try:
+                    previous(_stack)
+                except Exception:
+                    pass
+            self._refresh_memory_and_progress_blocks()
+
+        self.context.stack.on_compacted = on_compacted
         self._context_blocks_ready = True
 
     @staticmethod
@@ -439,11 +485,17 @@ class MainAgentSession:
         return outputs, deferred
 
     def send(self, user_prompt):
-        from langbridge_code.skills import expand_skill_slash, list_skills
+        from langbridge_code.skills import (
+            expand_skill_slash,
+            list_skills,
+            parse_skill_slash,
+            record_invoked_skill,
+            resolve_skill_slash,
+        )
 
         # Remembered so the post-compaction <memory> re-prefetch targets the
         # current task instead of an empty string. Keep the raw slash text so
-        # skill prefetch still sees "/grilling …" rather than the expanded body.
+        # memory prefetch still sees "/grilling …" rather than the expanded body.
         raw_prompt = (user_prompt or "").strip()
         try:
             user_prompt = expand_skill_slash(raw_prompt)
@@ -455,8 +507,13 @@ class MainAgentSession:
             )
         self._last_user_prompt = raw_prompt
         self._memory_writer_ran_this_send = False
+        self._deadline_finalizing = False
         if not self._context_blocks_ready:
             self._init_context_blocks(raw_prompt)
+        if resolve_skill_slash(raw_prompt)[0] == "expanded":
+            parsed = parse_skill_slash(raw_prompt)
+            if parsed:
+                record_invoked_skill(self.context.stack, parsed[0], role="langbridge")
         turn_content = build_turn_user_content(self.run_log_path, user_prompt)
         with self._context_lock:
             self.context.begin_turn(turn_content)
@@ -464,13 +521,16 @@ class MainAgentSession:
         foreground = ForegroundTracker(self.label, self.messages, self.model)
         foreground.activate()
         start_time = now()
+        self._turn_start_time = start_time
         background_runner = CompletionDrivenToolRunner(self._run_tool)
         deferred_background_results = []
         try:
             for _ in range(MAX_AGENT_STEPS):
                 control.checkpoint()
                 if over_time_budget(start_time, MAX_AGENT_SECONDS):
+                    self._deadline_finalizing = True
                     return self._finish(f"{self.label} stopped: out of time.")
+                self._deadline_finalizing = in_finalization_window(start_time)
                 completed = [
                     *deferred_background_results,
                     *background_runner.drain_completed(),
@@ -490,8 +550,16 @@ class MainAgentSession:
                     lambda: create_model_response(
                         self.api_key,
                         self.model,
-                        messages_with_budget_notice(self.messages, self.model),
-                        tool_schemas=MAIN_AGENT_TOOL_SCHEMAS,
+                        request_messages(
+                            self.messages,
+                            self.model,
+                            finalizing=self._deadline_finalizing,
+                        ),
+                        tool_schemas=(
+                            FINALIZATION_TOOL_SCHEMAS
+                            if self._deadline_finalizing
+                            else MAIN_AGENT_TOOL_SCHEMAS
+                        ),
                         reasoning={"summary": "auto"},
                         label=self.label,
                         stream_sink=self.trace_sink,
@@ -525,7 +593,8 @@ class MainAgentSession:
                 self.step += 1
                 with self._context_lock:
                     finish_step(self.context, step_items, self, budget)
-                self._maybe_force_progress_note()
+                if not self._deadline_finalizing:
+                    self._maybe_force_progress_note()
                 foreground.publish()
             return self._finish(f"{self.label} stopped: max steps.")
         finally:
@@ -534,6 +603,7 @@ class MainAgentSession:
             # into the next turn's context.
             self._refresh_subagent_state_block(None)
             foreground.deactivate()
+            self._turn_start_time = None
 
     def _maybe_force_progress_note(self):
         """After too many silent rounds, fork-write progress.md (code-enforced)."""
@@ -574,6 +644,15 @@ class MainAgentSession:
         name = call.get("name")
         call_id = call.get("call_id")
         try:
+            if (
+                name in SUBAGENT_TOOL_NAMES
+                and self._turn_start_time is not None
+                and in_finalization_window(self._turn_start_time)
+            ):
+                self._deadline_finalizing = True
+                raise RuntimeError(
+                    f"{name} is disabled during the deadline finalization window"
+                )
             arguments = without_description(json.loads(call.get("arguments") or "{}"), name)
             if name == "ask_user":
                 output = resolve_ask_user(arguments, self.question_callback)
@@ -618,12 +697,12 @@ class MainAgentSession:
 
         write_worklog_finish(self.run_log_path, self.label, self.worklog_id, self.turn_id, report)
         # Catch progress omitted since the last note (same idea as Memory Writer).
-        if self._rounds_since_progress_note > 0:
+        if self._rounds_since_progress_note > 0 and not self._deadline_finalizing:
             if self._note_write_succeeded(self._write_progress_note_via_fork()):
                 self._rounds_since_progress_note = 0
         # A mid-turn Memory Writer already reconciled this context. Otherwise
         # fork the same tool-using writer in the background to catch omissions.
-        if not self._memory_writer_ran_this_send:
+        if not self._memory_writer_ran_this_send and not self._deadline_finalizing:
             schedule_memory_writer(self.api_key, self.model, self.messages)
         return report
 

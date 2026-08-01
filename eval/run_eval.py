@@ -1,7 +1,7 @@
 """Parallel Docker runner for langbridge-bench eval.
 
 Each task runs in its dedicated pipeline image ``lb-task:<task_id>`` (repo +
-``.refvenv`` already baked in by ``eval/data/data-pipeline/env``). The host copies in
+``.refvenv`` already baked in by ``eval/data-pipeline/env``). The host copies in
 LangBridge source, runs main-agent e2e, then grades in-container. Artifacts
 land under ``artifacts/evals/<run_id>/``.
 
@@ -32,7 +32,13 @@ from pathlib import Path
 from langbridge_code.settings import EVAL_LAYER_TIMEOUT_SECONDS, GRADE_TIMEOUT_SECONDS
 from util import langbridge_bench, metrics
 from util.bench import strip_eval_noise, split_diff
-from sandbox.docker import container_exec, docker, image_exists, write_and_copy_script
+from sandbox.docker import (
+    container_exec,
+    copy_json_into_container,
+    docker,
+    image_exists,
+    write_and_copy_script,
+)
 from sandbox.network import (
     EVAL_NETWORK,
     PROXY_NAME,
@@ -292,7 +298,7 @@ def ensure_task_image(spec: dict, *, rebuild: bool = False) -> str:
     if not dockerfile.is_file():
         raise RuntimeError(
             f"missing task image {tag} and no Dockerfile at {dockerfile}. "
-            f"For langbridge-bench tasks run eval/data/data-pipeline/env."
+            f"For langbridge-bench tasks run eval/data-pipeline/env."
         )
     text = dockerfile.read_text(encoding="utf-8")
     if "langbridge-bench:py312" in text:
@@ -362,7 +368,7 @@ def run_agent(container, spec, api_env, model, timeout):
     log_path = "/tmp/lb_agent_run.log"
     cmd = (
         f"mkdir -p {CONTAINER_SESSION_ARTIFACTS} {CONTAINER_ARTIFACTS} && "
-        f"{HARNESS_PYTHON} -u -m run_agent "
+        f"{HARNESS_PYTHON} -u {CONTAINER_EVAL}/run_agent.py "
         f">{log_path} 2>&1; ec=$?; cat {log_path}; exit $ec"
     )
     try:
@@ -444,7 +450,7 @@ def grade_in_container(container, spec, candidate_diff, grade_timeout):
 
     env = {"PYTHONPATH": CONTAINER_PYTHONPATH}
     cmd = (
-        f"{HARNESS_PYTHON} -m grade_checkout "
+        f"{HARNESS_PYTHON} {CONTAINER_EVAL}/grade_checkout.py "
         f"--spec {CONTAINER_GRADE_DIR}/spec.json "
         f"--diff {CONTAINER_GRADE_DIR}/candidate.diff "
         f"--out {CONTAINER_GRADE_DIR}/grade.json "
@@ -489,6 +495,7 @@ def run_one_spec(spec, artifacts_root, api_env, model, timeout, grade_timeout, p
     started = time.time()
     error = ""
     timed_out = False
+    agent_returncode = None
     agent_out = {}
     diff = ""
     gt_pass = False
@@ -543,6 +550,16 @@ def run_one_spec(spec, artifacts_root, api_env, model, timeout, grade_timeout, p
                     f"docker cp {name} failed: {(copy_eval.stderr or '').strip()}"
                 )
 
+        # Pin the SUT stack from eval/config.json (source of truth) so the
+        # in-container settings do not fall back to the packaged provider defaults.
+        from util.eval_config import merge_agent_user_config
+
+        copy_json_into_container(
+            container,
+            merge_agent_user_config({}),
+            "/root/.langbridge-code/config.json",
+        )
+
         phase("setup", image)
         setup = prepare_task_workspace(container, spec)
         if setup.returncode != 0:
@@ -553,9 +570,20 @@ def run_one_spec(spec, artifacts_root, api_env, model, timeout, grade_timeout, p
         result, timed_out = run_agent(container, spec, api_env, model, timeout)
         stdout = getattr(result, "stdout", "") or ""
         stderr = getattr(result, "stderr", "") or ""
+        agent_log = stdout + (("\n" + stderr) if stderr else "")
+        (artifacts_dir / "agent.log").write_text(agent_log, encoding="utf-8")
         agent_out = parse_agent_stdout(stdout)
         if not agent_out and stderr:
             agent_out = {"report": stderr[-2000:]}
+        agent_returncode = getattr(result, "returncode", None)
+        agent_error = str(agent_out.get("error") or "").strip()
+        if timed_out:
+            raise RuntimeError(f"agent timed out after {timeout}s")
+        if agent_returncode != 0 or agent_error:
+            detail = agent_error or agent_log.strip()[-2000:] or "no agent output"
+            raise RuntimeError(
+                f"agent failed (returncode={agent_returncode}): {detail}"
+            )
         telemetry = dict(agent_out.get("telemetry") or {})
         # Ensure the sleep-infinity worker is still up before mutating the tree.
         status = docker(
@@ -596,6 +624,7 @@ def run_one_spec(spec, artifacts_root, api_env, model, timeout, grade_timeout, p
         "grade_status": grade_status,
         "diff_chars": len(diff),
         "timed_out": timed_out,
+        "agent_returncode": agent_returncode,
         "error": error,
         "artifacts_dir": str(artifacts_dir),
     }
@@ -625,18 +654,21 @@ def _api_env():
 
     Mixed-model sessions may call more than one provider (e.g. moonshot main +
     deepseek explorer), so every configured key is forwarded.
+    Eval defaults the agent under test to the DeepSeek stack
+    (``eval/config.json``) unless ``LANGBRIDGE_API_PROVIDER`` is already set.
     """
     from langbridge_code.settings import (
         _PROVIDER_ENV,
-        active_api_provider,
         resolve_provider_api_key,
     )
+    from util.eval_config import apply_agent_env
 
     env = {}
     for key in (
         "MOONSHOT_API_KEY",
         "KIMI_API_KEY",
         "OPENAI_API_KEY",
+        "ANTHROPIC_API_KEY",
         "DEEPSEEK_API_KEY",
         "LANGBRIDGE_MODEL",
         "LANGBRIDGE_API_PROVIDER",
@@ -645,8 +677,7 @@ def _api_env():
         if value:
             env[key] = value
 
-    provider = env.get("LANGBRIDGE_API_PROVIDER") or active_api_provider()
-    env["LANGBRIDGE_API_PROVIDER"] = provider
+    env = apply_agent_env(env)
 
     for name, env_names in _PROVIDER_ENV.items():
         if any(env.get(key) for key in env_names):
@@ -681,7 +712,9 @@ def main():
     parser.add_argument("--offset", type=int, default=0, help="skip the first N specs")
     parser.add_argument("--task", default=None, help="run only this task_id")
     parser.add_argument("--workers", type=int, default=4)
-    parser.add_argument("--model", default=os.environ.get("LANGBRIDGE_MODEL", ""))
+    parser.add_argument("--model", default=os.environ.get("LANGBRIDGE_MODEL", ""),
+                        help="Force a single model for all roles (empty = eval/config.json "
+                        "DeepSeek stack: pro + flash explorer)")
     parser.add_argument("--timeout", type=int, default=EVAL_LAYER_TIMEOUT_SECONDS)
     parser.add_argument("--grade-timeout", type=int, default=GRADE_TIMEOUT_SECONDS)
     parser.add_argument("--out", default=str(DEFAULT_OUT))
@@ -741,7 +774,10 @@ def main():
         print("WARNING: --open-network — containers get unrestricted internet access.")
     else:
         guard_image = task_image_tag(specs[0])
-        net_args, api_host = ensure_egress_guard(guard_image)
+        net_args, api_host = ensure_egress_guard(
+            guard_image,
+            provider=api_env.get("LANGBRIDGE_API_PROVIDER"),
+        )
         verify_network_lockdown(guard_image, net_args, api_host)
         # httpx (OpenAI SDK) honors proxy env vars; read_webpage/curl go the
         # same way and get 403'd by the allowlist.

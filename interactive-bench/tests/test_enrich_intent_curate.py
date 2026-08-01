@@ -16,7 +16,7 @@ for _p in (_PIPELINE, _INTERACTIVE):
 
 from _lib.spec import build_interactive_spec  # noqa: E402
 from enrich.enrich import enrich_one  # noqa: E402
-from intent.analyze import analyze_one, heuristic_intents  # noqa: E402
+from intent.analyze import analyze_one  # noqa: E402
 
 SAMPLE_DIFF = """diff --git a/src/foobar.py b/src/foobar.py
 index 111..222 100644
@@ -61,7 +61,7 @@ def test_enrich_ok_splits_patches():
     assert not out.get("_drop"), out.get("reason")
     assert "tests/test_foobar.py" in out["test_patch"]
     assert "src/foobar.py" in out["gold_code_patch"]
-    assert out["difficulty"] == "unknown"  # no runtime
+    assert out["horizon"] == "unknown"  # no runtime
     assert out["task_type"] == "bug_fix"
     assert out["docker_image"].startswith("lb-interactive:")
 
@@ -143,15 +143,11 @@ def test_enrich_uses_conversation_runtime(tmp_path):
     assert out["instruction"] == "Fix foobar checkpoint embedding resume logic"
     assert out["followup_prompts"] == ["Also cover the foobar unit tests"]
     assert out["agent_runtime_sec"] == 30.0
-    assert out["difficulty"] == "easy"
+    assert out["horizon"] == "short"
 
 
-def test_heuristic_intents_and_analyze_without_llm():
-    intents = heuristic_intents("Do A", ["Then B"])
-    assert intents[0]["revealed_at_start"] is True
-    assert intents[1]["revealed_at_start"] is False
-
-    with patch("intent.analyze.chat_json", return_value=None):
+def test_analyze_drops_without_llm():
+    with patch("intent.analyze.chat_json_ex", return_value=(None, "no API key")):
         out = analyze_one(
             {
                 **_resolved(),
@@ -161,10 +157,8 @@ def test_heuristic_intents_and_analyze_without_llm():
             },
             data_dir=None,
         )
-    assert not out.get("_drop")
-    assert len(out["intents"]) == 2
-    assert out["intent_source"] == "heuristic"
-    assert "Stay silent" in out["session_analysis"]
+    assert out.get("_drop") is True
+    assert "no API key" in out["reason"]
 
 
 def test_analyze_uses_llm_payload_when_present():
@@ -186,13 +180,15 @@ def test_analyze_uses_llm_payload_when_present():
         "session_analysis": "Reveal i2 after done.",
         "task_type": "feature",
     }
-    with patch("intent.analyze.chat_json", return_value=llm):
+    with patch("intent.analyze.chat_json_ex", return_value=(llm, None)):
         out = analyze_one(
             {**_resolved(), "instruction": "Rate limit login", "followup_prompts": ["codes"]},
             data_dir=None,
         )
+    assert not out.get("_drop"), out.get("reason")
     assert out["task_type"] == "feature"
     assert out["session_analysis"] == "Reveal i2 after done."
+    assert out["intent_source"] == "llm"
     assert [i["id"] for i in out["intents"]] == ["i1", "i2"]
 
 
@@ -209,6 +205,7 @@ def test_build_interactive_spec_sim_timeout():
             "test_files": ["tests/t.py"],
             "session_analysis": "be quiet",
             "difficulty": "easy",
+            "horizon": "short",
             "task_type": "bug_fix",
         }
     )
@@ -218,6 +215,8 @@ def test_build_interactive_spec_sim_timeout():
     assert spec["sim"]["session_analysis"] == "be quiet"
     assert spec["fail_to_pass"] == ["t::a"]
     assert spec["test_files"] == ["tests/t.py"]
+    assert spec["difficulty"] == "easy"
+    assert spec["horizon"] == "short"
 
 
 def test_curate_writes_spec(tmp_path, monkeypatch):
@@ -236,15 +235,14 @@ def test_curate_writes_spec(tmp_path, monkeypatch):
     row = {
         **_resolved(),
         "instruction": "Fix foobar behavior in the module",
-        "intents": [{"id": "i1", "text": "Fix foobar behavior", "revealed_at_start": True}],
         "fail_to_pass": ["tests/test_foobar.py::test_x"],
         "pass_to_pass": [],
         "test_patch": "diff --git a/tests/test_foobar.py b/tests/test_foobar.py\n+assert foobar",
         "gold_code_patch": "cp",
+        "code_files": ["src/foobar.py"],
         "test_files": ["tests/test_foobar.py"],
         "agent_runtime_sec": 90,
-        "session_analysis": "quiet",
-        "difficulty": "easy",
+        "horizon": "short",
         "task_type": "bug_fix",
     }
     inp.write_text(json.dumps(row) + "\n", encoding="utf-8")
@@ -272,9 +270,24 @@ def test_curate_writes_spec(tmp_path, monkeypatch):
             "1",
         ],
     )
-    assert curate_mod.main() == 0
+    llm = {
+        "intents": [
+            {
+                "id": "i1",
+                "text": "Fix foobar behavior",
+                "source_turn": 0,
+                "revealed_at_start": True,
+            }
+        ],
+        "session_analysis": "quiet",
+        "task_type": "bug_fix",
+    }
+    with patch("intent.analyze.chat_json_ex", return_value=(llm, None)):
+        assert curate_mod.main() == 0
     written = specs_dir / f"{row['task_id']}.json"
     assert written.exists()
     spec = json.loads(written.read_text(encoding="utf-8"))
     assert spec["task_id"] == row["task_id"]
+    assert spec["difficulty"] == "easy"  # computed from code_files/gold_code_patch/F2P at curate
+    assert spec["horizon"] == "short"
     assert spec["sim"]["timeout_sec"] == 2400.0

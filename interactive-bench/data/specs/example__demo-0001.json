@@ -26,18 +26,28 @@
     "user_persona": "Patient Collaborator"
   },
   "sim": {
-    "actions": ["no-op", "steer", "reveal_next", "answer"],
+    "actions": [
+      "no-op",
+      "steer",
+      "reveal_next",
+      "answer"
+    ],
     "noop_message": "continue",
     "max_consecutive_noops": 4,
     "timeout_sec": 180,
     "session_analysis": "Stay silent while rate limiting is implemented. After the agent appears done, reveal the error-code intent. Answer questions without expanding scope."
   },
-  "fail_to_pass": ["tests/test_login.py::test_rate_limit"],
+  "fail_to_pass": [
+    "tests/test_login.py::test_rate_limit"
+  ],
   "pass_to_pass": [],
   "test_patch": "",
   "gold_code_patch": "",
-  "test_files": ["tests/test_login.py"],
+  "test_files": [
+    "tests/test_login.py"
+  ],
   "docker_image": "lb-interactive:example__demo-0001",
   "task_type": "feature",
-  "difficulty": "easy"
+  "difficulty": "easy",
+  "horizon": "short"
 }

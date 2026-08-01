@@ -1,0 +1,220 @@
+{
+  "description": "Tasks dropped at reference (no FAIL_TO_PASS, patch apply failure, missing image, timeout, …).",
+  "dropped": [
+    {
+      "task_id": "pytest-dev__pytest-14760",
+      "reason": "missing image lb-task:pytest-dev__pytest-14760",
+      "stage": "reference"
+    },
+    {
+      "task_id": "scikit-learn__scikit-learn-33906",
+      "reason": "missing image lb-task:scikit-learn__scikit-learn-33906",
+      "stage": "reference"
+    },
+    {
+      "task_id": "scikit-learn__scikit-learn-33252",
+      "reason": "missing image lb-task:scikit-learn__scikit-learn-33252",
+      "stage": "reference"
+    },
+    {
+      "task_id": "scikit-learn__scikit-learn-34380",
+      "reason": "no FAIL_TO_PASS",
+      "stage": "reference"
+    },
+    {
+      "task_id": "NousResearch__hermes-agent-72217",
+      "reason": "no FAIL_TO_PASS",
+      "stage": "reference"
+    },
+    {
+      "task_id": "NousResearch__hermes-agent-72406",
+      "reason": "no FAIL_TO_PASS",
+      "stage": "reference"
+    },
+    {
+      "task_id": "NousResearch__hermes-agent-72362",
+      "reason": "no FAIL_TO_PASS",
+      "stage": "reference"
+    },
+    {
+      "task_id": "NousResearch__hermes-agent-72361",
+      "reason": "no FAIL_TO_PASS",
+      "stage": "reference"
+    },
+    {
+      "task_id": "pandas-dev__pandas-65098",
+      "reason": "no FAIL_TO_PASS",
+      "stage": "reference"
+    },
+    {
+      "task_id": "pandas-dev__pandas-66477",
+      "reason": "no FAIL_TO_PASS",
+      "stage": "reference"
+    },
+    {
+      "task_id": "browser-use__browser-use-4810",
+      "reason": "no FAIL_TO_PASS",
+      "stage": "reference"
+    },
+    {
+      "task_id": "browser-use__browser-use-4710",
+      "reason": "no FAIL_TO_PASS",
+      "stage": "reference"
+    },
+    {
+      "task_id": "TauricResearch__TradingAgents-413",
+      "reason": "no FAIL_TO_PASS",
+      "stage": "reference"
+    },
+    {
+      "task_id": "pallets__flask-5917",
+      "reason": "no FAIL_TO_PASS",
+      "stage": "reference"
+    },
+    {
+      "task_id": "pallets__flask-5818",
+      "reason": "no FAIL_TO_PASS",
+      "stage": "reference"
+    },
+    {
+      "task_id": "pandas-dev__pandas-66399",
+      "reason": "no FAIL_TO_PASS",
+      "stage": "reference"
+    },
+    {
+      "task_id": "pandas-dev__pandas-64678",
+      "reason": "no FAIL_TO_PASS",
+      "stage": "reference"
+    },
+    {
+      "task_id": "browser-use__browser-use-3395",
+      "reason": "no FAIL_TO_PASS",
+      "stage": "reference"
+    },
+    {
+      "task_id": "NousResearch__hermes-agent-72285",
+      "reason": "no FAIL_TO_PASS",
+      "stage": "reference"
+    },
+    {
+      "task_id": "NousResearch__hermes-agent-73518",
+      "reason": "no FAIL_TO_PASS",
+      "stage": "reference"
+    },
+    {
+      "task_id": "NousResearch__hermes-agent-73509",
+      "reason": "no FAIL_TO_PASS",
+      "stage": "reference"
+    },
+    {
+      "task_id": "NousResearch__hermes-agent-73507",
+      "reason": "no FAIL_TO_PASS",
+      "stage": "reference"
+    },
+    {
+      "task_id": "NousResearch__hermes-agent-73505",
+      "reason": "no FAIL_TO_PASS",
+      "stage": "reference"
+    },
+    {
+      "task_id": "NousResearch__hermes-agent-73322",
+      "reason": "no FAIL_TO_PASS",
+      "stage": "reference"
+    },
+    {
+      "task_id": "NousResearch__hermes-agent-73067",
+      "reason": "no FAIL_TO_PASS",
+      "stage": "reference"
+    },
+    {
+      "task_id": "NousResearch__hermes-agent-72501",
+      "reason": "no FAIL_TO_PASS",
+      "stage": "reference"
+    },
+    {
+      "task_id": "pallets__flask-5637",
+      "reason": "no FAIL_TO_PASS",
+      "stage": "reference"
+    },
+    {
+      "task_id": "pallets__flask-5634",
+      "reason": "no FAIL_TO_PASS",
+      "stage": "reference"
+    },
+    {
+      "task_id": "pandas-dev__pandas-66507",
+      "reason": "no FAIL_TO_PASS",
+      "stage": "reference"
+    },
+    {
+      "task_id": "pallets__flask-5632",
+      "reason": "no FAIL_TO_PASS",
+      "stage": "reference"
+    },
+    {
+      "task_id": "pandas-dev__pandas-63720",
+      "reason": "no FAIL_TO_PASS",
+      "stage": "reference"
+    },
+    {
+      "task_id": "pallets__flask-5630",
+      "reason": "no FAIL_TO_PASS",
+      "stage": "reference"
+    },
+    {
+      "task_id": "pandas-dev__pandas-65287",
+      "reason": "no FAIL_TO_PASS",
+      "stage": "reference"
+    },
+    {
+      "task_id": "pallets__flask-5499",
+      "reason": "no FAIL_TO_PASS",
+      "stage": "reference"
+    },
+    {
+      "task_id": "pandas-dev__pandas-66401",
+      "reason": "no FAIL_TO_PASS",
+      "stage": "reference"
+    },
+    {
+      "task_id": "pallets__flask-5626",
+      "reason": "no FAIL_TO_PASS",
+      "stage": "reference"
+    },
+    {
+      "task_id": "pandas-dev__pandas-64851",
+      "reason": "no FAIL_TO_PASS",
+      "stage": "reference"
+    },
+    {
+      "task_id": "pallets__flask-5526",
+      "reason": "no FAIL_TO_PASS",
+      "stage": "reference"
+    },
+    {
+      "task_id": "pandas-dev__pandas-65841",
+      "reason": "no FAIL_TO_PASS",
+      "stage": "reference"
+    },
+    {
+      "task_id": "pallets__flask-5264",
+      "reason": "no FAIL_TO_PASS",
+      "stage": "reference"
+    },
+    {
+      "task_id": "browser-use__browser-use-3419",
+      "reason": "no FAIL_TO_PASS",
+      "stage": "reference"
+    },
+    {
+      "task_id": "browser-use__browser-use-2583",
+      "reason": "no FAIL_TO_PASS",
+      "stage": "reference"
+    },
+    {
+      "task_id": "browser-use__browser-use-2772",
+      "reason": "no FAIL_TO_PASS",
+      "stage": "reference"
+    }
+  ]
+}

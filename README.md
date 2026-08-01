@@ -3,7 +3,7 @@
 
 A self-evolving coding agent with a **main agent + specialist subagents** workflow.
 **Default model: Moonshot Kimi** (`kimi-k2.7-code`); **also supports OpenAI**
-(`gpt-5.3-codex`) and **DeepSeek** (`deepseek-v4-pro`). Configure in
+(`gpt-5.6`) and **DeepSeek** (`deepseek-v4-pro`). Configure in
 `~/.langbridge-code/config.json` or via environment variables — see
 [Models & providers](#models--providers).
 
@@ -187,25 +187,21 @@ Individual entries live beside each index under `memory/`, use YAML frontmatter
 Override the indexes with `LANGBRIDGE_USER_MEMORY_PATH`,
 `LANGBRIDGE_PROJECT_MEMORY_PATH`, or matching `paths.*` user-config keys.
 
-### One-pass context forks
+### Context forks
 
-`fork_one_pass` copies a live agent's current message list, appends one
-instruction, makes exactly one model request, and returns the text. It does not
-run tools or start another agent loop. Keeping the original prefix byte-identical
-also lets providers reuse prefix cache.
+Progress notes and memory maintenance both fork the live conversation prefix so
+providers can reuse prompt cache.
 
-It is currently used for:
+`note_progress` uses `fork_progress_note`: an Edit-restricted `fork_agent` that
+may only rewrite `progress.md` (other tools are denied). The main agent, Worker,
+and Explorer all use this path.
 
-- the main agent's `note_progress` writer;
-- Worker and Explorer task progress-note writers.
+Memory maintenance uses `fork_agent` inside a restricted temporary Memory
+workspace (read/write/Edit/bash). The main agent can invoke `memory_writer`
+during a turn; if it does not, the same Memory Writer is scheduled in the
+background when the turn ends.
 
-Context compaction, memory prefetch, and multi-step Reviewer sessions are
-separate mechanisms and do not use `fork_one_pass`.
-
-Memory maintenance uses `fork_agent`, a separate prefix-cache-friendly fork that
-can make multiple model/tool steps inside a restricted temporary Memory
-workspace. The main agent can invoke `memory_writer` during a turn; if it does
-not, the same Memory Writer is scheduled in the background when the turn ends.
+Context compaction and memory prefetch are separate mechanisms.
 
 ### Status tokens (machine-checkable)
 
@@ -250,16 +246,16 @@ Pro uses Scale's grading harness; see `eval/README.md`.
 ### langbridge-bench (`eval/data/` + `eval/`)
 
 Self-built benchmark from GitHub PRs. Pipeline under
-`eval/data/data-pipeline/`; eval-ready specs under
+`eval/data-pipeline/`; eval-ready specs under
 `eval/data/langbridge-bench/specs/` (Dockerfiles under
 `eval/data/langbridge-bench/docker-images/`).
 
 ```bash
-uv run python eval/data/data-pipeline/run_pipeline.py
+uv run python eval/data-pipeline/run_pipeline.py
 uv run python eval/run_eval.py --workers 4 --limit 5
 ```
 
-See `eval/data/data-pipeline/README.md` and `eval/README.md`.
+See `eval/data-pipeline/README.md` and `eval/README.md`.
 
 ## Run
 
@@ -272,14 +268,14 @@ also built in.
 | Provider (`api.provider`) | Default model | API used | API key (env or `api_keys.*`) |
 | --- | --- | --- | --- |
 | `moonshot` (default) | `kimi-k2.7-code` | Chat completions (`/v1/chat/completions`) | `MOONSHOT_API_KEY`, `KIMI_API_KEY`, `api_keys.moonshot` |
-| `openai` | `gpt-5.3-codex` | OpenAI **Responses** API | `OPENAI_API_KEY`, `api_keys.openai` |
+| `openai` | `gpt-5.6` | OpenAI **Responses** API | `OPENAI_API_KEY`, `api_keys.openai` |
 | `deepseek` | `deepseek-v4-pro`; Explorer: `deepseek-v4-flash` | OpenAI-compatible chat completions | `DEEPSEEK_API_KEY`, `api_keys.deepseek` |
 
 Switch provider:
 
 ```bash
 # one-off
-LANGBRIDGE_API_PROVIDER=openai LANGBRIDGE_MODEL=gpt-5.3-codex uv run langbridge-code
+LANGBRIDGE_API_PROVIDER=openai LANGBRIDGE_MODEL=gpt-5.6 uv run langbridge-code
 
 # or persist in ~/.langbridge-code/config.json
 ```

@@ -31,6 +31,9 @@ SRC_PATH = PROJECT_ROOT / "src"
 EVAL_PKG_PATH = PROJECT_ROOT / "eval"
 USER_CONFIG = Path.home() / ".langbridge-code" / "config.json"
 
+if str(EVAL_PKG_PATH) not in sys.path:
+    sys.path.insert(0, str(EVAL_PKG_PATH))
+
 CONTAINER_SRC = "/opt/langbridge/src"
 CONTAINER_PKG = f"{CONTAINER_SRC}/langbridge_code"
 CONTAINER_EVAL = "/opt/langbridge/eval"
@@ -285,15 +288,16 @@ print(json.dumps({
 def _api_env() -> dict[str, str]:
     from langbridge_code.settings import (
         _PROVIDER_ENV,
-        active_api_provider,
         resolve_provider_api_key,
     )
+    from _lib.bench_config import apply_agent_env
 
     env: dict[str, str] = {}
     for key in (
         "MOONSHOT_API_KEY",
         "KIMI_API_KEY",
         "OPENAI_API_KEY",
+        "ANTHROPIC_API_KEY",
         "DEEPSEEK_API_KEY",
         "LANGBRIDGE_MODEL",
         "LANGBRIDGE_API_PROVIDER",
@@ -303,8 +307,7 @@ def _api_env() -> dict[str, str]:
         value = os.environ.get(key)
         if value:
             env[key] = value
-    provider = env.get("LANGBRIDGE_API_PROVIDER") or active_api_provider()
-    env["LANGBRIDGE_API_PROVIDER"] = provider
+    env = apply_agent_env(env)
     for name, env_names in _PROVIDER_ENV.items():
         if any(env.get(key) for key in env_names):
             continue
@@ -312,6 +315,28 @@ def _api_env() -> dict[str, str]:
         if key:
             env[env_names[0]] = key
     return env
+
+
+def _write_sut_user_config(container: str) -> None:
+    """Install this bench's SUT defaults into the container user config.
+
+    Interactive CLI config often pins moonshot/kimi; overlay forces the
+    interactive-bench/config.json agent stack while keeping api_keys.
+    """
+    from _lib.bench_config import merge_agent_user_config
+
+    user_cfg: dict = {}
+    if USER_CONFIG.exists():
+        try:
+            user_cfg = json.loads(USER_CONFIG.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            user_cfg = {}
+    merged = merge_agent_user_config(user_cfg)
+    _container_exec(container, "mkdir -p /root/.langbridge-code")
+    with tempfile.TemporaryDirectory(prefix="lb-ix-cfg-") as tmp:
+        path = Path(tmp) / "config.json"
+        path.write_text(json.dumps(merged, indent=2) + "\n", encoding="utf-8")
+        docker(["cp", str(path), f"{container}:/root/.langbridge-code/config.json"])
 
 
 def _container_exec(
@@ -396,15 +421,7 @@ class DockerMainAgent:
             if cp.returncode != 0:
                 raise RuntimeError(f"docker cp failed ({src}): {cp.stderr}")
 
-        if USER_CONFIG.exists():
-            _container_exec(self.container, "mkdir -p /root/.langbridge-code")
-            docker(
-                [
-                    "cp",
-                    str(USER_CONFIG),
-                    f"{self.container}:/root/.langbridge-code/config.json",
-                ]
-            )
+        _write_sut_user_config(self.container)
 
         base = self.spec.get("base_commit") or "HEAD"
         prep = _container_exec(

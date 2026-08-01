@@ -38,6 +38,7 @@ def _spec(**kwargs):
             "max_consecutive_noops": 4,
             "timeout_sec": 10_000,
             "session_analysis": "quiet then reveal",
+            "allow_offline": True,  # no LLM in tests → stay quiet instead of raising
         },
     }
     base.update(kwargs)
@@ -93,6 +94,47 @@ def test_score_compares_to_baseline():
     assert scored["input_ratio"] == 1.0  # 2/2
 
 
+def test_llm_coverage_judge_is_reference_only(monkeypatch):
+    """Judge result replaces the proxy but never gates pass/fail."""
+    import harness.score as score_mod
+
+    episode = {
+        "elapsed_sec": 80.0,
+        "user_input_count": 2,
+        "interventions": 1,
+        "revealed_intent_ids": ["i1", "i2"],
+        "agent_messages": ["did i1 only"],
+        "stop_reason": "agent_done",
+    }
+    monkeypatch.setattr(
+        score_mod,
+        "chat_json_ex",
+        lambda **_kw: ({"covered": ["i1"], "missing": ["i2"], "notes": "i2 not done"}, None),
+    )
+    scored = score_episode(_spec(), episode, tests_passed=True, judge_coverage=True)
+    assert scored["intent_coverage_mode"] == "llm_judge"
+    assert scored["intent_coverage"] == 0.5
+    assert scored["intents_missing"] == ["i2"]
+    assert scored["intent_coverage_notes"] == "i2 not done"
+    assert scored["pass"] is True  # coverage is reference-only
+
+
+def test_llm_coverage_judge_failure_falls_back_to_proxy():
+    """conftest stubs the judge LLM as unreachable → proxy mode, episode still scored."""
+    episode = {
+        "elapsed_sec": 80.0,
+        "user_input_count": 2,
+        "interventions": 1,
+        "revealed_intent_ids": ["i1", "i2"],
+        "agent_messages": ["done"],
+        "stop_reason": "agent_done",
+    }
+    scored = score_episode(_spec(), episode, tests_passed=True, judge_coverage=True)
+    assert scored["intent_coverage_mode"] == "revealed_proxy"
+    assert scored["intent_coverage"] == 1.0
+    assert scored["pass"] is True
+
+
 def test_score_fail_without_tests():
     episode = {
         "user_input_count": 1,
@@ -140,6 +182,10 @@ def test_stub_agent_and_run_eval_cli(tmp_path, monkeypatch):
     report = json.loads(reports[0].read_text(encoding="utf-8"))
     assert report["n"] == 1
     assert report["results"][0]["task_id"] == "cli-demo"
+    assert "config" in report
+    assert report["config"]["interactive"]["sim_model"]
+    assert report["config"]["interactive"]["coverage_model"]
+    assert report["config"]["agent"]["provider"] == "deepseek"
 
 
 def test_run_eval_workers_and_offset(tmp_path, monkeypatch):

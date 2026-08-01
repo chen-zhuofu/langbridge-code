@@ -29,6 +29,7 @@ WORKER_CODING_SKILL_NAMES = (
     "superpowers_test-driven-development",
     "superpowers_systematic-debugging",
     "superpowers_receiving-code-review",
+    "presentation-skill",
 )
 
 REVIEWER_CODING_SKILL_NAMES = (
@@ -166,64 +167,138 @@ def reviewer_skill_catalog(task_type="coding"):
     return skill_catalog_text_for(REVIEWER_CODING_SKILL_NAMES)
 
 
-SKILL_SELECT_SYSTEM = """You select which skills might help with a task.
+# Claude Code alignment: full listing at start; after compaction only re-inject
+# invoked skill bodies (most recent first), with per-skill and total budgets.
+INVOKED_SKILL_MAX_TOKENS = 5_000
+INVOKED_SKILLS_TOTAL_TOKENS = 25_000
 
-You get a skill index ("- name: description" lines) and the current task.
-Reply with one skill name per line — only names from the index that are
-plausibly relevant to THIS task. If none apply, reply exactly NONE."""
 
-
-def select_skill_index(api_key, model, task: str, catalog: str, *, label: str = "skill prefetch") -> str:
-    """One-pass LLM pick of likely-relevant skill index lines from a role catalog.
-
-    Falls back to the full catalog when there is no API access or the call fails
-    — the index lines are cheap and read_skill loads bodies on demand.
-    """
-    catalog = (catalog or "").strip()
-    if not catalog:
-        return ""
-    if not (api_key and model):
-        return catalog
-    try:
-        from langbridge_code.llm.client import create_model_response
-        from langbridge_code.llm.parse import extract_output_text, truncate_text
-
-        data = create_model_response(
-            api_key,
-            model,
-            [
-                {"role": "system", "content": SKILL_SELECT_SYSTEM},
-                {
-                    "role": "user",
-                    "content": (
-                        f"Skill index:\n{catalog}\n\n"
-                        f"Task:\n{truncate_text((task or '').strip(), 4_000)}"
-                    ),
-                },
-            ],
-            label=label,
-        )
-        reply = extract_output_text(data.get("output", [])).strip()
-    except Exception:
-        return catalog
-    if not reply:
-        return catalog
-    if reply.upper().startswith("NONE"):
-        return ""
-    picked = {line.strip().strip("-").strip() for line in reply.splitlines() if line.strip()}
-    selected = [
-        line
-        for line in catalog.splitlines()
-        if line.strip().startswith("- ") and line.strip()[2:].split(":", 1)[0].strip() in picked
-    ]
-    return "\n".join(selected) if selected else catalog
+def canonical_skill_name(name: str) -> str:
+    """Top-level skill id (``clean-code-guard/references/x`` → ``clean-code-guard``)."""
+    return (name or "").strip().strip("/").split("/", 1)[0]
 
 
 def ensure_skill_index_block(stack, api_key, model, task, catalog, *, label="skill prefetch"):
-    """Set the <skill_index> context block once per session (idempotent)."""
+    """Pin the full skill listing once (no LLM filter). Idempotent.
+
+    After compaction the listing is cleared and not restored — only invoked
+    skill bodies come back (see ``refresh_skills_after_compact``).
+    """
+    del api_key, model, task, label
+    _ensure_skills_compact_hook(stack)
+    if getattr(stack, "skills_listing_cleared", False):
+        return
     if stack.skill_index_block or not (catalog or "").strip():
         return
-    stack.set_skill_index_block(select_skill_index(api_key, model, task, catalog, label=label))
+    stack.set_skill_index_block(catalog.strip())
+
+
+def _ensure_skills_compact_hook(stack) -> None:
+    if getattr(stack, "_skills_compact_hook_ready", False):
+        return
+    previous = stack.on_compacted
+
+    def on_compacted(compacted_stack):
+        if previous is not None:
+            try:
+                previous(compacted_stack)
+            except Exception:
+                pass
+        refresh_skills_after_compact(compacted_stack)
+
+    stack.on_compacted = on_compacted
+    stack._skills_compact_hook_ready = True
+
+
+def record_invoked_skill(stack, name: str, *, role=None, body: str | None = None) -> None:
+    """Remember a skill so its body can be re-injected after compaction.
+
+    When ``body`` is omitted, loads the canonical ``SKILL.md``. Callers that
+    already have content (slash expand, ``read_skill`` wrapper) should pass it.
+    """
+    skill_name = canonical_skill_name(name)
+    if not skill_name or not hasattr(stack, "record_invoked_skill"):
+        return
+    if body is not None:
+        text = str(body).strip()
+    else:
+        try:
+            text = (load_skill(skill_name, role=role) or "").strip()
+        except FileNotFoundError:
+            return
+    if not text or text.startswith("Tool error:"):
+        return
+    stack.record_invoked_skill(skill_name, text)
+
+
+def attach_skill_tracking(stack, tools: dict, *, role=None) -> dict:
+    """Wrap ``read_skill`` so successful loads are recorded on ``stack``."""
+    original = tools.get("read_skill")
+    if original is None or getattr(original, "_tracks_invoked_skills", False):
+        return tools
+
+    def read_skill(name, **kwargs):
+        output = original(name, **kwargs)
+        if output is not None and not str(output).startswith("Tool error:"):
+            # Re-inject the playbook (SKILL.md), not a one-off reference file.
+            playbook = None
+            try:
+                playbook = load_skill(canonical_skill_name(name), role=role)
+            except FileNotFoundError:
+                playbook = str(output)
+            record_invoked_skill(stack, name, role=role, body=playbook)
+        return output
+
+    read_skill._tracks_invoked_skills = True  # type: ignore[attr-defined]
+    tools["read_skill"] = read_skill
+    return tools
+
+
+def format_invoked_skills_block(
+    invoked: list[dict],
+    *,
+    per_skill_tokens: int = INVOKED_SKILL_MAX_TOKENS,
+    total_tokens: int = INVOKED_SKILLS_TOTAL_TOKENS,
+) -> str:
+    """Build the post-compaction ``<invoked_skills>`` body (most recent first)."""
+    from langbridge_code.context.common.budget import estimate_tokens
+
+    sections: list[str] = []
+    used = 0
+    # Most recently invoked first (list is oldest→newest).
+    for entry in reversed(list(invoked or [])):
+        name = str(entry.get("name") or "").strip()
+        body = str(entry.get("body") or "").strip()
+        if not name or not body:
+            continue
+        budget = min(per_skill_tokens, max(0, total_tokens - used))
+        if budget <= 0:
+            break
+        # Rough char budget from token estimate helper (json dumps // 4).
+        max_chars = max(1, budget * 4)
+        clipped = body if len(body) <= max_chars else body[:max_chars].rstrip() + "\n…"
+        section = f'## {name}\n{clipped}'
+        cost = estimate_tokens(section)
+        if used + cost > total_tokens and sections:
+            break
+        sections.append(section)
+        used += cost
+    if not sections:
+        return ""
+    header = (
+        "The following skills were invoked earlier in this session. "
+        "Continue to follow these guidelines:"
+    )
+    return header + "\n\n" + "\n\n".join(sections)
+
+
+def refresh_skills_after_compact(stack) -> None:
+    """Drop the skill listing; re-pin invoked skill bodies under the token budget."""
+    stack.skills_listing_cleared = True
+    stack.set_skill_index_block(None)
+    block = format_invoked_skills_block(getattr(stack, "invoked_skills", []) or [])
+    if hasattr(stack, "set_invoked_skills_block"):
+        stack.set_invoked_skills_block(block or None)
 
 
 def _frontmatter(text):

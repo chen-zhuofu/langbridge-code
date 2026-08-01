@@ -12,10 +12,9 @@ Design: [`DESIGN.md`](DESIGN.md).
 | **collect** | `data-pipeline/collect/collect.py` | `data-pipeline/collect/out/sessions.jsonl` |
 | **resolve** | `data-pipeline/resolve/resolve.py` | `data-pipeline/resolve/out/instances.jsonl` |
 | **enrich** | `data-pipeline/enrich/enrich.py` | `data-pipeline/enrich/out/instances.jsonl` |
-| **intent** | `data-pipeline/intent/analyze.py` | `data-pipeline/intent/out/instances.jsonl` |
 | **env** | `data-pipeline/env/build_env.py` | `data-pipeline/env/out/` + `data/docker-images/` |
 | **reference** | `data-pipeline/reference/reference_test.py` | `data-pipeline/reference/out/` (needs F2P) |
-| **curate** | `data-pipeline/curate/curate.py` | `data/specs/<id>.json` |
+| **curate** | `data-pipeline/curate/curate.py` | `data/specs/<id>.json` (intent LLM + gates) |
 | **eval** | `eval/run_eval.py` | `eval/out/<stamp>/` |
 
 ## Setup
@@ -32,8 +31,17 @@ swe-chat/
 
 2. Env vars:
    - `GITHUB_TOKEN` / `GH_TOKEN` — resolve + enrich diffs
-   - `OPENAI_API_KEY` — intent / sim LLM; intent falls back to heuristics, but the
-     sim only no-ops without it
+   - `OPENAI_API_KEY` / LangBridge `~/.langbridge-code/config.json` `api_keys`
+     (deepseek / moonshot / openai / anthropic) — intent / sim LLM
+   - Models: intent extraction defaults to `claude-fable-5` (pipeline-only).
+     Eval sim / coverage defaults live in `eval/config.json` → `interactive`
+     (`gpt-5.6` / `claude-fable-5`). Override with `LB_INTENT_MODEL` /
+     `LB_SIM_MODEL` / `LB_COVERAGE_MODEL`, or `LB_INTERACTIVE_MODEL` for all.
+   - Intent coverage is reference-only for now: it is LLM-judged on real runs
+     (falls back to the revealed-intents proxy if the judge is unreachable)
+     and does not gate pass/fail — `pass` = valid episode + F2P tests green.
+     TODO: once the judge is validated as accurate, promote coverage to a
+     hard pass criterion.
    - Docker + base image `langbridge-bench:py312` — env/reference
 
 ## Run
@@ -57,8 +65,12 @@ uv run python interactive-bench/data-pipeline/curate/curate.py --data-dir /path/
 # optional debug: intent LLM alone (normally runs inside curate)
 # uv run python interactive-bench/data-pipeline/intent/analyze.py --limit 20
 ```
-
-Eval (same CLI shape as langbridge-bench: `--workers` / `--offset` / `--limit` / `--task`):
+Eval (same CLI shape as langbridge-bench: `--workers` / `--offset` / `--limit` / `--task`).
+The coding agent under test defaults to DeepSeek (`eval/config.json`); sim and
+intent-coverage judge models live in the same file under `interactive`
+(`sim_model` / `coverage_model`). Env overrides: `LB_SIM_MODEL`,
+`LB_COVERAGE_MODEL`, or `LB_INTERACTIVE_MODEL` for both. The resolved models are
+written into `eval/out/<stamp>/report.json` as `config`.
 
 ```bash
 uv run python interactive-bench/eval/run_eval.py --stub --limit 1

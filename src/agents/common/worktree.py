@@ -171,11 +171,13 @@ _REGISTRY_STATUS_HINTS = {
     "ready": "review PASSED — merge it with merge_branch before dependent tasks",
     "interrupted": (
         "dispatch died with a previous process; NOT running now — re-dispatch "
-        "agent_worker with the same task_name + task_contract to resume its worktree"
+        "agent_worker with this same task_name (the todo id) to resume its worktree; "
+        "if the todo body must change, assign a new id in todo_list.md instead"
     ),
     "failed": (
-        "stopped before reviewer approval — re-dispatch the same task_name + "
-        "task_contract to resume from its partial work"
+        "stopped before reviewer approval — re-dispatch the same task_name "
+        "(the todo id) to resume from its partial work; if the todo body must "
+        "change, assign a new id in todo_list.md instead"
     ),
     "working": "dispatched by this process; result pending",
     "merged": "merged into the main workspace",
@@ -218,8 +220,10 @@ def build_subagent_state(pending_calls: list[dict], registry_entries: list[dict]
             suffix = f": {hint}" if hint else ""
             lines.append(f"- {name} [{status}]{suffix}")
     lines.append(
-        "Never infer that a task is still running from git worktrees, branches, "
-        "or this registry — only the RUNNING lines above mean live work."
+        "Resume with the listed task_name (the todo id). Changing a todo's "
+        "meaning/content requires a new id in todo_list.md — do not reuse an "
+        "old id. Never infer that a task is still running from git worktrees, "
+        "branches, or this registry — only the RUNNING lines above mean live work."
     )
     return "\n".join(lines)
 
@@ -265,7 +269,13 @@ def resumable_worktree(
     task_name: str,
     task_description: str,
 ) -> WorktreeInfo | None:
-    """Return/recreate the failed or interrupted worktree for the exact same task."""
+    """Return/recreate the failed or interrupted worktree for the same task id.
+
+    Matching is by ``task_name`` (the todo ``id``) only. Contract text is not
+    part of the key: real contract rewrites must use a new id so they do not
+    resume here. ``task_description`` is kept as the latest contract snapshot
+    stored when the branch is recorded again.
+    """
     stable_name = (task_name or "").strip()
     if not stable_name:
         return None
@@ -275,8 +285,6 @@ def resumable_worktree(
             continue
         recorded_name = str(entry.get("task_name") or "").strip()
         if recorded_name != stable_name:
-            continue
-        if entry.get("task") != task_description:
             continue
         branch = str(entry.get("branch") or "")
         path_text = str(entry.get("path") or "")

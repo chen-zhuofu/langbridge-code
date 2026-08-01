@@ -41,6 +41,16 @@ def wrap_issue_as_task(issue: str) -> str:
     return _load_task_wrapper().format(issue=issue).strip()
 
 
+def provider_failure_from_report(report: str) -> str:
+    """Return an eval infrastructure error encoded as a normal agent reply."""
+    text = str(report or "").strip()
+    if text.startswith("Request failed:"):
+        return text
+    if text.startswith("API daily token quota is exhausted"):
+        return text
+    return ""
+
+
 def main():
     """Subprocess entry: run main agent against cwd (the target repo checkout)."""
     issue = os.environ.get("LANGBRIDGE_TASK") or sys.stdin.read()
@@ -87,17 +97,19 @@ def main():
         telemetry = tel.snapshot()
 
     trace_file = str(optimizer_trace.trace_path(run_log_path))
+    provider_failure = provider_failure_from_report(report)
     print(
         json.dumps(
             {
                 "report": report,
+                **({"error": provider_failure} if provider_failure else {}),
                 "optimizer_trace": trace_file,
                 "shared_worklog": trace_file,
                 "telemetry": telemetry,
             }
         )
     )
-    return 0
+    return 1 if provider_failure else 0
 
 
 if __name__ == "__main__":

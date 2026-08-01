@@ -21,6 +21,11 @@ Rules:
 - Later intents come from follow-up user messages only; revealed_at_start=false.
 - Do not invent requirements not present in the user prompts.
 - Keep intents atomic and ordered as in the original session.
+- Drop chat chrome that is not a coding ask: slash-command / skill wrappers,
+  skill documentation dumps, <task-notification> subagent results, interrupted
+  stubs, commit/push/PR/screenshot-only messages.
+- If a message is mostly a /skill invoke with <command-args>, use only the args
+  as the intent text.
 """
 
 SIM_SYSTEM = """You are the user simulator for an interactive coding-agent eval.
@@ -43,7 +48,10 @@ Rules:
 - You do NOT end the episode.
 """
 
-INTENT_COVERAGE_SYSTEM = """Judge which oracle intents are satisfied by the agent's final workspace summary.
+INTENT_COVERAGE_SYSTEM = """Judge which oracle intents the coding agent actually satisfied.
+
+You see: the original instruction, the oracle intent list, the agent's final
+message, and a tail of its earlier messages.
 
 Return JSON only:
 {
@@ -51,4 +59,11 @@ Return JSON only:
   "missing": ["i3"],
   "notes": "short"
 }
+
+Rules:
+- An intent is covered only if the agent's messages show it was addressed
+  (implemented / fixed / answered), not merely mentioned or planned.
+- Claims like "I will..." or an unexecuted plan do not count as covered.
+- Judge strictly from the provided text; do not assume unstated work happened.
+- This is a reference metric: be calibrated, not lenient.
 """

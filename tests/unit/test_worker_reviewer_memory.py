@@ -5,6 +5,13 @@ from langbridge_code.agents.worker_reviewer import (
 )
 
 
+def test_worker_and_reviewer_use_private_memory_agents():
+    worker = new_worker_session("key", "model", task_name="t1")
+    reviewer = new_reviewer_session("key", "model", task_name="t1")
+    assert worker.memory_agent == "worker"
+    assert reviewer.memory_agent == "reviewer"
+
+
 def test_worker_and_reviewer_schemas_include_memory_writer():
     worker = new_worker_session("key", "model", task_name="t1")
     reviewer = new_reviewer_session("key", "model", task_name="t1")
@@ -12,6 +19,49 @@ def test_worker_and_reviewer_schemas_include_memory_writer():
     assert any(schema["name"] == "memory_writer" for schema in reviewer.tool_schemas)
     assert "memory_writer" in worker.tools
     assert "memory_writer" in reviewer.tools
+
+
+def test_worker_memory_writer_passes_private_agent(monkeypatch):
+    seen = {}
+
+    monkeypatch.setattr(
+        "langbridge_code.agents.worker_reviewer.create_model_response",
+        lambda *a, **k: {
+            "output": [
+                {
+                    "type": "message",
+                    "content": [
+                        {
+                            "type": "output_text",
+                            "text": "done\nWORKER_STATUS: READY_FOR_REVIEW",
+                        }
+                    ],
+                }
+            ]
+        },
+    )
+
+    def fake_schedule(*a, **k):
+        seen["memory_agent"] = k.get("memory_agent")
+        return "Memory Writer scheduled."
+
+    monkeypatch.setattr(
+        "langbridge_code.tools.memory_writer.schedule_memory_writer",
+        fake_schedule,
+    )
+    monkeypatch.setattr("langbridge_code.memory.prefetch_memory", lambda *a, **k: "")
+    monkeypatch.setattr(
+        "langbridge_code.agents.worker_reviewer.write_worklog_received",
+        lambda *a, **k: None,
+    )
+    monkeypatch.setattr(
+        "langbridge_code.agents.worker_reviewer.write_worklog_finish",
+        lambda *a, **k: None,
+    )
+
+    session = new_worker_session("key", "model")
+    session.send("do it", assigned_task="task")
+    assert seen["memory_agent"] == "worker"
 
 
 def test_worker_and_reviewer_prompts_mention_memory_writer():

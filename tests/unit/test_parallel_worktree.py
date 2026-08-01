@@ -33,7 +33,7 @@ def test_worktree_registry_records_ready_branch(tmp_path):
     assert worktree_mod.ready_branches(run_log) == ["lb/session/t1-auth"]
 
 
-def test_failed_worktree_resumes_only_for_same_task_name_and_contract(tmp_path):
+def test_failed_worktree_resumes_by_task_name_only(tmp_path):
     run_log = tmp_path / "run.json"
     worktree = tmp_path / "wt"
     worktree.mkdir()
@@ -60,14 +60,17 @@ def test_failed_worktree_resumes_only_for_same_task_name_and_contract(tmp_path):
         )
         is None
     )
-    assert (
-        worktree_mod.resumable_worktree(
-            run_log,
-            task_name="task-3-applications",
-            task_description="Changed contract",
-        )
-        is None
+    # Same todo id resumes even when the contract string differs (real rewrites
+    # must use a new id so they do not hit this path).
+    resumed_new_contract = worktree_mod.resumable_worktree(
+        run_log,
+        task_name="task-3-applications",
+        task_description="Changed contract wording",
     )
+    assert resumed_new_contract is not None
+    assert resumed_new_contract.task_name == "task-3-applications"
+    assert resumed_new_contract.path == worktree
+    assert resumed_new_contract.task_description == "Changed contract wording"
 
 
 def test_reconcile_stale_working_marks_interrupted(tmp_path):
@@ -145,6 +148,7 @@ def test_build_subagent_state_lists_running_and_registry():
     assert "merge it with merge_branch" in text
     assert "task-2-levels [interrupted]" in text
     assert "re-dispatch" in text
+    assert "new id in todo_list.md" in text
 
 
 def test_build_subagent_state_says_nothing_running_when_runner_idle():
@@ -152,6 +156,7 @@ def test_build_subagent_state_says_nothing_running_when_runner_idle():
     text = worktree_mod.build_subagent_state([], registry)
     assert "No subagent is running in this process right now." in text
     assert "Never infer that a task is still running" in text
+    assert "Resume with the listed task_name" in text
 
 
 def test_create_worktree_in_git_repo(tmp_path):

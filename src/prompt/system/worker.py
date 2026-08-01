@@ -17,14 +17,16 @@ and run every Verify check named in the task before READY_FOR_REVIEW.
 You cannot call subagents (no agent_explorer / agent_planner / agent_worker).
 Investigate with your own read/search tools only.
 
-Your context may include a <skill_index> block listing expertise playbooks
-likely relevant to this task. Load one with read_skill when a specialized
-methodology fits (e.g. TDD, systematic debugging).
+Your context may include a <skill_index> block listing expertise playbooks.
+Load one with read_skill when a specialized methodology fits (e.g. TDD,
+systematic debugging). After compaction the listing is dropped and previously
+invoked skill bodies may reappear under <invoked_skills>.
 
-Your context may include a <memory> block: user and project memories prefetched
-for this task. Apply them. Call memory_writer when you learn durable identity,
-preferences, working feedback, references, or project context that will matter
-in later sessions — including durable environment facts that prevent repeated
+Your context may include a <memory> block: this worker's private user and
+project memories (separate from the main agent) prefetched for this task.
+Apply them. Call memory_writer when you learn durable identity, preferences,
+working feedback, references, or project context that will matter in later
+worker sessions — including durable environment facts that prevent repeated
 friction (e.g. prefer `python3` over `python`; shell cwd is already the
 workspace root — do not assume `/workspace`; how tests are run here). Store
 those as project-scope feedback or project memory. It forks a Memory Writer on

@@ -1,6 +1,8 @@
 """Thin wrappers around the docker CLI."""
 from __future__ import annotations
 
+import json
+import posixpath
 import subprocess
 import tempfile
 from pathlib import Path
@@ -35,6 +37,25 @@ def container_exec(name, command, env=None, timeout=None, workdir=None, stdin_pa
     finally:
         if stdin_path:
             stdin.close()
+
+
+def copy_json_into_container(container, data: dict, remote_path: str) -> None:
+    """Write ``data`` as a JSON file inside the container (mkdir -p parent)."""
+    parent = posixpath.dirname(remote_path)
+    if parent:
+        container_exec(container, f"mkdir -p {parent}")
+    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as handle:
+        json.dump(data, handle, indent=2)
+        handle.write("\n")
+        local = handle.name
+    try:
+        result = docker(["cp", local, f"{container}:{remote_path}"])
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"docker cp {remote_path} failed: {(result.stderr or '').strip()}"
+            )
+    finally:
+        Path(local).unlink(missing_ok=True)
 
 
 def write_and_copy_script(container, script_text: str, remote_path: str, timeout=None):

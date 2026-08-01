@@ -6,14 +6,18 @@ from langbridge_code.skills import (
     EXPLORER_SKILL_NAMES,
     PLANNER_SKILL_NAMES,
     WORKER_CODING_SKILL_NAMES,
+    attach_skill_tracking,
+    ensure_skill_index_block,
+    format_invoked_skills_block,
     langbridge_skill_catalog,
-    select_skill_index,
+    record_invoked_skill,
     skill_catalog_text_for,
     worker_skill_catalog,
     reviewer_skill_catalog,
 )
 from langbridge_code.agents.explorer import EXPLORE_TOOL_NAMES
 from langbridge_code.agents.planner import PLANNER_TOOL_NAMES
+from langbridge_code.context.common.stack import ContextStack, INVOKED_SKILLS_TAG, SKILL_INDEX_TAG
 
 
 def test_planner_skill_catalog_excludes_coder_only_skills():
@@ -64,58 +68,85 @@ def test_langbridge_catalog_scoped_to_main_agent_skills():
     assert "clean-code-guard" not in catalog
 
 
-def test_select_skill_index_falls_back_to_full_catalog_without_api():
+def test_ensure_skill_index_pins_full_catalog_without_llm():
     catalog = worker_skill_catalog("coding")
-    assert select_skill_index(None, None, "fix a bug", catalog) == catalog
-    assert select_skill_index("key", "model", "task", "") == ""
+    stack = ContextStack(system_content="sys")
+    ensure_skill_index_block(stack, "key", "model", "fix a bug", catalog)
+    assert stack.skill_index_block == catalog
+    # Idempotent: second call does not change.
+    ensure_skill_index_block(stack, "key", "model", "other task", "should-not-replace")
+    assert stack.skill_index_block == catalog
 
 
-def test_select_skill_index_filters_catalog_lines(monkeypatch):
+def test_compaction_drops_listing_and_repins_invoked_skills():
     catalog = worker_skill_catalog("coding")
+    stack = ContextStack(system_content="sys", raw_keep=1, compact_threshold_tokens=1)
+    ensure_skill_index_block(stack, None, None, "task", catalog)
+    record_invoked_skill(
+        stack,
+        "superpowers_test-driven-development",
+        body="# TDD\nWrite a failing test first.",
+    )
+    record_invoked_skill(
+        stack,
+        "superpowers_systematic-debugging",
+        body="# Debug\nReproduce before fixing.",
+    )
+    assert stack.skill_index_block
+    assert not stack.invoked_skills_block
 
-    def fake_response(api_key, model, messages, **kwargs):
-        return {
-            "output": [
-                {
-                    "type": "message",
-                    "content": [
-                        {
-                            "type": "output_text",
-                            "text": "superpowers_test-driven-development\nsuperpowers_systematic-debugging",
-                        }
-                    ],
-                }
-            ]
-        }
-
-    monkeypatch.setattr("langbridge_code.llm.client.create_model_response", fake_response)
-    selected = select_skill_index("key", "model", "fix a bug", catalog)
-    lines = selected.splitlines()
-    assert len(lines) == 2
-    assert any("superpowers_test-driven-development" in line for line in lines)
-    assert any("superpowers_systematic-debugging" in line for line in lines)
-
-
-def test_select_skill_index_none_reply_returns_empty(monkeypatch):
-    def fake_response(api_key, model, messages, **kwargs):
-        return {
-            "output": [
-                {"type": "message", "content": [{"type": "output_text", "text": "NONE"}]}
-            ]
-        }
-
-    monkeypatch.setattr("langbridge_code.llm.client.create_model_response", fake_response)
-    assert select_skill_index("key", "model", "small talk", worker_skill_catalog("coding")) == ""
+    # Force compaction by overflowing the tiny threshold.
+    stack.start_turn("u1")
+    stack.complete_step([{"role": "assistant", "content": "a1"}])
+    stack.start_turn("u2")
+    stack.complete_step([{"role": "assistant", "content": "a2"}])
+    stats = stack.maybe_advance(budget_tokens=1)
+    assert stats["compacted"] is True
+    assert stack.skill_index_block is None
+    assert stack.skills_listing_cleared is True
+    assert stack.invoked_skills_block
+    assert "superpowers_systematic-debugging" in stack.invoked_skills_block
+    assert "Reproduce before fixing" in stack.invoked_skills_block
+    # Most recent invoked skill appears first in the re-pinned block.
+    assert stack.invoked_skills_block.index(
+        "superpowers_systematic-debugging"
+    ) < stack.invoked_skills_block.index("superpowers_test-driven-development")
+    # Listing must not come back after compaction.
+    ensure_skill_index_block(stack, None, None, "task", catalog)
+    assert stack.skill_index_block is None
+    messages = stack.to_messages()
+    assert not any(
+        str(m.get("content", "")).startswith(f"<{SKILL_INDEX_TAG}>") for m in messages
+    )
+    assert any(
+        str(m.get("content", "")).startswith(f"<{INVOKED_SKILLS_TAG}>") for m in messages
+    )
 
 
-def test_select_skill_index_swallows_llm_failure(monkeypatch):
-    catalog = worker_skill_catalog("coding")
+def test_attach_skill_tracking_records_successful_reads():
+    stack = ContextStack(system_content="sys")
+    tools = {"read_skill": lambda name: f"body of {name}"}
+    attach_skill_tracking(stack, tools, role="worker_coder")
+    assert tools["read_skill"]("demo") == "body of demo"
+    assert stack.invoked_skills == [{"name": "demo", "body": "body of demo"}]
+    tools["read_skill"]("demo/references/x.md")
+    assert [e["name"] for e in stack.invoked_skills] == ["demo"]
+    assert stack.invoked_skills[0]["body"] == "body of demo/references/x.md"
+    tools2 = {"read_skill": lambda name: f"Tool error: unknown skill '{name}'"}
+    attach_skill_tracking(stack, tools2)
+    before = list(stack.invoked_skills)
+    tools2["read_skill"]("missing")
+    assert stack.invoked_skills == before
 
-    def boom(*args, **kwargs):
-        raise RuntimeError("api down")
 
-    monkeypatch.setattr("langbridge_code.llm.client.create_model_response", boom)
-    assert select_skill_index("key", "model", "task", catalog) == catalog
+def test_format_invoked_skills_respects_total_budget():
+    invoked = [
+        {"name": "a", "body": "A" * 400},
+        {"name": "b", "body": "B" * 400},
+        {"name": "c", "body": "C" * 400},
+    ]
+    block = format_invoked_skills_block(invoked, per_skill_tokens=50, total_tokens=80)
+    assert "## c" in block
 
 
 def test_worker_session_sets_skill_index_block():
@@ -204,3 +235,4 @@ def test_explorer_prompt_stays_a_narrow_searcher():
     # Explorer shares the main agent's skill mechanism: <skill_index> + read_skill.
     assert "<skill_index>" in prompt
     assert "<progress>" in prompt
+    assert "<invoked_skills>" in prompt

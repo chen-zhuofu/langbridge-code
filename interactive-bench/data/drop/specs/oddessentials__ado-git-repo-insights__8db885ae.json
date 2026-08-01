@@ -1,0 +1,176 @@
+{
+  "task_id": "oddessentials__ado-git-repo-insights__8db885ae",
+  "source": "swe-chat",
+  "session_id": "8db885ae-0865-493e-8c8f-9722199fcf90",
+  "repo": "oddessentials/ado-git-repo-insights",
+  "base_commit": "a8e96fed3c69ef17f069577137d2d171b7e15fe5",
+  "gold_commit": "270bad96281ccc194d3480aa45641e491a7d435b",
+  "instruction": "Do these exact fixes:\n\n* **`scripts/pytest_cov_launcher_plugin.py`**\n\n  * Stop direct method assignment\n  * Replace:\n\n    ```python\n    Coverage.combine = patched_combine\n    ```\n\n    with:\n\n    ```python\n    setattr(Coverage, \"combine\", patched_combine)\n    ```\n  * If tests need patch state, keep:\n\n    ```python\n    _PATCHED: bool = False\n    ```\n\n* **`tests/unit/test_pytest_cov_launcher_plugin.py`**\n\n  * Stop direct `_PATCHED` access on the dynamically loaded module\n  * Replace:\n\n    ```python\n    _module._PATCHED\n    ```\n\n    with:\n\n    ```python\n    getattr(_module, \"_PATCHED\")\n    ```\n  * Replace writes with:\n\n    ```python\n    setattr(_module, \"_PATCHED\", value)\n    ```\n  * Stop direct method assignment\n  * Replace every:\n\n    ```python\n    Coverage.combine = ...\n    ```\n\n    with:\n\n    ```python\n    setattr(Coverage, \"combine\", ...)\n    ```\n\n* **`tests/demo/test_demo_parity_pipeline.py`**\n\n  * Stop direct dynamic module attribute access\n  * Replace:\n\n    ```python\n    module.ARTIFACT_ROOT\n    module.ARTIFACT_DATA\n    module.ARTIFACT_REPORT\n    module.ARTIFACT_METADATA\n    ```\n\n    with:\n\n    ```python\n    getattr(module, \"ARTIFACT_ROOT\")\n    getattr(module, \"ARTIFACT_DATA\")\n    getattr(module, \"ARTIFACT_REPORT\")\n    getattr(module, \"ARTIFACT_METADATA\")\n    ```\n\n* **Do not change anything else**\n\n  * No new typing tricks\n  * No architecture changes\n  * This is just restoring the dynamic-safe mypy pattern\n\nThen rerun:\n\n```text\npython -m mypy src/ tests/ scripts/\npython scripts/run_pr_preflight.py\n```",
+  "intents": [
+    {
+      "id": "i1",
+      "text": "Do these exact fixes:\n\n* **`scripts/pytest_cov_launcher_plugin.py`**\n\n  * Stop direct method assignment\n  * Replace:\n\n    ```python\n    Coverage.combine = patched_combine\n    ```\n\n    with:\n\n    ```python\n    setattr(Coverage, \"combine\", patched_combine)\n    ```\n  * If tests need patch state, keep:\n\n    ```python\n    _PATCHED: bool = False\n    ```\n\n* **`tests/unit/test_pytest_cov_launcher_plugin.py`**\n\n  * Stop direct `_PATCHED` access on the dynamically loaded module\n  * Replace:\n\n    ```python",
+      "source_turn": 0,
+      "revealed_at_start": true
+    },
+    {
+      "id": "i2",
+      "text": "That doesn't make sense. We never had errors on gitleaks before",
+      "source_turn": 1,
+      "revealed_at_start": false
+    },
+    {
+      "id": "i3",
+      "text": "[Request interrupted by user for tool use]",
+      "source_turn": 2,
+      "revealed_at_start": false
+    },
+    {
+      "id": "i4",
+      "text": "Update the pre-push so gitleaks runs after the test suite",
+      "source_turn": 3,
+      "revealed_at_start": false
+    },
+    {
+      "id": "i5",
+      "text": "[Request interrupted by user for tool use]",
+      "source_turn": 4,
+      "revealed_at_start": false
+    },
+    {
+      "id": "i6",
+      "text": "wait",
+      "source_turn": 5,
+      "revealed_at_start": false
+    },
+    {
+      "id": "i7",
+      "text": "what are yo doing?",
+      "source_turn": 6,
+      "revealed_at_start": false
+    },
+    {
+      "id": "i8",
+      "text": "What did you just do to our repo?",
+      "source_turn": 7,
+      "revealed_at_start": false
+    },
+    {
+      "id": "i9",
+      "text": "yes",
+      "source_turn": 8,
+      "revealed_at_start": false
+    },
+    {
+      "id": "i10",
+      "text": "Now focus on what I'm asking you. Why isn't gitleak running properly? DOn't tell me about the history of it",
+      "source_turn": 9,
+      "revealed_at_start": false
+    },
+    {
+      "id": "i11",
+      "text": "Yes, gitleaks is installed on this machine. Stop assuming and tell me why gitleaks isn't running.",
+      "source_turn": 10,
+      "revealed_at_start": false
+    },
+    {
+      "id": "i12",
+      "text": "<task-notification>\n<task-id>bpiuyfn6e</task-id>\n<tool-use-id>toolu_011WfZwuTJUn138Zo8SKaSTz</tool-use-id>\n<output-file>C:\\Users\\petep\\AppData\\Local\\Temp\\claude\\E--projects-ado-git-repo-insights\\8db885ae-0865-493e-8c8f-9722199fcf90\\tasks\\bpiuyfn6e.output</output-file>\n<status>failed</status>\n<summary>Background command \"Search filesystem for gitleaks.exe\" failed with exit code 1</summary>\n</task-notification>",
+      "source_turn": 11,
+      "revealed_at_start": false
+    }
+  ],
+  "baseline": {
+    "prompt_count": 43,
+    "agent_runtime_sec": 1817.5310000000002,
+    "user_persona": "Expert Nitpicker"
+  },
+  "sim": {
+    "actions": [
+      "no-op",
+      "steer",
+      "reveal_next",
+      "answer"
+    ],
+    "noop_message": "continue",
+    "max_consecutive_noops": 4,
+    "timeout_sec": 3635.0620000000004,
+    "session_analysis": "Stay silent while the agent makes progress on the current revealed intent.\nSteer if the agent drifts off-topic or misses a stated constraint.\nReveal the next unrevealed intent only when the current one looks complete or the agent is wrapping up.\nAnswer agent questions using only known intents; do not expand scope.\nThere are 12 intents; only the first is revealed at start."
+  },
+  "fail_to_pass": [
+    "tests/unit/test_ci_parity_drift.py::TestHookEntrypointSmoke::test_hook_entrypoint_uses_disposable_formatter_clean_fixture",
+    "tests/unit/test_run_pytest.py::TestRunPytestLauncher::test_k_concat_selector_disables_coverage_floor",
+    "tests/unit/test_run_pytest.py::TestRunPytestLauncher::test_k_equals_selector_disables_coverage_floor",
+    "tests/unit/test_run_pytest.py::TestRunPytestLauncher::test_k_selector_disables_coverage_floor",
+    "tests/unit/test_run_pytest.py::TestRunPytestLauncher::test_last_failed_disables_coverage_floor",
+    "tests/unit/test_run_pytest.py::TestRunPytestLauncher::test_last_failed_long_form_disables_coverage_floor",
+    "tests/unit/test_run_pytest.py::TestRunPytestLauncher::test_m_concat_selector_disables_coverage_floor",
+    "tests/unit/test_run_pytest.py::TestRunPytestLauncher::test_m_selector_disables_coverage_floor"
+  ],
+  "pass_to_pass": [
+    "tests/demo/test_demo_parity_pipeline.py::TestCanonicalArtifactRoot::test_build_creates_canonical_artifacts",
+    "tests/demo/test_demo_parity_pipeline.py::TestCanonicalArtifactRoot::test_build_uses_isolated_scratch_artifact_root",
+    "tests/demo/test_demo_parity_pipeline.py::TestCanonicalArtifactRoot::test_docs_promotion_matches_canonical_bytes",
+    "tests/demo/test_demo_parity_pipeline.py::TestCanonicalArtifactRoot::test_promotion_cleans_stale_files",
+    "tests/demo/test_demo_parity_pipeline.py::TestCanonicalArtifactRoot::test_validate_only_rejects_promotion",
+    "tests/demo/test_demo_parity_pipeline.py::TestCanonicalArtifactRoot::test_validate_only_uses_fresh_artifact_root_without_stale_leakage",
+    "tests/demo/test_demo_parity_pipeline.py::TestCapabilityAndParityReports::test_capability_matrix_passes",
+    "tests/demo/test_demo_parity_pipeline.py::TestCapabilityAndParityReports::test_demo_dimensions_include_author_and_reviewer_lookups",
+    "tests/demo/test_demo_parity_pipeline.py::TestCapabilityAndParityReports::test_demo_profile_declares_canonical_generation_provenance",
+    "tests/demo/test_demo_parity_pipeline.py::TestCapabilityAndParityReports::test_demo_rollups_include_reviewer_breakdowns",
+    "tests/demo/test_demo_parity_pipeline.py::TestCapabilityAndParityReports::test_demo_user_display_names_are_unique_and_number_free",
+    "tests/demo/test_demo_parity_pipeline.py::TestCapabilityAndParityReports::test_docs_shell_includes_new_filter_surface",
+    "tests/demo/test_demo_parity_pipeline.py::TestCapabilityAndParityReports::test_manifest_declares_all_published_files",
+    "tests/demo/test_demo_parity_pipeline.py::TestCapabilityAndParityReports::test_manifest_declares_canonical_generation_provenance",
+    "tests/demo/test_demo_parity_pipeline.py::TestCapabilityAndParityReports::test_manifest_declares_reviewer_fixture_metadata",
+    "tests/demo/test_demo_parity_pipeline.py::TestCapabilityAndParityReports::test_reviewer_fixture_examples_resolve_to_canonical_rollups",
+    "tests/demo/test_demo_parity_pipeline.py::TestCapabilityAndParityReports::test_reviewer_fixture_validation_fails_when_metadata_missing",
+    "tests/demo/test_demo_parity_pipeline.py::TestCapabilityAndParityReports::test_reviewer_fixture_validation_fails_when_rollup_breakdown_missing",
+    "tests/demo/test_demo_parity_pipeline.py::TestCapabilityAndParityReports::test_startup_parity_report_passes",
+    "tests/unit/test_ci_parity_drift.py::TestExtensionPackageScripts::test_extension_lint_is_exact_for_all_production_scopes",
+    "tests/unit/test_ci_parity_drift.py::TestExtensionPackageScripts::test_extension_lint_tests_is_exact",
+    "tests/unit/test_ci_parity_drift.py::TestHookEntrypointSmoke::test_extension_helper_commands_match_preflight_and_ci",
+    "tests/unit/test_ci_parity_drift.py::TestPrecommitParity::test_ci_suppression_step_fails_closed_without_main_baseline",
+    "tests/unit/test_ci_parity_drift.py::TestPrecommitParity::test_precommit_python_commands_match_preflight_and_ci",
+    "tests/unit/test_ci_parity_drift.py::TestPreflightCiParity::test_ci_jobs_needed_for_parity_still_exist",
+    "tests/unit/test_ci_parity_drift.py::TestPreflightCiParity::test_python_gate_commands_match_ci_steps",
+    "tests/unit/test_ci_parity_drift.py::TestPreflightConditionalParity::test_main_baseline_gate_matches_ci_command",
+    "tests/unit/test_ci_parity_drift.py::TestPreflightConditionalParity::test_secret_scan_gate_is_conditionally_present_and_ci_has_gitleaks_job",
+    "tests/unit/test_ci_parity_drift.py::TestRootTestCi::test_root_test_ci_is_exactly_preflight",
+    "tests/unit/test_pytest_cov_launcher_plugin.py::TestPytestCovLauncherPlugin::test_keep_true_preserves_coverage_result",
+    "tests/unit/test_pytest_cov_launcher_plugin.py::TestPytestCovLauncherPlugin::test_plugin_forces_keep_without_changing_other_kwargs",
+    "tests/unit/test_run_pytest.py::TestRunPytestLauncher::test_existing_coverage_file_is_preserved",
+    "tests/unit/test_run_pytest.py::TestRunPytestLauncher::test_full_suite_keeps_coverage_floor",
+    "tests/unit/test_run_pytest.py::TestRunPytestLauncher::test_lfnf_does_not_trigger_subset_mode",
+    "tests/unit/test_run_pytest.py::TestRunPytestLauncher::test_non_selector_flags_keep_coverage_floor",
+    "tests/unit/test_run_pytest.py::TestRunPytestLauncher::test_prunes_old_run_directories_best_effort",
+    "tests/unit/test_run_pytest.py::TestRunPytestLauncher::test_subset_run_disables_coverage_floor"
+  ],
+  "test_patch": "diff --git a/tests/demo/test_demo_parity_pipeline.py b/tests/demo/test_demo_parity_pipeline.py\nindex 1b0c94184..67d002401 100644\n--- a/tests/demo/test_demo_parity_pipeline.py\n+++ b/tests/demo/test_demo_parity_pipeline.py\n@@ -57,13 +57,19 @@ def _cleanup_test_tmp_root() -> None:\n atexit.register(_cleanup_test_tmp_root)\n \n \n+_ROOT = \"ARTIFACT_ROOT\"\n+_DATA = \"ARTIFACT_DATA\"\n+_REPORT = \"ARTIFACT_REPORT\"\n+_METADATA = \"ARTIFACT_METADATA\"\n+\n+\n def _set_artifact_root(root: Path) -> None:\n     \"\"\"Point module-level artifact paths at the provided scratch root.\"\"\"\n     module = sys.modules[__name__]\n-    module.ARTIFACT_ROOT = root\n-    module.ARTIFACT_DATA = root / \"data\"\n-    module.ARTIFACT_REPORT = root / \"report\"\n-    module.ARTIFACT_METADATA = root / \"metadata\"\n+    setattr(module, _ROOT, root)\n+    setattr(module, _DATA, root / \"data\")\n+    setattr(module, _REPORT, root / \"report\")\n+    setattr(module, _METADATA, root / \"metadata\")\n \n \n def _fresh_artifact_env() -> dict[str, str]:\ndiff --git a/tests/unit/test_ci_parity_drift.py b/tests/unit/test_ci_parity_drift.py\nindex 334ed4cd0..37691e779 100644\n--- a/tests/unit/test_ci_parity_drift.py\n+++ b/tests/unit/test_ci_parity_drift.py\n@@ -263,6 +263,21 @@ def test_ci_suppression_step_fails_closed_without_main_baseline(self) -> None:\n         assert \"exit 1\" in run_block\n         assert \"origin/main:.suppression-baseline.json is required\" in run_block\n \n+\n+class TestHookEntrypointSmoke:\n+    def test_hook_entrypoint_uses_disposable_formatter_clean_fixture(self) -> None:\n+        run_block = str(\n+            _find_ci_step(\n+                \"hook-entrypoint-test\",\n+                \"Stage a trivial change and run pre-commit hook\",\n+            )[\"run\"]\n+        )\n+\n+        assert 'smoke_file=\"hook-entrypoint-smoke.txt\"' in run_block\n+        assert \"printf 'hook entrypoint smoke\\\\n' > \\\"$smoke_file\\\"\" in run_block\n+        assert 'git add \"$smoke_file\"' in run_block\n+        assert \"CONTRIBUTING.md\" not in run_block\n+\n     def test_extension_helper_commands_match_preflight_and_ci(self) -> None:\n         preflight = _normalized_preflight_commands()\n \ndiff --git a/tests/unit/test_pytest_cov_launcher_plugin.py b/tests/unit/test_pytest_cov_launcher_plugin.py\nindex c470e6c0d..2376338aa 100644\n--- a/tests/unit/test_pytest_cov_launcher_plugin.py\n+++ b/tests/unit/test_pytest_cov_launcher_plugin.py\n@@ -26,6 +26,8 @@\n     [Coverage, Iterable[str] | None, bool, bool],\n     None,\n ]\n+_COMBINE = \"combine\"\n+_PATCHED_ATTR = \"_PATCHED\"\n \n \n def _write_shard(base: Path, suffix: str, filename: str, lines: list[int]) -> Path:\n@@ -108,9 +110,9 @@ def test_keep_true_preserves_coverage_result(self, tmp_path: Path) -> None:\n \n     def test_plugin_forces_keep_without_changing_other_kwargs(self) -> None:\n         original_combine = cast(CombineFunc, Coverage.combine)\n-        original_patched = cast(bool, _module._PATCHED)\n+        original_patched = cast(bool, getattr(_module, _PATCHED_ATTR))\n         try:\n-            _module._PATCHED = False\n+            setattr(_module, _PATCHED_ATTR, False)\n             captured: dict[str, object] = {}\n \n             def fake_original(\n@@ -123,7 +125,7 @@ def fake_original(\n                 captured[\"strict\"] = strict\n                 captured[\"keep\"] = keep\n \n-            Coverage.combine = cast(CombineFunc, fake_original)\n+            setattr(Coverage, _COMBINE, fake_original)\n             _module.pytest_configure()\n             result = cast(CombineFunc, Coverage.combine)(\n                 Coverage(config_file=False),\n@@ -139,5 +141,5 @@ def fake_original(\n                 \"keep\": True,\n             }\n         finally:\n-            Coverage.combine = original_combine\n-            _module._PATCHED = original_patched\n+            setattr(Coverage, _COMBINE, original_combine)\n+            setattr(_module, _PATCHED_ATTR, original_patched)\ndiff --git a/tests/unit/test_run_pytest.py b/tests/unit/test_run_pytest.py\nindex 513cb1a29..4453a63ea 100644\n--- a/tests/unit/test_run_pytest.py\n+++ b/tests/unit/test_run_pytest.py\n@@ -48,6 +48,105 @@ def test_subset_run_disables_coverage_floor(self) -> None:\n         assert \"--cov-fail-under=0\" in args\n         assert args[-1] == \"tests/unit/\"\n \n+    def test_k_selector_disables_coverage_floor(self) -> None:\n+        with (\n+            patch.object(sys, \"argv\", [\"run_pytest.py\", \"-k\", \"test_foo\"]),\n+            patch.dict(os.environ, {}, clear=True),\n+            patch(\"pytest.main\", return_value=0) as pytest_main,\n+        ):\n+            assert _module.main() == 0\n+\n+        args = pytest_main.call_args.args[0]\n+        assert \"--cov-fail-under=0\" in args\n+\n+    def test_k_equals_selector_disables_coverage_floor(self) -> None:\n+        with (\n+            patch.object(sys, \"argv\", [\"run_pytest.py\", \"-k=test_foo\"]),\n+            patch.dict(os.environ, {}, clear=True),\n+            patch(\"pytest.main\", return_value=0) as pytest_main,\n+        ):\n+            assert _module.main() == 0\n+\n+        args = pytest_main.call_args.args[0]\n+        assert \"--cov-fail-under=0\" in args\n+\n+    def test_m_selector_disables_coverage_floor(self) -> None:\n+        with (\n+            patch.object(sys, \"argv\", [\"run_pytest.py\", \"-m\", \"slow\"]),\n+            patch.dict(os.environ, {}, clear=True),\n+            patch(\"pytest.main\", return_value=0) as pytest_main,\n+        ):\n+            assert _module.main() == 0\n+\n+        args = pytest_main.call_args.args[0]\n+        assert \"--cov-fail-under=0\" in args\n+\n+    def test_last_failed_disables_coverage_floor(self) -> None:\n+        with (\n+            patch.object(sys, \"argv\", [\"run_pytest.py\", \"--lf\"]),\n+            patch.dict(os.environ, {}, clear=True),\n+            patch(\"pytest.main\", return_value=0) as pytest_main,\n+        ):\n+            assert _module.main() == 0\n+\n+        args = pytest_main.call_args.args[0]\n+        assert \"--cov-fail-under=0\" in args\n+\n+    def test_k_concat_selector_disables_coverage_floor(self) -> None:\n+        with (\n+            patch.object(sys, \"argv\", [\"run_pytest.py\", \"-ktest_foo\"]),\n+            patch.dict(os.environ, {}, clear=True),\n+            patch(\"pytest.main\", return_value=0) as pytest_main,\n+        ):\n+            assert _module.main() == 0\n+\n+        args = pytest_main.call_args.args[0]\n+        assert \"--cov-fail-under=0\" in args\n+\n+    def test_m_concat_selector_disables_coverage_floor(self) -> None:\n+        with (\n+            patch.object(sys, \"argv\", [\"run_pytest.py\", \"-mslow\"]),\n+            patch.dict(os.environ, {}, clear=True),\n+            patch(\"pytest.main\", return_value=0) as pytest_main,\n+        ):\n+            assert _module.main() == 0\n+\n+        args = pytest_main.call_args.args[0]\n+        assert \"--cov-fail-under=0\" in args\n+\n+    def test_last_failed_long_form_disables_coverage_floor(self) -> None:\n+        with (\n+            patch.object(sys, \"argv\", [\"run_pytest.py\", \"--last-failed\"]),\n+            patch.dict(os.environ, {}, clear=True),\n+            patch(\"pytest.main\", return_value=0) as pytest_main,\n+        ):\n+            assert _module.main() == 0\n+\n+        args = pytest_main.call_args.args[0]\n+        assert \"--cov-fail-under=0\" in args\n+\n+    def test_non_selector_flags_keep_coverage_floor(self) -> None:\n+        with (\n+            patch.object(sys, \"argv\", [\"run_pytest.py\", \"-v\", \"-x\", \"--no-cov\"]),\n+            patch.dict(os.environ, {}, clear=True),\n+            patch(\"pytest.main\", return_value=0) as pytest_main,\n+        ):\n+            assert _module.main() == 0\n+\n+        args = pytest_main.call_args.args[0]\n+        assert \"--cov-fail-under=0\" not in args\n+\n+    def test_lfnf_does_not_trigger_subset_mode(self) -> None:\n+        with (\n+            patch.object(sys, \"argv\", [\"run_pytest.py\", \"--lfnf=all\"]),\n+            patch.dict(os.environ, {}, clear=True),\n+            patch(\"pytest.main\", return_value=0) as pytest_main,\n+        ):\n+            assert _module.main() == 0\n+\n+        args = pytest_main.call_args.args[0]\n+        assert \"--cov-fail-under=0\" not in args\n+\n     def test_existing_coverage_file_is_preserved(self) -> None:\n         with (\n             patch.object(sys, \"argv\", [\"run_pytest.py\"]),\n",
+  "gold_code_patch": "diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml\nindex d74f8316e..a1d111a30 100644\n--- a/.github/workflows/ci.yml\n+++ b/.github/workflows/ci.yml\n@@ -1069,9 +1069,15 @@ jobs:\n           ADO_HOOK_ALLOW_LOCAL_DEGRADED: '1'\n         run: |\n           set -euo pipefail\n-          # Create a trivial staged change (whitespace in a non-gate file)\n-          echo \"\" >> CONTRIBUTING.md\n-          git add CONTRIBUTING.md\n+          smoke_file=\"hook-entrypoint-smoke.txt\"\n+          cleanup() {\n+            git reset -- \"$smoke_file\" >/dev/null 2>&1 || true\n+            rm -f \"$smoke_file\"\n+          }\n+          trap cleanup EXIT\n+          # Create a trivial staged change that is already formatter-clean.\n+          printf 'hook entrypoint smoke\\n' > \"$smoke_file\"\n+          git add \"$smoke_file\"\n           # Run the hook directly (not via git commit, to isolate the hook test)\n           sh .husky/pre-commit 2>&1 | tee hook-output.txt\n           # Verify the hook actually ran (not a silent no-op)\n@@ -1080,8 +1086,6 @@ jobs:\n             exit 1\n           fi\n           echo \"[OK] Hook entrypoint test passed on ${{ matrix.os }}\"\n-          # Unstage the change\n-          git checkout -- CONTRIBUTING.md\n \n   # FR-034: Fresh-clone verification - proves deterministic builds without cache\n   # FR-011: Also serves as Python-free test isolation enforcement\ndiff --git a/scripts/pytest_cov_launcher_plugin.py b/scripts/pytest_cov_launcher_plugin.py\nindex c757da58a..eef7dd692 100644\n--- a/scripts/pytest_cov_launcher_plugin.py\n+++ b/scripts/pytest_cov_launcher_plugin.py\n@@ -10,7 +10,6 @@\n \n import functools\n from collections.abc import Callable, Iterable\n-from typing import cast\n \n from coverage import Coverage\n \n@@ -18,6 +17,7 @@\n     [Coverage, Iterable[str] | None, bool, bool],\n     None,\n ]\n+_COMBINE = \"combine\"\n _PATCHED: bool = False\n _ORIGINAL_COMBINE: CombineFunc | None = None\n \n@@ -51,5 +51,5 @@ def patched_combine(\n             keep = True\n         return original_combine(self, data_paths, strict, keep)\n \n-    Coverage.combine = cast(CombineFunc, patched_combine)\n+    setattr(Coverage, _COMBINE, patched_combine)\n     _PATCHED = True\ndiff --git a/scripts/run_pr_preflight.py b/scripts/run_pr_preflight.py\nindex 1f2eef78c..35a729eec 100644\n--- a/scripts/run_pr_preflight.py\n+++ b/scripts/run_pr_preflight.py\n@@ -611,6 +611,14 @@ def resolve_gitleaks() -> str | None:\n     resolved = shutil.which(\"gitleaks\")\n     if resolved:\n         return resolved\n+    # Fallback: winget installs packages into per-package directories under\n+    # %LOCALAPPDATA%\\Microsoft\\WinGet\\Packages\\ without adding them to PATH.\n+    if sys.platform == \"win32\":\n+        local_app_data = os.environ.get(\"LOCALAPPDATA\", \"\")\n+        if local_app_data:\n+            winget_packages = Path(local_app_data) / \"Microsoft\" / \"WinGet\" / \"Packages\"\n+            for candidate in winget_packages.glob(\"Gitleaks.Gitleaks_*/gitleaks.exe\"):\n+                return str(candidate)\n     return None\n \n \ndiff --git a/scripts/run_pytest.py b/scripts/run_pytest.py\nindex a939b3da0..b960a3b00 100644\n--- a/scripts/run_pytest.py\n+++ b/scripts/run_pytest.py\n@@ -74,12 +74,28 @@ def sort_key(path: Path) -> float:\n         shutil.rmtree(path, ignore_errors=True)\n \n \n-def _has_test_paths(args: list[str]) -> bool:\n-    \"\"\"Return True if any argument is an explicit test path on disk.\n+_SUBSET_SELECTORS = frozenset((\"-k\", \"-m\", \"--lf\", \"--last-failed\"))\n+_SUBSET_SHORT = frozenset((\"-k\", \"-m\"))\n \n-    Recognizes both plain paths and pytest node IDs (path::node).\n+\n+def _is_subset_run(args: list[str]) -> bool:\n+    \"\"\"Return True if args narrow which tests execute.\n+\n+    Recognizes explicit test paths, pytest node IDs (path::node), and\n+    selector flags that reduce executed scope (-k, -m, --lf).\n+    Handles ``-k expr``, ``-k=expr``, and ``-kexpr`` (argparse concat) forms.\n     \"\"\"\n     for arg in args:\n+        if arg in _SUBSET_SELECTORS:\n+            return True\n+        for selector in _SUBSET_SELECTORS:\n+            if arg.startswith(selector + \"=\"):\n+                return True\n+        # argparse accepts -kexpr / -mslow (short option with concatenated value)\n+        if not arg.startswith(\"--\") and any(\n+            arg.startswith(s) and len(arg) > len(s) for s in _SUBSET_SHORT\n+        ):\n+            return True\n         if arg.startswith(\"-\"):\n             continue\n         base = arg.split(\"::\", 1)[0]\n@@ -109,7 +125,7 @@ def main() -> int:\n     # full-suite runs, preflight, and CI.\n     user_args = sys.argv[1:]\n     extra_args: list[str] = []\n-    if _has_test_paths(user_args):\n+    if _is_subset_run(user_args):\n         extra_args.append(\"--cov-fail-under=0\")\n \n     import pytest\ndiff --git a/scripts/run_repo_hook.py b/scripts/run_repo_hook.py\nindex 391a17680..221807973 100644\n--- a/scripts/run_repo_hook.py\n+++ b/scripts/run_repo_hook.py\n@@ -254,13 +254,17 @@ def run_acl_health_check() -> None:\n         candidate = tmp_pytest / subdir\n         if candidate.is_dir():\n             paths_to_check.append(candidate)\n+    failures: list[tuple[Path, str]] = []\n     if runs_dir.is_dir():\n-        for run_entry in runs_dir.iterdir():\n+        try:\n+            run_entries = list(runs_dir.iterdir())\n+        except OSError as exc:\n+            failures.append((runs_dir, str(exc)))\n+            run_entries = []\n+        for run_entry in run_entries:\n             tmp_subdir = run_entry / \"tmp\"\n             if tmp_subdir.is_dir():\n                 paths_to_check.append(tmp_subdir)\n-\n-    failures: list[tuple[Path, str]] = []\n     for path in paths_to_check:\n         error = _acl_write_probe(path)\n         if error is not None:\n",
+  "test_files": [
+    "tests/demo/test_demo_parity_pipeline.py",
+    "tests/unit/test_ci_parity_drift.py",
+    "tests/unit/test_pytest_cov_launcher_plugin.py",
+    "tests/unit/test_run_pytest.py"
+  ],
+  "docker_image": "lb-interactive:oddessentials__ado-git-repo-insights__8db885ae",
+  "task_type": "other",
+  "difficulty": "medium",
+  "metadata": {
+    "canonical_checkpoint_pk": "oddessentials/ado-git-repo-insights#1255882b9405",
+    "checkpoint_ids": [
+      "oddessentials/ado-git-repo-insights#0d6cccd55351",
+      "oddessentials/ado-git-repo-insights#1255882b9405",
+      "oddessentials/ado-git-repo-insights#4f19655dfbfa",
+      "oddessentials/ado-git-repo-insights#bbd2675f1ab2"
+    ],
+    "files_touched": [
+      "scripts/run_pytest.py",
+      "tests/unit/test_run_pytest.py"
+    ],
+    "branch": "fix/dev-ex",
+    "agent": "Claude Code"
+  },
+  "horizon": "long"
+}

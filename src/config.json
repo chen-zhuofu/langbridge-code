@@ -9,8 +9,21 @@
         "models": ["kimi-k3"]
       },
       "openai": {
-        "base_url": "",
-        "model": "gpt-5.3-codex"
+        "base_url": "https://api.openai.com/v1",
+        "model": "gpt-5.6",
+        "models": [
+          "gpt-5.6-sol",
+          "gpt-5.6-terra",
+          "gpt-5.6-luna",
+          "gpt-5.5",
+          "gpt-5.5-pro",
+          "gpt-5.4",
+          "gpt-5.3-codex"
+        ]
+      },
+      "anthropic": {
+        "base_url": "https://api.anthropic.com/v1/",
+        "model": "claude-fable-5"
       },
       "deepseek": {
         "base_url": "https://api.deepseek.com",
@@ -29,6 +42,7 @@
   "api_keys": {
     "moonshot": null,
     "openai": null,
+    "anthropic": null,
     "deepseek": null
   },
   "agent": {

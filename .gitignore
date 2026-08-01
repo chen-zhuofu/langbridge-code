@@ -14,6 +14,10 @@ session-history/
 tui/node_modules/
 tui/dist/
 
+# Vendored presentation-skill Node deps (install locally when building decks)
+src/skills/**/node_modules/
+src/skills/**/package-lock.json
+
 # eval run artifacts (large/regenerable: cloned repos, grader logs, predictions)
 eval/out/
 eval/out_*/

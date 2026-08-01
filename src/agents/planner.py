@@ -93,9 +93,9 @@ AGENT_PLANNER_TOOL_SCHEMA = {
             "task_name": {
                 "type": "string",
                 "description": (
-                    "Stable name for this planning task (e.g. 'plan-wumpus-game'). "
-                    "Used to label the run; reuse the exact name when re-running "
-                    "the same planning task."
+                    "Stable id for this planning run (e.g. 'plan-wumpus-game'). "
+                    "Reuse the exact id when re-running the same planning task; "
+                    "use a new id for a different plan."
                 ),
             },
         },
@@ -204,6 +204,7 @@ class PlannerSession:
     def send(self, user_prompt):
         from langbridge_code.skills import (
             PLANNER_SKILL_NAMES,
+            attach_skill_tracking,
             ensure_skill_index_block,
             skill_catalog_text_for,
         )
@@ -214,8 +215,9 @@ class PlannerSession:
             self.model,
             user_prompt,
             skill_catalog_text_for(PLANNER_SKILL_NAMES),
-            label=f"{self.label} skill prefetch",
+            label=f"{self.label} skill listing",
         )
+        attach_skill_tracking(self.context.stack, self.tools, role="planner")
         self.context.begin_turn(user_prompt)
         write_worklog_received(self.run_log_path, self.label, self.worklog_id, self.turn_id, user_prompt)
         foreground = ForegroundTracker(self.label, self.messages, self.model)

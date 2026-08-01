@@ -106,6 +106,9 @@ def _bind(cfg):
         "MAX_AGENT_SECONDS": int(
             os.environ.get("LANGBRIDGE_MAX_AGENT_SECONDS", agent.get("max_agent_seconds", 3600))
         ),
+        "FINALIZE_RESERVE_SECONDS": int(
+            os.environ.get("LANGBRIDGE_FINALIZE_RESERVE_SECONDS", 0)
+        ),
         # None = unlimited (Claude Code Explore style; rely on prompt to stay short).
         "MAX_EXPLORER_STEPS": agent.get("max_explorer_steps"),
         "MAX_EXPLORER_SECONDS": agent.get("max_explorer_seconds"),
@@ -206,12 +209,14 @@ _bind(load_config())
 _PROVIDER_ENV = {
     "moonshot": ("MOONSHOT_API_KEY", "KIMI_API_KEY"),
     "openai": ("OPENAI_API_KEY",),
+    "anthropic": ("ANTHROPIC_API_KEY",),
     "deepseek": ("DEEPSEEK_API_KEY",),
 }
 
 PROVIDER_LABELS = {
     "moonshot": "Moonshot/Kimi",
     "openai": "OpenAI",
+    "anthropic": "Anthropic",
     "deepseek": "DeepSeek",
 }
 
@@ -457,6 +462,8 @@ def infer_provider_for_model(model: str, *, catalog=None) -> str | None:
         return "moonshot"
     if name.startswith("deepseek-"):
         return "deepseek"
+    if name.startswith("claude-"):
+        return "anthropic"
     if name.startswith("gpt-") or name.startswith("o1") or name.startswith("o3"):
         return "openai"
     return None

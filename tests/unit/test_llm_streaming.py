@@ -92,7 +92,10 @@ def test_stream_chat_completion_accumulates_message():
         tool_calls=[_ToolCall("call_1", "read", '{"path": "a.py"}')],
         reasoning="Plan the page",
     )
-    assert data == {"output": from_chat_message(expected)}
+    assert data == {
+        "output": from_chat_message(expected),
+        "finish_reason": None,
+    }
     assert any(event.kind == "reasoning_stream" for event in events)
     assert any(event.kind == "content_stream" for event in events)
     assert any(event.kind == "action_stream" for event in events)

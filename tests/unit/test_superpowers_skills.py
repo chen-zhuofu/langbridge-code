@@ -10,6 +10,7 @@ def test_agent_skills_are_discoverable():
     names = {name for name, _ in list_skills()}
     assert "superpowers_test-driven-development" in names
     assert "superpowers_systematic-debugging" in names
+    assert "presentation-skill" in names
     # Karpathy guidance is inlined in the worker system prompt, not a skill.
     assert "karpathy_think-before-coding" not in names
     assert "karpathy_surgical-changes" not in names
@@ -19,6 +20,16 @@ def test_superpowers_skill_has_body():
     body = load_skill("superpowers_test-driven-development")
     assert "test" in body.lower()
     assert len(body) > 100
+
+
+def test_presentation_skill_loads_for_worker():
+    body = load_skill("presentation-skill", role="worker_coder")
+    assert "powerpoint" in body.lower() or "pptx" in body.lower()
+    assert "LangBridge usage" in body
+    outline = load_skill(
+        "presentation-skill/references/outline_schema.md", role="worker_coder"
+    )
+    assert len(outline) > 100
 
 
 def test_list_skills_for_role():
@@ -35,6 +46,7 @@ def test_list_skills_for_role():
 
     worker_names = {name for name, _ in list_skills("worker_coder")}
     assert "superpowers_test-driven-development" in worker_names
+    assert "presentation-skill" in worker_names
     assert "superpowers_using-git-worktrees" not in worker_names
 
     reviewer_names = {name for name, _ in list_skills("reviewer_code")}

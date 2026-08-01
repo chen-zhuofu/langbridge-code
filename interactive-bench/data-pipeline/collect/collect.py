@@ -7,6 +7,12 @@ uv run python interactive-bench/data-pipeline/collect/collect.py \\
 
 # HuggingFace datasets (requires accepted terms + login):
 uv run python interactive-bench/data-pipeline/collect/collect.py --hf --limit 50
+
+# Spread a target evenly across repos instead of taking the flat top-N
+# (used by run_pipeline.py — see run_collect_balanced there):
+uv run python interactive-bench/data-pipeline/collect/collect.py \\
+  --data-dir /path/to/swe-chat-parquet \\
+  --balance-target 20 --repo-progress out/repo_progress.json
 ```
 
 Filters applied here:
@@ -26,7 +32,8 @@ if str(PIPELINE) not in sys.path:
     sys.path.insert(0, str(PIPELINE))
 
 from _lib import paths  # noqa: E402
-from _lib.io_util import append_drop, load_jsonl, write_jsonl  # noqa: E402
+from _lib.io_util import append_drop, load_json, load_jsonl, write_jsonl  # noqa: E402
+from _lib.repo_balance import allocate  # noqa: E402
 
 
 DROP_PERSONAS = frozenset({"Mind Changer"})
@@ -136,11 +143,147 @@ def session_to_row(row) -> dict | None:
     }
 
 
+def classify_rows(df, *, python_only: bool) -> list[dict]:
+    """Row dicts (some flagged ``_drop``), sorted best quality first."""
+    rows = [session_to_row(row) for _, row in df.iterrows()]
+    rows = [r for r in rows if r is not None]
+    for r in rows:
+        if r.get("_drop"):
+            continue
+        files_touched = r.get("files_touched") or []
+        # Unknown touch set: keep and let enrich decide (files_touched is often incomplete).
+        if python_only and files_touched and not r.get("has_python"):
+            r["_drop"] = True
+            r["reason"] = "no python files_touched"
+    rows.sort(
+        key=lambda r: (
+            0 if r.get("_drop") else 1,
+            1 if r.get("has_python_tests") else 0,
+            1 if r.get("has_python") else 0,
+            int(r.get("prompt_count") or 0),
+        ),
+        reverse=True,
+    )
+    return rows
+
+
+def compute_repo_deficits(
+    rows: list[dict],
+    *,
+    target: int,
+    progress: dict,
+    existing_task_ids: set[str],
+) -> dict[str, int]:
+    """How many new candidates each repo still needs to reach an even share of ``target``.
+
+    ``progress`` is ``{repo: {"done": n, "pending": n}}`` for tasks already
+    curated or in flight elsewhere in the pipeline — repos closer to their
+    fair share need fewer (or zero) new candidates this round, and repos
+    that run out of eligible sessions give their unused share to repos that
+    still have some (see ``_lib.repo_balance.allocate``).
+    """
+    avail: dict[str, int] = {}
+    order: list[str] = []
+    for item in rows:
+        if item.get("_drop") or item["task_id"] in existing_task_ids:
+            continue
+        repo = item.get("repo")
+        if not repo:
+            continue
+        if repo not in avail:
+            avail[repo] = 0
+            order.append(repo)
+        avail[repo] += 1
+
+    done: dict[str, int] = {}
+    pending: dict[str, int] = {}
+    for repo, info in (progress or {}).items():
+        if not isinstance(info, dict):
+            continue
+        done[repo] = int(info.get("done") or 0)
+        pending[repo] = int(info.get("pending") or 0)
+        if repo not in avail:
+            avail[repo] = 0
+            order.append(repo)
+
+    caps = {repo: done.get(repo, 0) + pending.get(repo, 0) + avail.get(repo, 0) for repo in order}
+    quotas = allocate(target, order, caps)
+
+    deficits: dict[str, int] = {}
+    for repo, quota in quotas.items():
+        need = quota - done.get(repo, 0) - pending.get(repo, 0)
+        if need > 0:
+            deficits[repo] = need
+    return deficits
+
+
+def select_flat(
+    rows: list[dict],
+    *,
+    limit: int,
+    existing_task_ids: set[str],
+    drop_path: Path,
+) -> tuple[list[dict], int]:
+    kept: list[dict] = []
+    dropped = 0
+    for item in rows:
+        if limit and len(kept) >= limit:
+            break
+        if item.get("_drop"):
+            append_drop(drop_path, item["task_id"], item["reason"])
+            dropped += 1
+            continue
+        if item["task_id"] in existing_task_ids:
+            continue
+        kept.append(item)
+    return kept, dropped
+
+
+def select_balanced(
+    rows: list[dict],
+    *,
+    deficits: dict[str, int],
+    existing_task_ids: set[str],
+    drop_path: Path,
+) -> tuple[list[dict], int]:
+    counts: dict[str, int] = {}
+    kept: list[dict] = []
+    dropped = 0
+    for item in rows:
+        if item.get("_drop"):
+            append_drop(drop_path, item["task_id"], item["reason"])
+            dropped += 1
+            continue
+        tid = item["task_id"]
+        if tid in existing_task_ids:
+            continue
+        repo = item.get("repo")
+        if counts.get(repo, 0) >= deficits.get(repo, 0):
+            continue
+        kept.append(item)
+        counts[repo] = counts.get(repo, 0) + 1
+    return kept, dropped
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data-dir", type=Path, help="Directory with sessions.parquet")
     parser.add_argument("--hf", action="store_true", help="Load sessions from HuggingFace")
     parser.add_argument("--limit", type=int, default=0, help="Max new candidates to write")
+    parser.add_argument(
+        "--balance-target",
+        type=int,
+        default=0,
+        help="Total curated-task target to spread evenly across repos; overrides --limit "
+        "(see --repo-progress)",
+    )
+    parser.add_argument(
+        "--repo-progress",
+        type=Path,
+        default=None,
+        help="JSON {repo: {done, pending}} of tasks already curated/in-flight per repo, "
+        "used with --balance-target",
+    )
     parser.add_argument(
         "--python-only",
         action="store_true",
@@ -169,36 +312,32 @@ def main() -> int:
     print(f"loaded {len(df)} sessions")
 
     # Prefer sessions that already advertise Python tests — higher F2P yield.
-    rows = [session_to_row(row) for _, row in df.iterrows()]
-    rows = [r for r in rows if r is not None]
-    rows.sort(
-        key=lambda r: (
-            0 if r.get("_drop") else 1,
-            1 if r.get("has_python_tests") else 0,
-            1 if r.get("has_python") else 0,
-            int(r.get("prompt_count") or 0),
-        ),
-        reverse=True,
-    )
+    rows = classify_rows(df, python_only=args.python_only)
 
-    kept: list[dict] = []
-    dropped = 0
-    for item in rows:
-        if args.limit and len(kept) >= args.limit:
-            break
-        if item.get("_drop"):
-            append_drop(args.drop, item["task_id"], item["reason"])
-            dropped += 1
-            continue
-        files_touched = item.get("files_touched") or []
-        # Unknown touch set: keep and let enrich decide (files_touched is often incomplete).
-        if args.python_only and files_touched and not item.get("has_python"):
-            append_drop(args.drop, item["task_id"], "no python files_touched")
-            dropped += 1
-            continue
-        if item["task_id"] in existing_rows:
-            continue
-        kept.append(item)
+    if args.balance_target:
+        progress = load_json(args.repo_progress) if args.repo_progress else {}
+        deficits = compute_repo_deficits(
+            rows,
+            target=args.balance_target,
+            progress=progress,
+            existing_task_ids=set(existing_rows),
+        )
+        print(f"repo deficits: {deficits}")
+        kept, dropped = select_balanced(
+            rows,
+            deficits=deficits,
+            existing_task_ids=set(existing_rows),
+            drop_path=args.drop,
+        )
+    else:
+        kept, dropped = select_flat(
+            rows,
+            limit=args.limit,
+            existing_task_ids=set(existing_rows),
+            drop_path=args.drop,
+        )
+
+    for item in kept:
         existing_rows[item["task_id"]] = item
 
     write_jsonl(args.out, existing_rows.values(), append=False)

@@ -11,7 +11,11 @@ for _p in (_PIPELINE, _INTERACTIVE):
         sys.path.insert(0, str(_p))
 
 from _lib.diff_split import is_test_path, split_unified_diff  # noqa: E402
-from _lib.labels import difficulty_from_runtime, task_type_from_prompt_intents  # noqa: E402
+from _lib.labels import (  # noqa: E402
+    difficulty_from_complexity,
+    horizon_from_runtime,
+    task_type_from_prompt_intents,
+)
 from _lib.resolve_commits import files_outside_touched  # noqa: E402
 
 
@@ -57,11 +61,27 @@ def test_files_outside_touched_dirty():
     assert dirty == ["README.md"]
 
 
-def test_difficulty_buckets():
-    assert difficulty_from_runtime(60) == "easy"
-    assert difficulty_from_runtime(20 * 60) == "medium"
-    assert difficulty_from_runtime(60 * 60) == "hard"
-    assert difficulty_from_runtime(None) == "unknown"
+def test_horizon_buckets():
+    assert horizon_from_runtime(60) == "short"
+    assert horizon_from_runtime(20 * 60) == "medium"
+    assert horizon_from_runtime(60 * 60) == "long"
+    assert horizon_from_runtime(None) == "unknown"
+
+
+def _diff_for(*paths: str) -> str:
+    return "".join(f"diff --git a/{p} b/{p}\n--- a/{p}\n+++ b/{p}\n@@ -1 +1 @@\n-old\n+new\n" for p in paths)
+
+
+def test_difficulty_buckets_from_complexity():
+    assert difficulty_from_complexity(None, None) == "unknown"
+    assert difficulty_from_complexity(_diff_for("a.py"), ["t::a"]) == "easy"
+    # 8 files (> FILES_EASY_MAX=5, <= FILES_MEDIUM_MAX=15) is the only red flag.
+    assert difficulty_from_complexity(_diff_for(*[f"f{i}.py" for i in range(8)]), ["t::a"]) == "medium"
+    # 11 F2P tests (> F2P_MEDIUM_MAX=10) is the only red flag.
+    assert difficulty_from_complexity(_diff_for("a.py"), [f"t::{i}" for i in range(11)]) == "hard"
+    # 350 changed lines (> LOC_MEDIUM_MAX=300) is the only red flag.
+    big_diff = "diff --git a/a.py b/a.py\n" + "\n".join(f"+line{i}" for i in range(350))
+    assert difficulty_from_complexity(big_diff, ["t::a"]) == "hard"
 
 
 def test_task_type_labels():

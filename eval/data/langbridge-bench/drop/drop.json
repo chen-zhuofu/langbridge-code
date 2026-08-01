@@ -1,5 +1,5 @@
 {
-  "description": "HUMAN error-analysis drops. Archived under drop/specs/ and drop/docker-images/. Use drop_task.py. LLM drops go in data-pipeline/curate/out/drop.json.",
+  "description": "HUMAN error-analysis drops. Archived under drop/specs/ and drop/docker-images/. Use drop_task.py. LLM drops go in eval/data-pipeline/curate/out/drop.json.",
   "dropped": [
     {
       "task_id": "pytest-dev__pytest-14645",
@@ -14,6 +14,83 @@
       "stage": "human",
       "source": "human_error_analysis",
       "dropped_at": "2026-07-27T01:01:48Z"
+    },
+    {
+      "task_id": "NousResearch__hermes-agent-67192",
+      "reason": "Human review: the problem statement concatenates four independent defects (.env quoting, UTF-16 sanitation, auxiliary key_env resolution, and HERMES_HOME prompt paths). The gold patch modifies all four areas, but FAIL_TO_PASS covers only the first two. Agents are asked to solve unscored requirements, so this is not one coherent and fully validated task.",
+      "stage": "human",
+      "source": "human_error_analysis",
+      "dropped_at": "2026-07-29T05:29:37Z"
+    },
+    {
+      "task_id": "NousResearch__hermes-agent-71104",
+      "reason": "Human review: the core request is Desktop/Electron readiness. The gold patch changes both the Electron probe and backend health endpoint, but FAIL_TO_PASS contains only two Python health-endpoint tests. An implementation that never fixes Desktop can pass, while other fixes explicitly allowed by the statement can fail.",
+      "stage": "human",
+      "source": "human_error_analysis",
+      "dropped_at": "2026-07-29T05:29:38Z"
+    },
+    {
+      "task_id": "NousResearch__hermes-agent-71924",
+      "reason": "Human review: the core request is to ship a fixed SQLite in the Docker image. A Docker runtime regression test exists in test_patch but is absent from FAIL_TO_PASS; scored tests only assert doctor hint text. The task can pass without correcting the SQLite library shipped in the image.",
+      "stage": "human",
+      "source": "human_error_analysis",
+      "dropped_at": "2026-07-29T05:29:38Z"
+    },
+    {
+      "task_id": "NousResearch__hermes-agent-72230",
+      "reason": "Human review: the statement requests macOS Tauri installer and launcher marker behavior. The gold patch spans Rust, Electron, and install.sh, but FAIL_TO_PASS scores only install.sh marker helpers. A direct Rust installer fix may fail, and passing the scored shell tests does not validate launcher behavior.",
+      "stage": "human",
+      "source": "human_error_analysis",
+      "dropped_at": "2026-07-29T05:29:38Z"
+    },
+    {
+      "task_id": "NousResearch__hermes-agent-72525",
+      "reason": "Human review: the statement allows moving the pycache sweep before lazy refresh or launching refresh with bytecode disabled, but FAIL_TO_PASS is coupled to new checkout-fingerprint and bytecode-helper APIs introduced by the gold patch. Valid stated solutions would fail, and no integration FAIL_TO_PASS verifies update ordering.",
+      "stage": "human",
+      "source": "human_error_analysis",
+      "dropped_at": "2026-07-29T05:29:38Z"
+    },
+    {
+      "task_id": "NousResearch__hermes-agent-73323",
+      "reason": "Human review: the statement explicitly accepts a warning, bulk repin, confirmation prompt, or softer failure. The sole FAIL_TO_PASS requires one narrow model.name configuration warning, so multiple valid UX fixes are rejected and the broader expected behavior is untested.",
+      "stage": "human",
+      "source": "human_error_analysis",
+      "dropped_at": "2026-07-29T05:29:38Z"
+    },
+    {
+      "task_id": "NousResearch__hermes-agent-73538",
+      "reason": "Human review: the statement concatenates MCP call_id overflow and reasoning-item id overflow. The gold patch and sole FAIL_TO_PASS address only call_id, leaving the second requested defect unvalidated and the task scope ambiguous.",
+      "stage": "human",
+      "source": "human_error_analysis",
+      "dropped_at": "2026-07-29T05:29:38Z"
+    },
+    {
+      "task_id": "NousResearch__hermes-agent-64607",
+      "reason": "Human review: the claimed slow-onset SQLite corruption is not reproducible or tested; F2P only forces one preselected PASSIVE-checkpoint implementation and logging, rejecting other fixes the prompt explicitly permits.",
+      "stage": "human",
+      "source": "human_error_analysis",
+      "dropped_at": "2026-07-29T08:13:01Z"
+    },
+    {
+      "task_id": "NousResearch__hermes-agent-72029",
+      "reason": "Human review: F2P requires an unmentioned resolve_gateway_liveness/GatewayLiveness architecture, while the direct profile-path fix allowed by the prompt would fail; the Kanban half of the core request has no behavioral F2P.",
+      "stage": "human",
+      "source": "human_error_analysis",
+      "dropped_at": "2026-07-29T08:13:01Z"
+    },
+    {
+      "task_id": "NousResearch__hermes-agent-72224",
+      "reason": "Human review: the Windows stale-lock task is scored only by dispatch to a named helper; real lock recovery is skipped/unscored, so a no-op helper passes and a correct inline implementation fails.",
+      "stage": "human",
+      "source": "human_error_analysis",
+      "dropped_at": "2026-07-29T08:13:01Z"
+    },
+    {
+      "task_id": "NousResearch__hermes-agent-72366",
+      "reason": "Human review: the prompt asks for fatal-adapter recovery after transient outage, but F2P only checks watcher task-handle bookkeeping; no test exercises adapter failure, upstream recovery, reconnect, or gateway status.",
+      "stage": "human",
+      "source": "human_error_analysis",
+      "dropped_at": "2026-07-29T08:13:01Z"
     }
   ]
 }

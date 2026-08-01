@@ -1,0 +1,12 @@
+{
+  "agent": {
+    "provider": "deepseek",
+    "model": "deepseek-v4-pro",
+    "agent_models": {
+      "explorer": "deepseek-v4-flash"
+    }
+  },
+  "pipeline": {
+    "curate_model": "claude-fable-5"
+  }
+}

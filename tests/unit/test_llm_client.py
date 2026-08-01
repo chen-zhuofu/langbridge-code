@@ -14,6 +14,7 @@ from langbridge_code.llm.client import (
     resolve_max_output_tokens,
     to_chat_messages,
     to_chat_tools,
+    uses_responses_api,
 )
 
 
@@ -264,6 +265,7 @@ def test_create_model_response_enables_deepseek_thinking(monkeypatch):
     data = create_model_response("key", "deepseek-v4-flash", [{"role": "user", "content": "hi"}])
 
     assert captured["extra_body"]["thinking"] == {"type": "enabled"}
+    assert captured["extra_body"]["reasoning_effort"] == "max"
     assert data["output"][0]["type"] == "reasoning"
 
 
@@ -297,6 +299,129 @@ def test_create_model_response_routes_cross_provider(monkeypatch):
 
     assert calls == [{"api_key": "sk-deep", "base_url": "https://api.deepseek.com"}]
     assert captured["extra_body"]["thinking"] == {"type": "enabled"}
+    assert captured["extra_body"]["reasoning_effort"] == "max"
+
+
+def test_uses_responses_api_only_for_openai():
+    assert uses_responses_api("openai") is True
+    assert uses_responses_api("anthropic") is False
+    assert uses_responses_api("moonshot") is False
+    assert uses_responses_api("deepseek") is False
+
+
+def test_create_model_response_uses_openai_xhigh_reasoning(monkeypatch):
+    captured = {}
+
+    class _Response:
+        def model_dump(self, exclude_none=True):
+            return {
+                "output": [
+                    {
+                        "type": "reasoning",
+                        "summary": [{"type": "summary_text", "text": "think"}],
+                    }
+                ]
+            }
+
+    client = type("Client", (), {})()
+    client.responses = type("Responses", (), {})()
+
+    def create(**kwargs):
+        captured.update(kwargs)
+        return _Response()
+
+    client.responses.create = create
+    monkeypatch.setattr("langbridge_code.llm.client.make_client", lambda *a, **k: client)
+    monkeypatch.setattr(
+        "langbridge_code.settings.resolve_llm_route",
+        lambda model, api_key=None: {
+            "provider": "openai",
+            "api_key": "sk-openai",
+            "base_url": "https://api.openai.com/v1",
+        },
+    )
+
+    data = create_model_response("key", "gpt-5.5", [{"role": "user", "content": "hi"}])
+
+    assert captured["reasoning"] == {"effort": "xhigh", "summary": "auto"}
+    assert data["output"][0]["type"] == "reasoning"
+
+
+def test_create_model_response_uses_openai_max_reasoning_for_gpt_5_6(monkeypatch):
+    captured = {}
+
+    class _Response:
+        def model_dump(self, exclude_none=True):
+            return {
+                "output": [
+                    {
+                        "type": "reasoning",
+                        "summary": [{"type": "summary_text", "text": "think"}],
+                    }
+                ]
+            }
+
+    client = type("Client", (), {})()
+    client.responses = type("Responses", (), {})()
+
+    def create(**kwargs):
+        captured.update(kwargs)
+        return _Response()
+
+    client.responses.create = create
+    monkeypatch.setattr("langbridge_code.llm.client.make_client", lambda *a, **k: client)
+    monkeypatch.setattr(
+        "langbridge_code.settings.resolve_llm_route",
+        lambda model, api_key=None: {
+            "provider": "openai",
+            "api_key": "sk-openai",
+            "base_url": "https://api.openai.com/v1",
+        },
+    )
+
+    data = create_model_response("key", "gpt-5.6", [{"role": "user", "content": "hi"}])
+
+    assert captured["reasoning"] == {"effort": "max", "summary": "auto"}
+    assert data["output"][0]["type"] == "reasoning"
+
+
+def test_create_model_response_routes_anthropic_chat(monkeypatch):
+    """Anthropic uses OpenAI-compatible chat completions, not Responses API."""
+    captured = {}
+    client = _fake_chat_client(captured)
+    calls = []
+    responses_calls = []
+
+    def fake_make_client(api_key, *, base_url=None):
+        calls.append({"api_key": api_key, "base_url": base_url})
+        return client
+
+    client.responses = type("Responses", (), {})()
+    client.responses.create = lambda **kwargs: responses_calls.append(kwargs) or (_ for _ in ()).throw(
+        AssertionError("anthropic must not call responses.create")
+    )
+
+    monkeypatch.setattr("langbridge_code.llm.client.make_client", fake_make_client)
+    monkeypatch.setattr("langbridge_code.settings.API_STREAMING_ENABLED", False)
+    monkeypatch.setattr(
+        "langbridge_code.settings.resolve_llm_route",
+        lambda model, api_key=None: {
+            "provider": "anthropic",
+            "api_key": "sk-ant",
+            "base_url": "https://api.anthropic.com/v1/",
+        },
+    )
+
+    data = create_model_response(
+        "sk-session",
+        "claude-fable-5",
+        [{"role": "user", "content": "hi"}],
+    )
+
+    assert calls == [{"api_key": "sk-ant", "base_url": "https://api.anthropic.com/v1/"}]
+    assert responses_calls == []
+    assert captured["extra_body"] == {"output_config": {"effort": "max"}}
+    assert data["output"][0]["type"] == "reasoning"
 
 
 def test_format_api_error_for_quota():

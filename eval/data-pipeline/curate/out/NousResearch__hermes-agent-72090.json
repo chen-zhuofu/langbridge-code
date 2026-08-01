@@ -1,0 +1,62 @@
+{
+  "task_id": "NousResearch__hermes-agent-72090",
+  "status": "ok",
+  "repo": "NousResearch/hermes-agent",
+  "base_commit": "9dcb44a21943ea950c43be29f002dac23ba4248b",
+  "problem_statement": "[Bug]: Native Gemini mismatches bridged functionCall/functionResponse names after Tool Search execution\n\n## Summary\n\nWhen native Gemini executes an MCP or plugin tool through the tiered Tool Search `tool_call` bridge, Hermes can send different names for the matching Gemini `functionCall` and `functionResponse` parts.\n\nThe assistant turn is serialized with:\n\n```json\n{\"functionCall\": {\"name\": \"tool_call\", \"id\": \"call_1\", \"args\": {\"name\": \"mcp__github__create_issue\", \"arguments\": {}}}}\n```\n\nAfter the bridge unwraps and executes the underlying tool, the result message carries the internal tool name. The native Gemini adapter currently prefers that result name, producing:\n\n```json\n{\"functionResponse\": {\"name\": \"mcp__github__create_issue\", \"id\": \"call_1\", \"response\": {}}}\n```\n\nGemini requires the response name to match the corresponding call name, so the next provider turn can fail with an invalid request after the underlying tool has already executed.\n\n## Reproduction\n\n1. Use the native Gemini provider with tiered tool disclosure enabled.\n2. Expose an MCP or plugin tool, which is deferred behind `tool_call`.\n3. Let the model call `tool_call` with an underlying tool such as `mcp__github__create_issue`.\n4. Execute the tool and build the next native Gemini request from the transcript.\n5. Inspect the generated contents.\n\nThe `functionCall.name` is `tool_call`, while the matching `functionResponse.name` is the unwrapped MCP/plugin tool name.\n\n## Root cause\n\n`_build_gemini_contents` records the original wire-visible call name by `tool_call_id`, but `_translate_tool_result_to_gemini` currently resolves the response name in this order:\n\n```python\nmessage.get(\"name\")\nor tool_name_by_call_id.get(tool_call_id)\n```\n\nThe executor intentionally stores the unwrapped internal tool name on the result message for dispatch, hooks, logging, and guardrails. That internal name therefore overrides the call-ID mapping that represents the actual Gemini `functionCall.name`.\n\n## Expected behavior\n\nFor a result associated with a known call ID, `functionResponse.name` should echo the original wire-visible `functionCall.name`. The internal unwrapped tool name should remain available on the Hermes transcript for execution metadata.\n\n## Impact\n\nThis affects native Gemini turns that execute deferred MCP/plugin tools through the default Tool Search bridge. A provider rejection can occur only after the real tool has completed, so retrying the user action can duplicate side effects such as creating issues, sending messages, or mutating external systems.\n\n## Proposed fix\n\nPrefer `tool_name_by_call_id[tool_call_id]` over the result message's internal `name` when translating a native Gemini function response, with the existing result name retained as the fallback for transcripts that do not include a matching assistant call.\n\nAdd a regression test that builds a transcript containing a `tool_call` assistant call and an MCP-named tool result, then asserts that both Gemini parts use `tool_call`.",
+  "test_files": [
+    "tests/agent/test_gemini_native_adapter.py"
+  ],
+  "test_patch": "diff --git a/tests/agent/test_gemini_native_adapter.py b/tests/agent/test_gemini_native_adapter.py\n--- a/tests/agent/test_gemini_native_adapter.py\n+++ b/tests/agent/test_gemini_native_adapter.py\n@@ -122,6 +122,48 @@ def test_build_native_request_uses_original_function_name_for_tool_result():\n     assert tool_response[\"name\"] == \"get_weather\"\n \n \n+\n+def test_build_native_request_prefers_call_name_over_unwrapped_result_name():\n+    \"\"\"Gemini must receive the bridge call name, not the internal MCP name.\"\"\"\n+    from agent.gemini_native_adapter import build_gemini_request\n+\n+    request = build_gemini_request(\n+        messages=[\n+            {\n+                \"role\": \"assistant\",\n+                \"content\": \"\",\n+                \"tool_calls\": [\n+                    {\n+                        \"id\": \"call_1\",\n+                        \"type\": \"function\",\n+                        \"function\": {\n+                            \"name\": \"tool_call\",\n+                            \"arguments\": (\n+                                '{\"name\": \"mcp__github__create_issue\", '\n+                                '\"arguments\": {\"title\": \"Regression\"}}'\n+                            ),\n+                        },\n+                    }\n+                ],\n+            },\n+            {\n+                \"role\": \"tool\",\n+                \"name\": \"mcp__github__create_issue\",\n+                \"tool_name\": \"mcp__github__create_issue\",\n+                \"tool_call_id\": \"call_1\",\n+                \"content\": '{\"number\": 123}',\n+            },\n+        ],\n+        tools=[],\n+        tool_choice=None,\n+    )\n+\n+    function_call = request[\"contents\"][0][\"parts\"][0][\"functionCall\"]\n+    function_response = request[\"contents\"][1][\"parts\"][0][\"functionResponse\"]\n+    assert function_call[\"name\"] == \"tool_call\"\n+    assert function_response[\"name\"] == function_call[\"name\"]\n+\n+\n def test_parallel_tool_results_merge_into_one_user_content():\n     \"\"\"Gemini requires strict user/model alternation; two consecutive `user`\n     contents are rejected with HTTP 400. Parallel tool calls produce two tool\n",
+  "gold_code_patch": "diff --git a/agent/gemini_native_adapter.py b/agent/gemini_native_adapter.py\n--- a/agent/gemini_native_adapter.py\n+++ b/agent/gemini_native_adapter.py\n@@ -321,9 +321,13 @@ def _translate_tool_result_to_gemini(\n ) -> Dict[str, Any]:\n     tool_name_by_call_id = tool_name_by_call_id or {}\n     tool_call_id = str(message.get(\"tool_call_id\") or \"\")\n+    # A tool result can carry the unwrapped internal tool name (for example,\n+    # an MCP tool invoked through the `tool_call` bridge). Gemini requires\n+    # functionResponse.name to echo the matching functionCall.name, so the\n+    # call-id mapping must take precedence over the internal result name.\n     name = str(\n-        message.get(\"name\")\n-        or tool_name_by_call_id.get(tool_call_id)\n+        tool_name_by_call_id.get(tool_call_id)\n+        or message.get(\"name\")\n         or tool_call_id\n         or \"tool\"\n     )\n",
+  "fail_to_pass": [
+    "tests/agent/test_gemini_native_adapter.py::test_build_native_request_prefers_call_name_over_unwrapped_result_name"
+  ],
+  "pass_to_pass": [
+    "tests/agent/test_gemini_native_adapter.py::test_async_native_client_streams_without_requiring_async_iterator_from_sync_client",
+    "tests/agent/test_gemini_native_adapter.py::test_bare_gemini_model_id_strips_only_self_prefix[Google/Gemini-2.5-Pro-Gemini-2.5-Pro]",
+    "tests/agent/test_gemini_native_adapter.py::test_bare_gemini_model_id_strips_only_self_prefix[gemini/gemini-3-pro-preview-gemini-3-pro-preview]",
+    "tests/agent/test_gemini_native_adapter.py::test_bare_gemini_model_id_strips_only_self_prefix[google/gemini-2.0-flash-gemini-2.0-flash]",
+    "tests/agent/test_gemini_native_adapter.py::test_bare_gemini_model_id_strips_only_self_prefix[models/gemini-x-models/gemini-x]",
+    "tests/agent/test_gemini_native_adapter.py::test_bare_gemini_model_id_strips_only_self_prefix[tunedModels/my-tune-tunedModels/my-tune]",
+    "tests/agent/test_gemini_native_adapter.py::test_build_native_request_emits_sentinel_for_cross_provider_tool_call",
+    "tests/agent/test_gemini_native_adapter.py::test_build_native_request_preserves_thought_signature_on_tool_replay",
+    "tests/agent/test_gemini_native_adapter.py::test_build_native_request_strips_json_schema_only_fields_from_tool_parameters",
+    "tests/agent/test_gemini_native_adapter.py::test_build_native_request_uses_original_function_name_for_tool_result",
+    "tests/agent/test_gemini_native_adapter.py::test_consecutive_user_messages_merge_for_gemini_alternation",
+    "tests/agent/test_gemini_native_adapter.py::test_explicit_max_tokens_is_respected",
+    "tests/agent/test_gemini_native_adapter.py::test_hermes_version_is_valid",
+    "tests/agent/test_gemini_native_adapter.py::test_max_tokens_none_defaults_to_gemini_output_ceiling",
+    "tests/agent/test_gemini_native_adapter.py::test_native_client_accepts_injected_http_client",
+    "tests/agent/test_gemini_native_adapter.py::test_native_client_rejects_empty_api_key_with_actionable_message",
+    "tests/agent/test_gemini_native_adapter.py::test_native_client_strips_self_prefix_from_model_url",
+    "tests/agent/test_gemini_native_adapter.py::test_native_client_uses_x_goog_api_key_and_native_models_endpoint",
+    "tests/agent/test_gemini_native_adapter.py::test_native_http_error_keeps_status_and_retry_after",
+    "tests/agent/test_gemini_native_adapter.py::test_parallel_tool_results_merge_into_one_user_content",
+    "tests/agent/test_gemini_native_adapter.py::test_stream_event_translation_emits_tool_call_delta_with_stable_index",
+    "tests/agent/test_gemini_native_adapter.py::test_stream_event_translation_keeps_identical_calls_in_distinct_parts",
+    "tests/agent/test_gemini_native_adapter.py::test_system_instruction_includes_role_field_and_stays_out_of_contents",
+    "tests/agent/test_gemini_native_adapter.py::test_translate_native_response_surfaces_reasoning_and_tool_calls",
+    "tests/agent/test_gemini_native_adapter.py::test_user_agent_contains_version",
+    "tests/agent/test_gemini_native_adapter.py::test_x_goog_api_client_header_format",
+    "tests/agent/test_gemini_native_adapter.py::test_x_goog_api_client_header_is_set"
+  ],
+  "hard": false,
+  "metadata": {
+    "pr_url": "https://github.com/NousResearch/hermes-agent/pull/72090",
+    "linked_issues": [
+      72089
+    ],
+    "github_issue_urls": [
+      "https://github.com/NousResearch/hermes-agent/issues/72089"
+    ],
+    "num_files": 2,
+    "created_at": "2026-07-26T16:19:51Z"
+  },
+  "docker_image": "lb-task:NousResearch__hermes-agent-72090",
+  "problem_statement_source": "sanitized",
+  "task_type": "bug_fix",
+  "difficulty": "easy",
+  "task_type_reason": "The issue describes incorrect existing behavior in Gemini function response name mapping and asks to restore matching call/response names.",
+  "difficulty_reason": "It is a localized two-file change with a clear root cause and a single targeted failing regression test."
+}

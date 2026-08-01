@@ -1,0 +1,69 @@
+{
+  "task_id": "NousResearch__hermes-agent-73560",
+  "status": "ok",
+  "repo": "NousResearch/hermes-agent",
+  "base_commit": "21264c43432a0f23e21257f3e7d560d4700ead64",
+  "problem_statement": "Photon project creation should handle the dashboard API response shape robustly.\n\nWhen creating a Photon project via the dashboard API, the response may indicate success/failure with a top-level `succeed` flag, and on success the returned project credentials may be nested under a top-level `data` object rather than returned flat.\n\nUpdate the Photon auth/project-creation logic so that:\n- If the API reports failure (`succeed` is false), project creation raises a `RuntimeError` that includes the server-provided error message.\n- If the API reports success and returns credentials inside `data`, project creation returns that unwrapped project payload so callers can access fields like project IDs and project secret normally.\n- The existing request contract for project creation remains intact (authorization header and request payload semantics should not regress).\n\nIn short: make project creation correctly interpret success/failure envelopes from Photon and return usable credentials on success.\n",
+  "test_files": [
+    "tests/plugins/platforms/photon/test_auth.py"
+  ],
+  "test_patch": "diff --git a/tests/plugins/platforms/photon/test_auth.py b/tests/plugins/platforms/photon/test_auth.py\n--- a/tests/plugins/platforms/photon/test_auth.py\n+++ b/tests/plugins/platforms/photon/test_auth.py\n@@ -325,6 +325,47 @@ def fake_post(url: str, **kwargs: Any) -> _FakeResponse:\n     assert photon_auth.regenerate_project_secret(\"tok\", \"p\") == \"rotated\"\n \n \n+\n+def test_create_project_unwraps_success_data(monkeypatch: pytest.MonkeyPatch) -> None:\n+    \"\"\"Photon may wrap project credentials under a top-level data object.\"\"\"\n+    captured: Dict[str, Any] = {}\n+\n+    def fake_post(url: str, **kwargs: Any) -> _FakeResponse:\n+        captured[\"url\"] = url\n+        captured[\"body\"] = kwargs.get(\"json\")\n+        captured[\"headers\"] = kwargs.get(\"headers\")\n+        return _FakeResponse(json_body={\n+            \"succeed\": True,\n+            \"data\": {\n+                \"id\": \"dashboard-project-id\",\n+                \"spectrumProjectId\": \"spectrum-project-id\",\n+                \"projectSecret\": \"project-secret\",\n+            },\n+        })\n+\n+    monkeypatch.setattr(photon_auth.httpx, \"post\", fake_post)\n+\n+    data = photon_auth.create_project(\"dashboard-token\", name=\"Hermes Agent\")\n+\n+    assert data[\"spectrumProjectId\"] == \"spectrum-project-id\"\n+    assert data[\"projectSecret\"] == \"project-secret\"\n+    assert data[\"id\"] == \"dashboard-project-id\"\n+    assert \"spectrum\" not in captured[\"body\"]\n+    assert captured[\"body\"][\"name\"] == \"Hermes Agent\"\n+    assert captured[\"headers\"][\"Authorization\"] == \"Bearer dashboard-token\"\n+    assert captured[\"url\"].endswith(\"/api/projects\")\n+\n+\n+def test_create_project_raises_on_succeed_false(monkeypatch: pytest.MonkeyPatch) -> None:\n+    def fake_post(url: str, **kwargs: Any) -> _FakeResponse:\n+        return _FakeResponse(json_body={\"succeed\": False, \"message\": \"quota exceeded\"})\n+\n+    monkeypatch.setattr(photon_auth.httpx, \"post\", fake_post)\n+\n+    with pytest.raises(RuntimeError, match=\"quota exceeded\"):\n+        photon_auth.create_project(\"tok\")\n+\n+\n # ---------------------------------------------------------------------------\n # Users\n \n",
+  "gold_code_patch": "diff --git a/plugins/platforms/photon/auth.py b/plugins/platforms/photon/auth.py\n--- a/plugins/platforms/photon/auth.py\n+++ b/plugins/platforms/photon/auth.py\n@@ -681,11 +681,19 @@ def create_project(\n     resp = httpx.post(url, json=body, headers=_bearer(token), timeout=30.0)\n     resp.raise_for_status()\n     data = resp.json() or {}\n+    if not isinstance(data, dict):\n+        raise RuntimeError(\"Photon create-project returned an unexpected response\")\n     if data.get(\"error\"):\n         raise RuntimeError(f\"Photon create-project failed: {data['error']}\")\n-    if not data.get(\"id\"):\n+    if data.get(\"succeed\") is False:\n+        raise RuntimeError(\n+            f\"Photon create-project failed: {data.get('message') or data}\"\n+        )\n+    project_candidate = data.get(\"data\")\n+    project: Dict[str, Any] = project_candidate if isinstance(project_candidate, dict) else data\n+    if not project.get(\"id\"):\n         raise RuntimeError(\"Photon create-project did not return a project id\")\n-    return data\n+    return project\n \n \n def regenerate_project_secret(token: str, project_id: str) -> str:\n",
+  "fail_to_pass": [
+    "tests/plugins/platforms/photon/test_auth.py::test_create_project_raises_on_succeed_false",
+    "tests/plugins/platforms/photon/test_auth.py::test_create_project_unwraps_success_data"
+  ],
+  "pass_to_pass": [
+    "tests/plugins/platforms/photon/test_auth.py::test_create_project_omits_spectrum_flag",
+    "tests/plugins/platforms/photon/test_auth.py::test_create_project_raises_without_id",
+    "tests/plugins/platforms/photon/test_auth.py::test_create_user_posts_dashboard_shape",
+    "tests/plugins/platforms/photon/test_auth.py::test_create_user_rejects_invalid_phone",
+    "tests/plugins/platforms/photon/test_auth.py::test_credential_summary_no_secret_leak",
+    "tests/plugins/platforms/photon/test_auth.py::test_device_response_candidates_covers_known_shapes",
+    "tests/plugins/platforms/photon/test_auth.py::test_device_response_candidates_dedupes",
+    "tests/plugins/platforms/photon/test_auth.py::test_find_project_by_name_case_insensitive",
+    "tests/plugins/platforms/photon/test_auth.py::test_get_imessage_line_provisions_when_missing",
+    "tests/plugins/platforms/photon/test_auth.py::test_get_imessage_line_returns_existing",
+    "tests/plugins/platforms/photon/test_auth.py::test_list_projects_unwraps_list",
+    "tests/plugins/platforms/photon/test_auth.py::test_load_project_credentials_env_override",
+    "tests/plugins/platforms/photon/test_auth.py::test_load_user_numbers_falls_back_to_home_channel",
+    "tests/plugins/platforms/photon/test_auth.py::test_login_device_flow_raises_when_token_invalid",
+    "tests/plugins/platforms/photon/test_auth.py::test_login_device_flow_validates_before_persisting",
+    "tests/plugins/platforms/photon/test_auth.py::test_poll_for_token_access_denied",
+    "tests/plugins/platforms/photon/test_auth.py::test_poll_for_token_body_access_token",
+    "tests/plugins/platforms/photon/test_auth.py::test_poll_for_token_header_fallback",
+    "tests/plugins/platforms/photon/test_auth.py::test_poll_for_token_pending_then_success",
+    "tests/plugins/platforms/photon/test_auth.py::test_poll_for_token_session_fallback",
+    "tests/plugins/platforms/photon/test_auth.py::test_refresh_user_numbers_reads_existing_assignment",
+    "tests/plugins/platforms/photon/test_auth.py::test_regenerate_project_secret",
+    "tests/plugins/platforms/photon/test_auth.py::test_register_user_if_absent_creates",
+    "tests/plugins/platforms/photon/test_auth.py::test_register_user_if_absent_dedup",
+    "tests/plugins/platforms/photon/test_auth.py::test_request_device_code_uses_photon_cli",
+    "tests/plugins/platforms/photon/test_auth.py::test_store_and_load_photon_token",
+    "tests/plugins/platforms/photon/test_auth.py::test_store_project_credentials_round_trip",
+    "tests/plugins/platforms/photon/test_auth.py::test_store_project_credentials_writes_env",
+    "tests/plugins/platforms/photon/test_auth.py::test_store_user_numbers_round_trip",
+    "tests/plugins/platforms/photon/test_auth.py::test_user_assigned_line",
+    "tests/plugins/platforms/photon/test_auth.py::test_validate_photon_token_rejects_project_api_denial",
+    "tests/plugins/platforms/photon/test_auth.py::test_validate_photon_token_rejects_unrecognized_session"
+  ],
+  "hard": false,
+  "metadata": {
+    "pr_url": "https://github.com/NousResearch/hermes-agent/pull/73560",
+    "linked_issues": [
+      49793
+    ],
+    "github_issue_urls": [
+      "https://github.com/NousResearch/hermes-agent/issues/49793"
+    ],
+    "num_files": 2,
+    "created_at": "2026-07-28T18:57:07Z"
+  },
+  "docker_image": "lb-task:NousResearch__hermes-agent-73560",
+  "problem_statement_source": "rewritten",
+  "rewrite_reason": "The provided statement describes a Photon streaming/iMessage UI artifact, but the failing tests target Photon project-creation auth behavior and response parsing. A rewrite is needed to align the task with the observable backend behavior under test.",
+  "task_type": "bug_fix",
+  "difficulty": "easy",
+  "task_type_reason": "The task corrects existing Photon project-creation behavior to properly parse success/failure response envelopes and error handling.",
+  "difficulty_reason": "It is a localized change in likely one auth codepath with two clear failing tests specifying the expected behavior."
+}

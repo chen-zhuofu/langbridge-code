@@ -27,7 +27,7 @@ from pathlib import Path
 DROP_DIR = Path(__file__).resolve().parent
 EVAL_DIR = DROP_DIR.parent
 REPO_ROOT = EVAL_DIR.parents[2]
-PIPELINE_LIB = REPO_ROOT / "eval" / "data" / "data-pipeline"
+PIPELINE_LIB = REPO_ROOT / "eval" / "data-pipeline"
 if str(PIPELINE_LIB) not in sys.path:
     sys.path.insert(0, str(PIPELINE_LIB))
 
@@ -41,7 +41,7 @@ DROP_DOCKER = DROP_DIR / "docker-images"
 
 _HUMAN_DROP_DESCRIPTION = (
     "HUMAN error-analysis drops. Archived under drop/specs/ and drop/docker-images/. "
-    "Use drop_task.py. LLM drops go in eval/data/data-pipeline/curate/out/drop.json."
+    "Use drop_task.py. LLM drops go in eval/data-pipeline/curate/out/drop.json."
 )
 
 

@@ -1,4 +1,7 @@
-"""Write eval specs under ``interactive-bench/data/specs/``.
+"""LLM intent extraction + quality gates → eval specs.
+
+Reads reference output (F2P-valid tasks). Runs intent LLM, then filters /
+oracle-align / F2P-dedupe, and writes ``interactive-bench/data/specs/``.
 
 Runs intent extraction here (after env/reference) so LLM cost is paid only for
 tasks that already have a valid Docker image + F2P.
@@ -7,6 +10,9 @@ tasks that already have a valid Docker image + F2P.
 uv run python interactive-bench/data-pipeline/curate/curate.py --limit 20
 uv run python interactive-bench/data-pipeline/curate/curate.py --data-dir /path/to/swe-chat --limit 5
 ```
+
+Requires a LangBridge config API key (or env provider key) for intent
+extraction. Failures are dropped (no heuristic fallback).
 """
 from __future__ import annotations
 
@@ -20,6 +26,7 @@ if str(PIPELINE) not in sys.path:
 
 from _lib import paths  # noqa: E402
 from _lib.io_util import append_drop, load_json, load_jsonl, write_json, write_jsonl  # noqa: E402
+from _lib.labels import difficulty_from_complexity  # noqa: E402
 from _lib.quality import (  # noqa: E402
     clean_user_text,
     f2p_fingerprint,
@@ -33,7 +40,7 @@ from intent.analyze import analyze_one  # noqa: E402
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--data-dir", type=Path, help="SWE-Chat parquet (optional, for prompts)")
+    parser.add_argument("--data-dir", type=Path, help="SWE-Chat parquet dir (refill prompts)")
     parser.add_argument("--limit", type=int, default=0)
     parser.add_argument("--in", dest="inp", type=Path, default=paths.DEFAULT_REFERENCE_JSONL)
     parser.add_argument("--out", type=Path, default=paths.DEFAULT_CURATE_JSONL)
@@ -93,9 +100,9 @@ def main() -> int:
                 print(f"  drop {tid}: intent error: {exc}")
                 continue
             if analyzed.get("_drop"):
-                append_drop(args.drop, tid, f"intent: {analyzed.get('reason')}")
+                append_drop(args.drop, tid, analyzed["reason"])
                 done.add(tid)
-                print(f"  drop {tid}: intent: {analyzed.get('reason')}")
+                print(f"  drop {tid}: {analyzed['reason']}")
                 continue
 
         intents = filter_intents(analyzed.get("intents") or [])
@@ -143,6 +150,9 @@ def main() -> int:
         row["intents"] = intents
         row["fail_to_pass"] = f2p
         row["f2p_fingerprint"] = fp
+        # F2P only exists by curate time, so difficulty (complexity-based) is
+        # computed here rather than at enrich (which only has patch size).
+        row["difficulty"] = difficulty_from_complexity(row.get("gold_code_patch"), f2p)
 
         spec = build_interactive_spec(row)
         if row.get("test_files"):

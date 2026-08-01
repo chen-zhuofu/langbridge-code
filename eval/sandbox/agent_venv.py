@@ -15,13 +15,36 @@ set -e
 export PATH="/root/.local/bin:$PATH"
 if [ ! -x {AGENT_PYTHON} ]; then
   if ! command -v uv >/dev/null 2>&1; then
-    curl -LsSf https://astral.sh/uv/install.sh | sh
+    if command -v curl >/dev/null 2>&1; then
+      curl -LsSf https://astral.sh/uv/install.sh | sh
+    elif command -v wget >/dev/null 2>&1; then
+      wget -qO- https://astral.sh/uv/install.sh | sh
+    else
+      _bootstrap_python="$(command -v python3 || command -v python || true)"
+      if [ -z "$_bootstrap_python" ]; then
+        echo "uv bootstrap needs curl, wget, or Python" >&2
+        exit 1
+      fi
+      if ! "$_bootstrap_python" -m pip --version >/dev/null 2>&1; then
+        "$_bootstrap_python" -m ensurepip --user
+      fi
+      PIP_BREAK_SYSTEM_PACKAGES=1 "$_bootstrap_python" -m pip install \
+        --user --disable-pip-version-check \
+        --index-url https://pypi.org/simple uv
+    fi
   fi
   uv python install 3.12
   uv venv {CONTAINER_VENV} --python 3.12
   uv pip install --python {AGENT_PYTHON} openai httpx numpy
 fi
-{AGENT_PYTHON} -c "import langbridge_code.headless"
+for _import_attempt in 1 2 3; do
+  if {AGENT_PYTHON} -c "import langbridge_code.headless"; then
+    exit 0
+  fi
+  sleep 1
+done
+echo "LangBridge import failed after 3 attempts" >&2
+exit 1
 """
 
 

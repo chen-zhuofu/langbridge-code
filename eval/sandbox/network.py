@@ -14,12 +14,14 @@ PROXY_URL = f"http://{PROXY_NAME}:{PROXY_PORT}"
 PROXY_SCRIPT = Path(__file__).resolve().parent / "egress_proxy.py"
 
 
-def active_api_host() -> str:
-    from langbridge_code.settings import API_BASE_URL
+def active_api_host(provider: str | None = None) -> str:
+    from langbridge_code.settings import API_BASE_URL, provider_base_url
 
-    host = urlparse(API_BASE_URL).hostname or ""
+    base_url = provider_base_url(provider) if provider else API_BASE_URL
+    host = urlparse(base_url).hostname or ""
     if not host:
-        sys.exit("Cannot determine LLM API host from settings.API_BASE_URL.")
+        detail = f"provider {provider!r}" if provider else "settings.API_BASE_URL"
+        sys.exit(f"Cannot determine LLM API host from {detail}.")
     return host
 
 
@@ -40,9 +42,13 @@ def ensure_internal_network() -> None:
         sys.exit(f"docker network create {EVAL_NETWORK} failed: {created.stderr.strip()}")
 
 
-def ensure_egress_guard(image: str) -> tuple[list[str], str]:
+def ensure_egress_guard(
+    image: str,
+    *,
+    provider: str | None = None,
+) -> tuple[list[str], str]:
     """Start the allowlist proxy; return (docker args for agents, api_host)."""
-    api_host = active_api_host()
+    api_host = active_api_host(provider)
     ensure_internal_network()
 
     docker(["rm", "-f", PROXY_NAME])

@@ -26,7 +26,7 @@ from _lib.github import (  # noqa: E402
     first_parent,
 )
 from _lib.io_util import append_drop, load_json, load_jsonl, write_jsonl  # noqa: E402
-from _lib.labels import difficulty_from_runtime, task_type_from_prompt_intents  # noqa: E402
+from _lib.labels import horizon_from_runtime, task_type_from_prompt_intents  # noqa: E402
 from _lib.quality import (  # noqa: E402
     MAX_CODE_FILES,
     MAX_WINDOW_COMMITS,
@@ -285,7 +285,7 @@ def enrich_one(
     out["followup_prompts"] = [clean_user_text(p) for p in followups]
     if turn_count is not None:
         out["conversation_turn_count"] = turn_count
-    out["difficulty"] = difficulty_from_runtime(agent_runtime)
+    out["horizon"] = horizon_from_runtime(agent_runtime)
     out["task_type"] = inst.get("task_type") or task_type_from_prompt_intents(
         inst.get("prompt_intents")
     )

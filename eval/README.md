@@ -11,8 +11,8 @@ eval/
   util/                # eval helpers (bench, metrics, telemetry, …)
   sandbox/             # Docker / network / agent venv
   prompt/              # agent task prompts
+  data-pipeline/       # collect → env → reference → curate
   data/
-    data-pipeline/     # collect → env → reference → curate
     langbridge-bench/  # curated specs + docker-images
     public/            # verified / pro (official data + images only)
 ```
@@ -23,12 +23,12 @@ uv run --project ~/langbridge-code langbridge-code
 
 ## Crawl task
 ```bash
-uv run python eval/data/data-pipeline/run_pipeline.py --limit 1
+uv run python eval/data-pipeline/run_pipeline.py --limit 1
 ```
 
 ## Wipe crawled task
 ```bash
-uv run python eval/data/data-pipeline/reset_task.py pytest-dev__pytest-14730
+uv run python eval/data-pipeline/reset_task.py pytest-dev__pytest-14730
 ```
 
 ## Own tasks (langbridge-bench): agent + grade in the same Docker image
@@ -37,6 +37,10 @@ uv run python eval/run_eval.py --task pytest-dev__pytest-14694
 uv run python eval/run_eval.py --workers 10
 # default bench dir is eval/data/langbridge-bench
 ```
+
+Agent under test defaults to the DeepSeek stack in `eval/config.json`
+(`deepseek-v4-pro` + explorer `deepseek-v4-flash`), independent of your
+interactive CLI provider. Override with `--model` / `LANGBRIDGE_API_PROVIDER`.
 
 ## SWE-bench Verified / Pro
 
@@ -61,8 +65,28 @@ cd eval && uv run python -m swebench.harness.run_evaluation \
 ```bash
 # Stage 1 — pro (repo at /app; images from jefzda/sweap-images)
 uv run python eval/run_public_eval.py --difficulty pro --count 10
-# Stage 2 — Scale harness: https://github.com/scaleapi/SWE-bench_Pro-os
+
+# Stage 2 — unchanged Scale harness, launched with stable local resources
+uv run python eval/run_pro_grader.py \
+  --grader-script /path/to/SWE-bench_Pro-os/swe_bench_pro_eval.py \
+  --raw_sample_path /path/to/sample.jsonl \
+  --patch_path eval/out/predictions-pro.json \
+  --output_dir eval/out/official-grade \
+  --dockerhub_username jefzda \
+  --scripts_dir /path/to/SWE-bench_Pro-os/scripts/run_scripts \
+  --use_local_docker --block_network
 ```
+
+For Pro, the runner mirrors Scale's task template exactly: `problem_statement`,
+`requirements`, and `interface` are concatenated without normalization. The run
+summary records the protocol version and each prompt's SHA256; checkpoints from
+an older or mismatched protocol are not resumed. The per-instance harness timeout
+defaults to 7,200 seconds (two hours). Pro defaults to two concurrent containers.
+Go instances additionally use `--cpus 2`, `GOFLAGS=-p=1`, and
+`GOMAXPROCS=2`. On a hard timeout the runner stops all container writers before
+capturing the canonical checkout's partial patch. `run_pro_grader.py` keeps the
+upstream Scale test and pass/fail logic intact while applying the same two-CPU
+profile and capping local grader concurrency at two.
 
 ## Eval network guard (langbridge-bench runner only)
 Agent containers on `eval/run_eval.py` run on an internal Docker network with

@@ -79,17 +79,7 @@ def main() -> int:
             return 0
 
         if pending(paths.DEFAULT_REFERENCE_JSONL, paths.DEFAULT_CURATE_JSONL, paths.DEFAULT_CURATE_DROP):
-            # Intent LLM runs inside curate (after env/reference gates).
-            run(
-                [
-                    py,
-                    str(PIPELINE / "curate/curate.py"),
-                    "--data-dir",
-                    data,
-                    "--limit",
-                    "1",
-                ]
-            )
+            run([py, str(PIPELINE / "curate/curate.py"), "--data-dir", data, "--limit", "1"])
             continue
         if pending(paths.DEFAULT_ENV_JSONL, paths.DEFAULT_REFERENCE_JSONL, paths.DEFAULT_REFERENCE_DROP):
             run([py, str(PIPELINE / "reference/reference_test.py"), "--limit", "1"])

@@ -10,16 +10,33 @@ import sys
 
 _BENCH = Path(__file__).resolve().parents[1]
 _PIPELINE = _BENCH / "data-pipeline"
-if str(_PIPELINE) not in sys.path:
-    sys.path.insert(0, str(_PIPELINE))
+_EVAL = _BENCH.parent / "eval"
+for _p in (_PIPELINE, _EVAL):
+    if str(_p) not in sys.path:
+        sys.path.insert(0, str(_p))
 
 from intent.prompts import SIM_SYSTEM
-from _lib.llm import chat_json
+from _lib.llm import chat_json_ex
 from _lib.runtime import eval_timeout_sec
 
 NOOP_MESSAGE = "continue"
 MAX_CONSECUTIVE_NOOPS = 4
 SPEAKING_ACTIONS = frozenset({"steer", "reveal_next", "answer"})
+
+# Natural user role-play — GPT by default (see interactive-bench/config.json
+# interactive.sim_model). Override with LB_SIM_MODEL (or LB_INTERACTIVE_MODEL).
+def sim_model() -> str:
+    from _lib.bench_config import resolve_sim_model
+
+    return resolve_sim_model()
+
+
+class SimUnavailable(RuntimeError):
+    """The user simulator's LLM is unreachable — the episode is void, not failed.
+
+    Never conflate this with agent failure: a silent sim makes every episode
+    end at the no-op cap, which looks exactly like a coherence problem.
+    """
 
 
 @dataclass
@@ -75,7 +92,7 @@ def llm_sim(
     agent_text: str,
     state: EpisodeState,
     trajectory_summary: str = "",
-) -> SimDecision | None:
+) -> SimDecision:
     intents = list(spec.get("intents") or [])
     payload = {
         "session_analysis": (spec.get("sim") or {}).get("session_analysis")
@@ -86,9 +103,13 @@ def llm_sim(
         "agent_message": (agent_text or "")[:4000],
         "trajectory_summary": trajectory_summary[:4000],
     }
-    parsed = chat_json(system=SIM_SYSTEM, user=json.dumps(payload, ensure_ascii=False))
+    parsed, error = chat_json_ex(
+        system=SIM_SYSTEM,
+        user=json.dumps(payload, ensure_ascii=False),
+        model=sim_model(),
+    )
     if not parsed:
-        return None
+        raise SimUnavailable(error or "sim llm returned no decision")
     action = str(parsed.get("action") or "no-op").strip()
     if action not in {"no-op", "steer", "reveal_next", "answer"}:
         action = "no-op"
@@ -115,17 +136,24 @@ def decide_sim(
     state: EpisodeState,
     trajectory_summary: str = "",
 ) -> SimDecision:
-    decision = llm_sim(
-        spec=spec,
-        agent_text=agent_text,
-        state=state,
-        trajectory_summary=trajectory_summary,
-    )
-    if decision is None:
-        # No LLM decision available → stay quiet; the noop cap still ends the episode.
-        noop_message = (spec.get("sim") or {}).get("noop_message") or NOOP_MESSAGE
-        decision = SimDecision(action="no-op", message=noop_message, reason="sim llm unavailable")
-    return decision
+    """Raises ``SimUnavailable`` unless ``sim.allow_offline`` opts into silence."""
+    try:
+        return llm_sim(
+            spec=spec,
+            agent_text=agent_text,
+            state=state,
+            trajectory_summary=trajectory_summary,
+        )
+    except SimUnavailable:
+        sim = spec.get("sim") or {}
+        if not sim.get("allow_offline"):
+            raise
+        # Offline fixtures only: stay quiet and let the noop cap end the episode.
+        return SimDecision(
+            action="no-op",
+            message=sim.get("noop_message") or NOOP_MESSAGE,
+            reason="sim llm unavailable (offline)",
+        )
 
 
 def apply_decision(state: EpisodeState, decision: SimDecision, intents: list[dict]) -> str:
@@ -186,6 +214,7 @@ def run_episode(
     )
 
     agent_messages: list[str] = []
+    sim_error: str | None = None
     user_text = instruction
     for _ in range(max_turns):
         stop = should_stop(state, spec)
@@ -201,7 +230,12 @@ def run_episode(
         if result.get("done"):
             state.stop_reason = "agent_done"
             break
-        decision = decide_sim(spec=spec, agent_text=assistant, state=state)
+        try:
+            decision = decide_sim(spec=spec, agent_text=assistant, state=state)
+        except SimUnavailable as err:
+            sim_error = str(err)
+            state.stop_reason = "sim_error"
+            break
         user_text = apply_decision(state, decision, intents)
         stop = should_stop(state, spec)
         if stop:
@@ -215,6 +249,7 @@ def run_episode(
     return {
         "task_id": spec.get("task_id"),
         "stop_reason": state.stop_reason,
+        "sim_error": sim_error,
         "user_input_count": state.user_input_count,
         "interventions": state.interventions,
         "consecutive_noops_final": state.consecutive_noops,
