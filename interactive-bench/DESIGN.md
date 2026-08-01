@@ -88,7 +88,10 @@ interactive-bench/
 
 ## Pipeline stages
 
-`collect` → `resolve` → `enrich` → `intent` → `env` → `reference` → `curate`
+`collect` → `resolve` → `enrich` → `env` → `reference` → `curate`
+
+Intent LLM extraction runs inside **curate** (after cheaper Docker/F2P gates).
+Standalone `intent/analyze.py` remains for debugging.
 
 Then: `eval/run_eval.py` (sim harness).
 

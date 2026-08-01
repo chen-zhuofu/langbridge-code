@@ -45,15 +45,15 @@ def test_run_pipeline_only_requires_data_dir(monkeypatch):
     assert rp.main() == 2
 
 
-def test_run_pipeline_only_intent(monkeypatch):
+def test_run_pipeline_only_curate(monkeypatch):
     import run_pipeline as rp
 
     monkeypatch.setattr(
         sys,
         "argv",
-        ["run_pipeline.py", "--only", "intent", "--limit", "1"],
+        ["run_pipeline.py", "--only", "curate", "--limit", "1"],
     )
     with patch("run_pipeline.run_stage", return_value=0) as mocked:
         assert rp.main() == 0
         mocked.assert_called_once()
-        assert mocked.call_args.args[0] == "intent"
+        assert mocked.call_args.args[0] == "curate"

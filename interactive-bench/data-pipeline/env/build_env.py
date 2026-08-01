@@ -51,7 +51,7 @@ def smoke_test(task_id: str, timeout: int = 120) -> tuple[bool, str]:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--limit", type=int, default=0)
-    parser.add_argument("--in", dest="inp", type=Path, default=paths.DEFAULT_INTENT_JSONL)
+    parser.add_argument("--in", dest="inp", type=Path, default=paths.DEFAULT_ENRICH_JSONL)
     parser.add_argument("--out", type=Path, default=paths.DEFAULT_ENV_JSONL)
     parser.add_argument("--drop", type=Path, default=paths.DEFAULT_ENV_DROP)
     parser.add_argument("--skip-smoke", action="store_true")

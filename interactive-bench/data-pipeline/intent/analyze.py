@@ -1,5 +1,9 @@
 """Extract atomic intents + session_analysis from SWE-Chat prompts.
 
+Primary call site is ``curate/curate.py`` (after env/reference), so LLM cost
+is paid only for tasks that survive Docker + F2P. This module remains a
+standalone CLI for debugging.
+
 ```bash
 uv run python interactive-bench/data-pipeline/intent/analyze.py --limit 20
 uv run python interactive-bench/data-pipeline/intent/analyze.py --data-dir /path/to/swe-chat --limit 5

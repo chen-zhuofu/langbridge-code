@@ -3,13 +3,16 @@
 ```bash
 uv run python interactive-bench/data-pipeline/run_pipeline.py --data-dir /path/to/swe-chat --limit 5
 uv run python interactive-bench/data-pipeline/run_pipeline.py --data-dir /path/to/swe-chat --from enrich
-uv run python interactive-bench/data-pipeline/run_pipeline.py --only intent --limit 10
+uv run python interactive-bench/data-pipeline/run_pipeline.py --only curate --limit 10
 ```
 
-Stages: collect → resolve → enrich → intent → env → reference → curate
+Stages: collect → resolve → enrich → env → reference → curate
+
+Intent LLM extraction runs inside ``curate`` (after env/reference drops), so we
+do not pay for intents on tasks that fail Docker / F2P. The standalone
+``intent/analyze.py`` CLI remains available for debugging.
 
 ``env`` / ``reference`` need Docker + ``langbridge-bench:py312`` base image.
-``intent`` uses heuristics if no OpenAI-compatible API key is set.
 """
 from __future__ import annotations
 
@@ -29,7 +32,6 @@ STAGES = (
     "collect",
     "resolve",
     "enrich",
-    "intent",
     "env",
     "reference",
     "curate",
@@ -41,7 +43,6 @@ def _script(stage: str) -> Path:
         "collect": PIPELINE / "collect" / "collect.py",
         "resolve": PIPELINE / "resolve" / "resolve.py",
         "enrich": PIPELINE / "enrich" / "enrich.py",
-        "intent": PIPELINE / "intent" / "analyze.py",
         "env": PIPELINE / "env" / "build_env.py",
         "reference": PIPELINE / "reference" / "reference_test.py",
         "curate": PIPELINE / "curate" / "curate.py",
@@ -68,8 +69,6 @@ def pending_for(stage: str) -> set[str]:
     resolve_drop = _drop_ids(paths.DEFAULT_RESOLVE_DROP)
     enrich = _task_ids(paths.DEFAULT_ENRICH_JSONL)
     enrich_drop = _drop_ids(paths.DEFAULT_ENRICH_DROP)
-    intent = _task_ids(paths.DEFAULT_INTENT_JSONL)
-    intent_drop = _drop_ids(paths.DEFAULT_INTENT_DROP)
     env = _task_ids(paths.DEFAULT_ENV_JSONL)
     env_drop = _drop_ids(paths.DEFAULT_ENV_DROP)
     ref = _task_ids(paths.DEFAULT_REFERENCE_JSONL)
@@ -81,10 +80,8 @@ def pending_for(stage: str) -> set[str]:
         return collect - resolve - resolve_drop
     if stage == "enrich":
         return resolve - enrich - enrich_drop
-    if stage == "intent":
-        return enrich - intent - intent_drop
     if stage == "env":
-        return intent - env - env_drop
+        return enrich - env - env_drop
     if stage == "reference":
         return env - ref - ref_drop
     if stage == "curate":
@@ -95,7 +92,9 @@ def pending_for(stage: str) -> set[str]:
 
 
 def next_stage(allowed: list[str]) -> str | None:
-    for stage in ("curate", "reference", "env", "intent", "enrich", "resolve"):
+    # Prefer draining later stages first so a finished env/ref batch can curate
+    # before we spend more collect/resolve work.
+    for stage in ("curate", "reference", "env", "enrich", "resolve"):
         if stage in allowed and pending_for(stage):
             return stage
     if "collect" in allowed:
@@ -112,7 +111,7 @@ def run_stage(
     cmd = [sys.executable, str(_script(stage))]
     if limit:
         cmd += ["--limit", str(limit)]
-    if data_dir and stage in {"collect", "resolve", "enrich", "intent"}:
+    if data_dir and stage in {"collect", "resolve", "enrich", "curate"}:
         cmd += ["--data-dir", str(data_dir)]
     print(f"\n=== {stage} ===\n+ {' '.join(cmd)}")
     return subprocess.call(cmd, cwd=str(PIPELINE.parent))

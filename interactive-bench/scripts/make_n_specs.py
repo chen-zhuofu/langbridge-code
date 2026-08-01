@@ -79,16 +79,23 @@ def main() -> int:
             return 0
 
         if pending(paths.DEFAULT_REFERENCE_JSONL, paths.DEFAULT_CURATE_JSONL, paths.DEFAULT_CURATE_DROP):
-            run([py, str(PIPELINE / "curate/curate.py"), "--limit", "1"])
+            # Intent LLM runs inside curate (after env/reference gates).
+            run(
+                [
+                    py,
+                    str(PIPELINE / "curate/curate.py"),
+                    "--data-dir",
+                    data,
+                    "--limit",
+                    "1",
+                ]
+            )
             continue
         if pending(paths.DEFAULT_ENV_JSONL, paths.DEFAULT_REFERENCE_JSONL, paths.DEFAULT_REFERENCE_DROP):
             run([py, str(PIPELINE / "reference/reference_test.py"), "--limit", "1"])
             continue
-        if pending(paths.DEFAULT_INTENT_JSONL, paths.DEFAULT_ENV_JSONL, paths.DEFAULT_ENV_DROP):
+        if pending(paths.DEFAULT_ENRICH_JSONL, paths.DEFAULT_ENV_JSONL, paths.DEFAULT_ENV_DROP):
             run([py, str(PIPELINE / "env/build_env.py"), "--limit", "1"])
-            continue
-        if pending(paths.DEFAULT_ENRICH_JSONL, paths.DEFAULT_INTENT_JSONL, paths.DEFAULT_INTENT_DROP):
-            run([py, str(PIPELINE / "intent/analyze.py"), "--data-dir", data, "--limit", "2"])
             continue
         if pending(paths.DEFAULT_RESOLVE_JSONL, paths.DEFAULT_ENRICH_JSONL, paths.DEFAULT_ENRICH_DROP):
             run([py, str(PIPELINE / "enrich/enrich.py"), "--data-dir", data, "--limit", "5"])

@@ -1,7 +1,11 @@
 """Write eval specs under ``interactive-bench/data/specs/``.
 
+Runs intent extraction here (after env/reference) so LLM cost is paid only for
+tasks that already have a valid Docker image + F2P.
+
 ```bash
 uv run python interactive-bench/data-pipeline/curate/curate.py --limit 20
+uv run python interactive-bench/data-pipeline/curate/curate.py --data-dir /path/to/swe-chat --limit 5
 ```
 """
 from __future__ import annotations
@@ -24,10 +28,12 @@ from _lib.quality import (  # noqa: E402
     oracle_token_hits,
 )
 from _lib.spec import build_interactive_spec  # noqa: E402
+from intent.analyze import analyze_one  # noqa: E402
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--data-dir", type=Path, help="SWE-Chat parquet (optional, for prompts)")
     parser.add_argument("--limit", type=int, default=0)
     parser.add_argument("--in", dest="inp", type=Path, default=paths.DEFAULT_REFERENCE_JSONL)
     parser.add_argument("--out", type=Path, default=paths.DEFAULT_CURATE_JSONL)
@@ -73,29 +79,48 @@ def main() -> int:
             append_drop(args.drop, tid, "missing F2P at curate")
             done.add(tid)
             continue
-        intents = filter_intents(inst.get("intents") or [])
+
+        # Intent LLM only after cheaper env/reference gates have passed.
+        # Skip re-call when intents are already present (re-curate / precomputed).
+        if filter_intents(inst.get("intents") or []):
+            analyzed = dict(inst)
+        else:
+            try:
+                analyzed = analyze_one(inst, data_dir=args.data_dir)
+            except Exception as exc:  # noqa: BLE001
+                append_drop(args.drop, tid, f"intent error: {exc}")
+                done.add(tid)
+                print(f"  drop {tid}: intent error: {exc}")
+                continue
+            if analyzed.get("_drop"):
+                append_drop(args.drop, tid, f"intent: {analyzed.get('reason')}")
+                done.add(tid)
+                print(f"  drop {tid}: intent: {analyzed.get('reason')}")
+                continue
+
+        intents = filter_intents(analyzed.get("intents") or [])
         if not intents:
             append_drop(args.drop, tid, "missing intents")
             done.add(tid)
             continue
 
-        instruction = clean_user_text(inst.get("instruction") or "")
+        instruction = clean_user_text(analyzed.get("instruction") or "")
         if not instruction and intents:
             instruction = intents[0]["text"]
 
         if not oracle_aligned(
             instruction=instruction,
             intents=intents,
-            test_files=inst.get("test_files") or [],
+            test_files=analyzed.get("test_files") or [],
             fail_to_pass=f2p,
-            test_patch=inst.get("test_patch") or "",
+            test_patch=analyzed.get("test_patch") or "",
         ):
             hits = oracle_token_hits(
                 instruction=instruction,
                 intents=intents,
-                test_files=inst.get("test_files") or [],
+                test_files=analyzed.get("test_files") or [],
                 fail_to_pass=f2p,
-                test_patch=inst.get("test_patch") or "",
+                test_patch=analyzed.get("test_patch") or "",
             )
             append_drop(
                 args.drop,
@@ -106,14 +131,14 @@ def main() -> int:
             print(f"  drop {tid}: oracle not aligned with instruction")
             continue
 
-        fp = f2p_fingerprint(f2p, repo=str(inst.get("repo") or ""))
+        fp = f2p_fingerprint(f2p, repo=str(analyzed.get("repo") or ""))
         if fp in seen_f2p:
             append_drop(args.drop, tid, f"duplicate F2P fingerprint {fp[:12]}")
             done.add(tid)
             print(f"  drop {tid}: duplicate F2P")
             continue
 
-        row = dict(inst)
+        row = dict(analyzed)
         row["instruction"] = instruction
         row["intents"] = intents
         row["fail_to_pass"] = f2p

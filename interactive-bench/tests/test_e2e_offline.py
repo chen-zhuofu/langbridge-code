@@ -1,4 +1,4 @@
-"""End-to-end: enrich → intent → curate → stub eval (all offline)."""
+"""End-to-end: enrich → (intent inside curate) → stub eval (all offline)."""
 from __future__ import annotations
 
 import json

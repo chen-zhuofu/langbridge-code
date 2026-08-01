@@ -51,10 +51,11 @@ One stage:
 uv run python interactive-bench/data-pipeline/collect/collect.py --data-dir /path/to/swe-chat --limit 50
 uv run python interactive-bench/data-pipeline/resolve/resolve.py --data-dir /path/to/swe-chat --limit 20
 uv run python interactive-bench/data-pipeline/enrich/enrich.py --data-dir /path/to/swe-chat --limit 20
-uv run python interactive-bench/data-pipeline/intent/analyze.py --limit 20
 uv run python interactive-bench/data-pipeline/env/build_env.py --limit 1
 uv run python interactive-bench/data-pipeline/reference/reference_test.py --limit 1
-uv run python interactive-bench/data-pipeline/curate/curate.py --limit 1
+uv run python interactive-bench/data-pipeline/curate/curate.py --data-dir /path/to/swe-chat --limit 1
+# optional debug: intent LLM alone (normally runs inside curate)
+# uv run python interactive-bench/data-pipeline/intent/analyze.py --limit 20
 ```
 
 Eval (same CLI shape as langbridge-bench: `--workers` / `--offset` / `--limit` / `--task`):

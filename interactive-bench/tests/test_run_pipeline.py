@@ -35,8 +35,6 @@ def test_pending_and_next_stage(tmp_path, monkeypatch):
     resolve_drop = tmp_path / "resolve_drop.json"
     enrich = tmp_path / "enrich.jsonl"
     enrich_drop = tmp_path / "enrich_drop.json"
-    intent = tmp_path / "intent.jsonl"
-    intent_drop = tmp_path / "intent_drop.json"
     env = tmp_path / "env.jsonl"
     env_drop = tmp_path / "env_drop.json"
     ref = tmp_path / "ref.jsonl"
@@ -49,8 +47,6 @@ def test_pending_and_next_stage(tmp_path, monkeypatch):
     write_drop(resolve_drop, ["b"])
     write_jsonl(enrich, [])
     write_drop(enrich_drop, [])
-    write_jsonl(intent, [])
-    write_drop(intent_drop, [])
     write_jsonl(env, [])
     write_drop(env_drop, [])
     write_jsonl(ref, [])
@@ -63,8 +59,6 @@ def test_pending_and_next_stage(tmp_path, monkeypatch):
     monkeypatch.setattr(paths, "DEFAULT_RESOLVE_DROP", resolve_drop)
     monkeypatch.setattr(paths, "DEFAULT_ENRICH_JSONL", enrich)
     monkeypatch.setattr(paths, "DEFAULT_ENRICH_DROP", enrich_drop)
-    monkeypatch.setattr(paths, "DEFAULT_INTENT_JSONL", intent)
-    monkeypatch.setattr(paths, "DEFAULT_INTENT_DROP", intent_drop)
     monkeypatch.setattr(paths, "DEFAULT_ENV_JSONL", env)
     monkeypatch.setattr(paths, "DEFAULT_ENV_DROP", env_drop)
     monkeypatch.setattr(paths, "DEFAULT_REFERENCE_JSONL", ref)
@@ -72,7 +66,16 @@ def test_pending_and_next_stage(tmp_path, monkeypatch):
     monkeypatch.setattr(paths, "DEFAULT_CURATE_JSONL", curate)
     monkeypatch.setattr(paths, "DEFAULT_CURATE_DROP", curate_drop)
 
+    assert rp.STAGES == (
+        "collect",
+        "resolve",
+        "enrich",
+        "env",
+        "reference",
+        "curate",
+    )
     assert rp.pending_for("resolve") == {"c"}
     assert rp.pending_for("enrich") == {"a"}
+    assert rp.pending_for("env") == set()  # enrich empty → nothing for env
     # Prefer draining enrich before resolve when both pending
     assert rp.next_stage(list(rp.STAGES)) == "enrich"
