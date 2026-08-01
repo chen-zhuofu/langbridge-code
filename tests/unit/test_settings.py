@@ -124,11 +124,10 @@ def test_provider_binding_resolves_deepseek_defaults(monkeypatch, tmp_path):
     try:
         settings._bind(settings.load_config())
         assert settings.API_PROVIDER == "deepseek"
-        assert settings.DEFAULT_MODEL == "deepseek-v4-pro"
+        assert settings.DEFAULT_MODEL == "deepseek-v4-flash"
         assert settings.API_BASE_URL == "https://api.deepseek.com"
-        # Per-agent overrides: explorer runs on the cheaper flash model.
         assert settings.model_for_agent("explorer") == "deepseek-v4-flash"
-        assert settings.model_for_agent("worker") == "deepseek-v4-pro"
+        assert settings.model_for_agent("worker") == "deepseek-v4-flash"
         assert settings.model_for_agent("worker", "custom-model") == "custom-model"
     finally:
         monkeypatch.undo()
