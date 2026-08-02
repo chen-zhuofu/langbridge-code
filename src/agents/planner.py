@@ -70,14 +70,19 @@ AGENT_PLANNER_TOOL_SCHEMA = {
     "type": "function",
     "name": "agent_planner",
     "description": (
-        "Offload plan research/drafting so repo exploration stays OUT of your "
-        "main-agent context. You get ONE draft result back — not the planner's "
-        "tool trace. Review that draft as if you wrote it; ask the user if "
-        "ambiguous; then write the final plan yourself to the session-artifact "
-        "virtual path todo_list.md (write tool). Do not dispatch agent_worker before "
-        "todo_list.md is written. If todo_list.md already holds an unfinished "
-        "plan, ask the user first whether to continue it, replace it, or start "
-        "fresh — do not silently overwrite."
+        "Offload heavy plan drafting; returns ONE draft (not the planner's tool trace).\n"
+        "Never parallelize with other tools in the same turn.\n"
+        "\n"
+        "When to use:\n"
+        "- Triage already requires a plan (feature / behavior change / multi-file /\n"
+        "  multi-step), and drafting itself is heavy: research, trade-offs, or\n"
+        "  non-obvious decomposition.\n"
+        "\n"
+        "When not to use:\n"
+        "- The plan is already obvious — write todo_list.md yourself (writing-simple-plans).\n"
+        "- Scope or product choices are still unclear — explore and/or ask_user first;\n"
+        "  plan only after the work still matches Triage's plan triggers.\n"
+        "- You only need a tiny clarification or a single lookup — do that yourself."
     ),
     "parameters": {
         "type": "object",

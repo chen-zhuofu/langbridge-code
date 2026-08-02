@@ -7,13 +7,10 @@ NOTE_PROGRESS_TOOL_SCHEMA = {
     "type": "function",
     "name": "note_progress",
     "description": (
-        "Record session progress right now (main agent only). This forks a "
-        "note-writer on your live context that uses Edit to update sections "
-        "in progress.md in place — you do not write the note yourself. Prefer "
-        "calling it after subagent results and other milestones. The harness "
-        "also auto-writes after too many silent rounds and again at turn end "
-        "if anything is still unnoted. progress.md survives compaction — it "
-        "is re-read into your <progress> block."
+        "Fork a note-writer that Edits progress.md in place (main agent only; "
+        "you do not write the note). Call after every subagent return and other "
+        "milestones (see Session rules). Harness may also auto-write after "
+        "silent rounds / turn end. Survives compaction via <progress>."
     ),
     "parameters": {
         "type": "object",

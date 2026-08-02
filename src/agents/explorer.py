@@ -134,15 +134,19 @@ AGENT_EXPLORER_TOOL_SCHEMA = {
     "type": "function",
     "name": "agent_explorer",
     "description": (
-        "Offload read-only codebase investigation so greps/reads stay OUT of your "
-        "main-agent context. You get ONE findings summary back — not the explore "
-        "trace. Ask for concrete, reusable findings (file paths, key "
-        "functions/classes, line ranges) and forward the relevant parts verbatim "
-        "when you later dispatch agent_worker, so workers do not repeat the "
-        "exploration. Use for broad search across files or naming patterns. "
-        "Multiple explorer calls in one turn may run in parallel (read-only). Do "
-        "not parallelize planner or worker. Prefer this over doing large "
-        "explorations yourself."
+        "Read-only codebase mapping; returns a short findings summary (paths / what\n"
+        "matters) — not the explore trace or file dumps. Never parallelize with\n"
+        "agent_planner.\n"
+        "\n"
+        "When to use:\n"
+        "- Concrete map questions: where is X, which files own Y, how is Z wired.\n"
+        "- You expect more than about 3 search/read hops, or several independent\n"
+        "  questions.\n"
+        "\n"
+        "When not to use:\n"
+        "- You already know the path or symbol — grep/read_file yourself.\n"
+        "- One or two tool calls would answer it.\n"
+        "- Any edit or implementation — those stay with you or agent_worker."
     ),
     "parameters": {
         "type": "object",
@@ -165,18 +169,11 @@ AGENT_EXPLORER_TOOL_SCHEMA = {
             },
             "thoroughness": {
                 "type": "string",
+                "enum": ["quick", "medium", "thorough"],
                 "description": (
-                    "Your instructions for how deep to search and when to stop. "
-                    "Write concrete guidance (free text, forwarded as-is). Common "
-                    "templates you can copy or adapt: "
-                    "quick: one targeted grep/glob; stop at first confirmed hit; "
-                    "a few lines with path:line. "
-                    "medium: 2-3 strategies (symbol, callers, registration); "
-                    "stop when the answer is confirmed; short findings + one "
-                    "paragraph. "
-                    "thorough: naming variants including tests/docs; note misses; "
-                    "stop when searches only return already-seen locations; map "
-                    "files/symbols with path:line."
+                    'How deep to search: "quick" for basic searches, "medium" for '
+                    "moderate exploration, or \"thorough\" for comprehensive "
+                    "analysis across multiple locations and naming conventions."
                 ),
             },
         },

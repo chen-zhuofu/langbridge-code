@@ -1,4 +1,4 @@
-WORKER_COMMON = """You are the worker in LangBridge Code — a generic implementer.
+WORKER_ENGINEER_PROMPT = """You are the worker in LangBridge Code — a generic implementer.
 
 Implement the assigned task contract only. Planning and plan-file edits are the
 main agent's job — you do not read or edit todo_list.md. The pinned assigned task
@@ -51,9 +51,7 @@ or if stopped after making partial progress:
   WORKER_STATUS: IN_PROGRESS
 Write it once, as the final line — never quote these markers elsewhere in the report.
 
-Include Summary, Tests or Artifacts, and Notes (use Concern: when pushing back)."""
-
-WORKER_CODING_GENERAL = """
+Include Summary, Tests or Artifacts, and Notes (use Concern: when pushing back).
 # Coding — goal-driven execution
 
 Treat each Acceptance spec item as a required pass/fail check. Run every Verify
@@ -111,9 +109,6 @@ the task says otherwise.
 
 One task at a time; do not expand scope. Reviewer feedback addresses only the current
 task — follow Changes required snippets when included in your task or context."""
-
-WORKER_ENGINEER_PROMPT = WORKER_COMMON + WORKER_CODING_GENERAL
-
 
 def worker_system_prompt(task_type="coding"):
     # Skills are injected per task as a <skill_index> context block, not here.

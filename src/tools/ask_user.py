@@ -6,18 +6,12 @@ ASK_USER_TOOL_SCHEMA = {
     "type": "function",
     "name": "ask_user",
     "description": (
-        "Ask the user a clarifying question (main agent only — subagents cannot). "
-        "Use when requirements are genuinely ambiguous and a wrong guess would "
-        "waste real work. Use this instead of asking in a normal reply — a normal "
-        "reply ends your turn and the answer never comes back. Provide exactly 3 "
-        "plausible assumptions as options; the UI always adds a 4th 'Other' choice. "
-        "Phrase the question and options in the user's language. Do not use for "
-        "trivial choices you can decide yourself. Do not use when the user only "
-        "says 继续/continue/resume and todo_list.md shows unchecked todos — resume "
-        "that plan via agent_worker instead. When todo_list.md holds an unfinished "
-        "plan and the user explicitly starts a different multi-step project this "
-        "turn, ask whether to continue the old plan, replace it (agent_planner, "
-        "then overwrite todo_list.md), or start fresh (/new)."
+        "Ask the user a clarifying question (main agent only). Use for genuine "
+        "ambiguity where a wrong guess wastes work — not a normal reply (that "
+        "ends the turn with no answer channel). Exactly 3 plausible options; "
+        "UI adds 'Other'. User's language. Skip trivial choices. Do not ask "
+        "what you can look up or verify yourself (code, docs, repo, tools). "
+        "For continue/resume vs new-project rules, see Session rules / When to act."
     ),
     "parameters": {
         "type": "object",

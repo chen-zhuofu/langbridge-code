@@ -20,15 +20,14 @@ AGENT_ROLES = (
 # Karpathy think-before-coding / surgical-changes are inlined in WORKER_CODING_GENERAL.
 EXPLORER_SKILL_NAMES: tuple[str, ...] = ()
 
-PLANNER_SKILL_NAMES = (
-    "superpowers_brainstorming",
-    "superpowers_writing-plans",
-)
+# Plan format and decomposition live in the planner system prompt.
+# Upstream writing-plans / brainstorming conflict with todo_list contracts
+# and the planner's no-ask_user role — do not load them here.
+PLANNER_SKILL_NAMES: tuple[str, ...] = ()
 
 WORKER_CODING_SKILL_NAMES = (
     "superpowers_test-driven-development",
     "superpowers_systematic-debugging",
-    "superpowers_receiving-code-review",
     "presentation-skill",
 )
 
@@ -36,8 +35,6 @@ REVIEWER_CODING_SKILL_NAMES = (
     "clean-code-guard",
     "test-guard",
     "docs-guard",
-    "wp-guard",
-    "woo-guard",
 )
 
 LANGBRIDGE_SKILL_NAMES = (

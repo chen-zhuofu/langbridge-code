@@ -19,14 +19,10 @@ MEMORY_WRITER_TOOL_SCHEMA = {
     "type": "function",
     "name": "memory_writer",
     "description": (
-        "Schedule a Memory Writer fork on the live conversation prefix. Use it "
-        "as soon as durable identity, preferences, working feedback, references, "
-        "or project context appears or is corrected. The fork runs in the "
-        "background: it reads both Memory indexes and uses ordinary file tools "
-        "in a restricted Memory workspace to add, update, or delete entries. "
-        "Results are not available in this turn — they appear on the next "
-        "memory prefetch. If nothing durable is worth saving, it makes no file "
-        "changes."
+        "Schedule a Memory Writer fork on the live conversation prefix "
+        "(what to store / not store: Session rules). Runs in the background; "
+        "results appear on the next memory prefetch. No-ops if nothing durable "
+        "is worth saving."
     ),
     "parameters": {
         "type": "object",

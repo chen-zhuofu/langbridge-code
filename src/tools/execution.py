@@ -35,9 +35,12 @@ TOOL_SCHEMAS = [
             "Run a non-interactive shell command under the current workspace "
             "(via bash -c). Use for installs (e.g. uv add pytest), builds, "
             "git (status, log, branch), and one-off scripts. "
-            "Main agent: inspect git state; delegate merges to agent_worker. "
+            "Feature-branch merges use merge_branch (not agent_worker). "
             "Pipes and && are allowed. Prefer write/Edit for file content. "
-            "sudo/su/doas/pkexec are blocked."
+            "sudo/su/doas/pkexec are blocked. Do not run broad destructive "
+            "commands (e.g. rm -rf on home/workspace roots, git reset --hard, "
+            "force-push) unless the user clearly asked for that exact "
+            "operation; if the target or scope is unclear, ask first."
         ),
         "parameters": {
             "type": "object",
