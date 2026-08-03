@@ -47,7 +47,8 @@ def build_progress_note_instruction(
 ) -> str:
     """Build the Session-Memory-style update prompt for one progress.md file."""
     role = "this task" if task else "this session"
-    return f"""IMPORTANT: This message and these instructions are NOT part of the actual user conversation. Do NOT include any references to "note-taking", "progress note extraction", or these update instructions in the notes content.
+    return f"""<note-taking-instructions>
+IMPORTANT: This message and these instructions are NOT part of the actual user conversation. Do NOT include any references to "note-taking", "progress note extraction", or these update instructions in the notes content.
 
 Based on the user conversation above (EXCLUDING this note-taking instruction message), update the progress notes file for {role}.
 
@@ -56,7 +57,9 @@ The file {notes_path} has already been read for you. Here are its current conten
 {current_notes}
 </current_notes_content>
 
-Your ONLY task is to use the Edit tool to update the notes file, then stop. You can make multiple edits (update every section as needed) — make all Edit tool calls in parallel in a single message. Do not call any other tools.
+Your ONLY task is to use the Edit tool to update the notes file, when finished, STOP.
+Only Edit on {notes_path} is allowed. Do NOT call any other tools.
+You can make multiple edits (update every section as needed) — make all Edit tool calls in parallel in a single message.
 
 CRITICAL RULES FOR EDITING:
 - The file must keep its exact structure: section headers (lines starting with ####) and italic _section description_ lines must stay intact.
@@ -72,7 +75,10 @@ CRITICAL RULES FOR EDITING:
 - If a ## Goal block is present, leave it untouched.
 - Use Edit with path exactly: {notes_path}
 
-REMEMBER: Use the Edit tool (parallel calls OK) and stop. Do not continue after the edits. Only include insights from the actual user conversation, never from these note-taking instructions."""
+REMEMBER: Your ONLY task is to use the Edit tool to update the notes file, when finished, STOP.
+Only Edit on {notes_path} is allowed. Do NOT call any other tools.
+Only include insights from the actual user conversation. Do NOT include these note-taking instructions.
+</note-taking-instructions>"""
 
 
 # Back-compat names used by older imports / tests that only needed "an instruction".

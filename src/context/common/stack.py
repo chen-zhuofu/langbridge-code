@@ -5,10 +5,12 @@ Assembled message order:
   <memory>…</memory>            (main agent: prefetched user/project memories)
   [ASSIGNED_TASK] pinned user   (subagents)
   <progress>…</progress>        (main agent: progress.md)
-  <subagent_state>…</subagent_state>  (main agent: live runner + branch registry)
   <skill_index>…</skill_index>  (full skill listing — cleared after compaction)
   <invoked_skills>…</invoked_skills>  (invoked skill bodies re-pinned after compaction)
   …raw rounds (tail)…
+
+``<subagent_state>`` is not a head pin: on each change it is appended as its
+own user-only raw round so the prompt prefix stays cache-stable.
 
 Hyperparameters (settings):
   COMPACT_RAW_KEEP — raw rounds kept verbatim in the tail (default 11 — one
@@ -29,6 +31,7 @@ Flow after each agent step:
 from __future__ import annotations
 
 import copy
+import re
 
 from langbridge_code.context.common.budget import estimate_tokens
 from langbridge_code.context.message import iter_tool_rounds
@@ -46,6 +49,25 @@ PROGRESS_TAG = "progress"
 SUBAGENT_STATE_TAG = "subagent_state"
 SKILL_INDEX_TAG = "skill_index"
 INVOKED_SKILLS_TAG = "invoked_skills"
+# Published when live state clears so the latest tail message is not a stale
+# RUNNING line. Kept out of ``subagent_state_block`` (that field stays None).
+_SUBAGENT_STATE_CLEAR = "No subagent activity to report."
+# Elapsed timers tick every step; ignore them for change detection so we do not
+# flood raw_rounds (and trigger compaction) while the same workers stay running.
+_SUBAGENT_STATE_ELAPSED_RE = re.compile(r"\(elapsed [^)]*\)")
+_HEAD_BLOCK_TAGS = (
+    MEMORY_TAG,
+    PROGRESS_TAG,
+    SKILL_INDEX_TAG,
+    INVOKED_SKILLS_TAG,
+)
+
+
+def _stable_subagent_state(content: str | None) -> str | None:
+    text = (content or "").strip() or None
+    if text is None:
+        return None
+    return _SUBAGENT_STATE_ELAPSED_RE.sub("(elapsed …)", text)
 
 
 def wrap_block(tag: str, content: str) -> str:
@@ -112,9 +134,29 @@ class ContextStack:
     def set_progress_block(self, content: str | None) -> None:
         self._set_block("progress_block", content)
 
-    def set_subagent_state_block(self, content: str | None) -> None:
-        """Live subagent status — refreshed every step from the in-memory runner."""
-        self._set_block("subagent_state_block", content)
+    def set_subagent_state_block(self, content: str | None) -> bool:
+        """Append live subagent status at the tail when it changes.
+
+        Returns True when a new raw round was appended. Unchanged content is a
+        no-op so the prompt prefix stays cache-stable across steps. Elapsed-only
+        timer ticks do not count as a change.
+        """
+        text = (content or "").strip() or None
+        if _stable_subagent_state(text) == _stable_subagent_state(self.subagent_state_block):
+            return False
+        previous = self.subagent_state_block
+        self.subagent_state_block = text
+        if text is None:
+            # Only publish a clear marker when leaving a non-empty state.
+            if previous is None:
+                return False
+            body = _SUBAGENT_STATE_CLEAR
+        else:
+            body = text
+        self.raw_rounds.append(
+            [{"role": "user", "content": wrap_block(SUBAGENT_STATE_TAG, body)}]
+        )
+        return True
 
     def set_skill_index_block(self, content: str | None) -> None:
         self._set_block("skill_index_block", content)
@@ -153,6 +195,7 @@ class ContextStack:
             self.system_content = str(messages[0].get("content", ""))
             index = 1
 
+        legacy_subagent_state: str | None = None
         while index < len(messages):
             message = messages[index]
             if message.get("role") != "user" or message.get("type"):
@@ -165,13 +208,20 @@ class ContextStack:
             if content.startswith(_LEGACY_COMPACT_PREFIX):
                 index += 1
                 continue
+            legacy_body = unwrap_block(SUBAGENT_STATE_TAG, content)
+            if legacy_body is not None:
+                # Old sessions pinned this at the head; migrate to a tail round.
+                legacy_subagent_state = legacy_body.strip() or None
+                index += 1
+                continue
             if self._absorb_block_message(content):
                 index += 1
                 continue
             break
 
         pending_user: str | None = None
-        index = 0
+        # Continue after head pins so mid-transcript <subagent_state> appends
+        # are kept as real user rounds (not re-skipped as head blocks).
         while index < len(messages):
             message = messages[index]
             if message.get("role") == "user" and not message.get("type"):
@@ -182,18 +232,19 @@ class ContextStack:
                 if content.startswith(_LEGACY_COMPACT_PREFIX):
                     index += 1
                     continue
-                if any(
-                    content.startswith(f"<{tag}>")
-                    for tag in (
-                        MEMORY_TAG,
-                        PROGRESS_TAG,
-                        SUBAGENT_STATE_TAG,
-                        SKILL_INDEX_TAG,
-                        INVOKED_SKILLS_TAG,
-                    )
-                ):
+                if any(content.startswith(f"<{tag}>") for tag in _HEAD_BLOCK_TAGS):
                     index += 1
                     continue
+                state_body = unwrap_block(SUBAGENT_STATE_TAG, content)
+                if state_body is not None:
+                    stripped = state_body.strip()
+                    if not stripped or stripped == _SUBAGENT_STATE_CLEAR:
+                        self.subagent_state_block = None
+                    else:
+                        self.subagent_state_block = stripped
+                if pending_user is not None:
+                    # Consecutive user-only updates (e.g. state appends).
+                    self.raw_rounds.append([{"role": "user", "content": pending_user}])
                 pending_user = content
                 index += 1
                 continue
@@ -221,11 +272,36 @@ class ContextStack:
         if pending_user is not None:
             self._pending_user = pending_user
 
+        self._materialize_legacy_head_subagent_state(legacy_subagent_state)
+
+    def _materialize_legacy_head_subagent_state(self, body: str | None) -> None:
+        """Move a resumed head-pinned <subagent_state> into a tail raw round."""
+        if self._latest_subagent_state_body() is not None:
+            return
+        text = (body or "").strip()
+        if not text:
+            return
+        self.subagent_state_block = None
+        self.set_subagent_state_block(text)
+
+    def _latest_subagent_state_body(self) -> str | None:
+        for round_messages in reversed(self.raw_rounds):
+            for message in reversed(round_messages):
+                if message.get("role") != "user" or message.get("type"):
+                    continue
+                body = unwrap_block(SUBAGENT_STATE_TAG, str(message.get("content", "")))
+                if body is not None:
+                    return body or None
+        if self._pending_user is not None:
+            body = unwrap_block(SUBAGENT_STATE_TAG, self._pending_user)
+            if body is not None:
+                return body or None
+        return None
+
     def _absorb_block_message(self, content: str) -> bool:
         for tag, attr in (
             (MEMORY_TAG, "memory_block"),
             (PROGRESS_TAG, "progress_block"),
-            (SUBAGENT_STATE_TAG, "subagent_state_block"),
             (SKILL_INDEX_TAG, "skill_index_block"),
             (INVOKED_SKILLS_TAG, "invoked_skills_block"),
         ):
@@ -290,10 +366,7 @@ class ContextStack:
         # note_progress overrides the file but does not rewrite this block.
         if self.progress_block:
             messages.append({"role": "user", "content": wrap_block(PROGRESS_TAG, self.progress_block)})
-        if self.subagent_state_block:
-            messages.append(
-                {"role": "user", "content": wrap_block(SUBAGENT_STATE_TAG, self.subagent_state_block)}
-            )
+        # <subagent_state> is append-on-change inside raw_rounds (cache-stable).
         if self.skill_index_block:
             messages.append(
                 {"role": "user", "content": wrap_block(SKILL_INDEX_TAG, self.skill_index_block)}
@@ -343,4 +416,15 @@ class ContextStack:
             return False
         self.raw_rounds = self.raw_rounds[drop_count:]
         self.dropped_round_count += drop_count
+        self._republish_subagent_state_after_compact()
         return True
+
+    def _republish_subagent_state_after_compact(self) -> None:
+        """Re-append current state when compaction dropped the latest update."""
+        text = self.subagent_state_block
+        if not text:
+            return
+        if self._latest_subagent_state_body() is not None:
+            return
+        self.subagent_state_block = None
+        self.set_subagent_state_block(text)

@@ -359,7 +359,7 @@ def test_subagent_state_block_shows_running_worker_during_send(tmp_path, monkeyp
     monkeypatch.setattr("langbridge_code.agents.main_agent.write_worklog_finish", lambda *a, **k: None)
     monkeypatch.setattr("langbridge_code.agents.main_agent.write_worklog_observation", lambda *a, **k: None)
 
-    def _pinned_subagent_state(messages):
+    def _subagent_state_messages(messages):
         return [
             str(message.get("content", ""))
             for message in messages
@@ -371,9 +371,9 @@ def test_subagent_state_block_shows_running_worker_during_send(tmp_path, monkeyp
         nonlocal model_round
         model_round += 1
         current_messages = kwargs.get("messages") or args[2]
-        pinned = _pinned_subagent_state(current_messages)
+        states = _subagent_state_messages(current_messages)
         if model_round == 1:
-            assert pinned == []
+            assert states == []
             return {
                 "output": [
                     {
@@ -391,9 +391,9 @@ def test_subagent_state_block_shows_running_worker_during_send(tmp_path, monkeyp
                 ]
             }
         if model_round == 2:
-            # The worker is still pending: the live block must say RUNNING.
-            assert pinned
-            assert "RUNNING: agent_worker 'task-slow'" in pinned[0]
+            # The worker is still pending: the latest tail update must say RUNNING.
+            assert states
+            assert "RUNNING: agent_worker 'task-slow'" in states[-1]
             release_slow.set()
             return {
                 "output": [
@@ -403,8 +403,10 @@ def test_subagent_state_block_shows_running_worker_during_send(tmp_path, monkeyp
                     }
                 ]
             }
-        # After the worker completed, no RUNNING line remains.
-        assert all("RUNNING: agent_worker" not in block for block in pinned)
+        # After the worker completed, the latest update must not claim RUNNING.
+        # Older appends may still mention it (prefix-cache friendly history).
+        assert states
+        assert "RUNNING: agent_worker" not in states[-1]
         return {
             "output": [
                 {

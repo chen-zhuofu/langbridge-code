@@ -1,4 +1,5 @@
 import re
+import sys
 from pathlib import Path
 
 SKILLS_DIR = Path(__file__).resolve().parent
@@ -377,13 +378,46 @@ def substitute_arguments(content: str, args: str | None, *, append_if_no_placeho
     return content
 
 
-def format_skill_slash_turn(name: str, body: str, args: str = "") -> str:
+def resolve_skill_dir(name: str, *, role: str = "langbridge") -> Path | None:
+    """Absolute skill directory for ``name`` under ``skills/<role>/``, if present."""
+    skill_name = (name or "").strip().strip("/").split("/", 1)[0]
+    if not skill_name or ".." in skill_name or "/" in skill_name:
+        return None
+    path = SKILLS_DIR / role / skill_name
+    if (path / "SKILL.md").exists():
+        return path.resolve()
+    return None
+
+
+def format_skill_runtime_env(name: str, *, role: str = "langbridge") -> str:
+    """Concrete SKILL_ROOT + PYTHON for slash turns (no agent rediscovery)."""
+    root = resolve_skill_dir(name, role=role)
+    if root is None:
+        return ""
+    return (
+        "## LangBridge runtime (injected — do not rediscover)\n\n"
+        f"- `SKILL_ROOT={root}`\n"
+        f"- `PYTHON={sys.executable}`\n"
+        "- Run skill scripts as: "
+        "`\"$PYTHON\" \"$SKILL_ROOT/scripts/<script>.py\" ...`\n"
+        "- Workspace cwd is usually a different project; do not assume it is "
+        "the skill root.\n"
+        "- Do not use bare `python3`, and do not search for the skill directory.\n"
+    )
+
+
+def format_skill_slash_turn(
+    name: str, body: str, args: str = "", *, role: str = "langbridge"
+) -> str:
     """Build the user-turn content for a slash-invoked skill."""
     filled = substitute_arguments(body, args if args else "")
-    return (
-        f"The user invoked the /{name} skill via slash command. Follow this skill now.\n\n"
-        f'<skill name="{name}">\n{filled}\n</skill>'
+    runtime = format_skill_runtime_env(name, role=role)
+    header = (
+        f"The user invoked the /{name} skill via slash command. Follow this skill now."
     )
+    if runtime:
+        header = f"{header}\n\n{runtime.rstrip()}"
+    return f"{header}\n\n<skill name=\"{name}\">\n{filled}\n</skill>"
 
 
 def resolve_skill_slash(text: str):
@@ -403,7 +437,7 @@ def resolve_skill_slash(text: str):
         body = load_skill(name, role="langbridge")
     except FileNotFoundError:
         return "unknown", name
-    return "expanded", format_skill_slash_turn(name, body, args)
+    return "expanded", format_skill_slash_turn(name, body, args, role="langbridge")
 
 
 def expand_skill_slash(text: str) -> str:

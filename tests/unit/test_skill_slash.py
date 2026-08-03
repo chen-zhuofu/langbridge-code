@@ -1,9 +1,13 @@
+import sys
+
 import pytest
 
 from langbridge_code.skills import (
+    SKILLS_DIR,
     expand_skill_slash,
     format_skill_slash_turn,
     parse_skill_slash,
+    resolve_skill_dir,
     resolve_skill_slash,
     substitute_arguments,
 )
@@ -41,6 +45,17 @@ def test_resolve_expanded_known_skill():
     assert '<skill name="grilling">' in content
     assert "Interview me relentlessly" in content
     assert "ARGUMENTS: stress-test the API plan" in content
+    grilling_root = (SKILLS_DIR / "langbridge" / "grilling").resolve()
+    assert f"SKILL_ROOT={grilling_root}" in content
+    assert f"PYTHON={sys.executable}" in content
+    assert "do not rediscover" in content
+
+
+def test_resolve_skill_dir_for_known_skill():
+    root = resolve_skill_dir("grilling", role="langbridge")
+    assert root is not None
+    assert (root / "SKILL.md").is_file()
+    assert root == (SKILLS_DIR / "langbridge" / "grilling").resolve()
 
 
 def test_resolve_unknown_skill():
@@ -62,3 +77,5 @@ def test_format_skill_slash_turn_with_arguments_placeholder():
     out = format_skill_slash_turn("demo", body, "one two")
     assert "Run with one two." in out
     assert "ARGUMENTS:" not in out
+    # Unknown skill name: no on-disk dir → no runtime injection.
+    assert "SKILL_ROOT=" not in out

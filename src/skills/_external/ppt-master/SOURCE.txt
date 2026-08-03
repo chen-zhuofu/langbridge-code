@@ -1,2 +1,0 @@
-Upstream: https://github.com/hugohe3/ppt-master
-Path: skills/ppt-master

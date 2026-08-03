@@ -314,19 +314,18 @@ class MainAgentSession:
         self._refresh_subagent_state_block(None)
 
     def _refresh_subagent_state_block(self, background_runner) -> None:
-        """Publish live runner + registry state; the runner is the liveness truth."""
+        """Append live runner + registry state at the tail when it changes."""
         pending = background_runner.pending_calls() if background_runner else []
         with self._context_lock:
             stack = self.context.stack
-            before = stack.subagent_state_block
-            stack.set_subagent_state_block(
+            changed = stack.set_subagent_state_block(
                 worktree_mod.build_subagent_state(
                     pending, worktree_mod.registry_snapshot(self.run_log_path)
                 )
             )
-            # Setting a block only mutates the stack; rebuild self.messages so
-            # the very next model call sees the fresh state.
-            if stack.subagent_state_block != before:
+            # Append-on-change only mutates the stack; rebuild self.messages so
+            # the very next model call sees the fresh tail update.
+            if changed:
                 self.context.sync()
 
     def _refresh_memory_and_progress_blocks(self, task="", *, include_traces=False):

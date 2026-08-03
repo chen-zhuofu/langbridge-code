@@ -140,24 +140,34 @@ def test_bootstrap_preserves_trailing_user_message(stack):
     )
 
 
-def test_subagent_state_block_renders_and_refreshes(stack):
-    stack.set_subagent_state_block("- RUNNING: agent_worker 'task-1'")
+def test_subagent_state_appends_on_change_not_head_pin(stack):
+    stack.set_progress_block("session progress")
+    assert stack.set_subagent_state_block("- RUNNING: agent_worker 'task-1'")
     stack.start_turn("go")
     stack.complete_step(_tool_step("c0", "grep", "one"))
 
-    rendered = [m["content"] for m in stack.to_messages() if m.get("role") == "user"]
-    assert any(
-        c.startswith("<subagent_state>") and "task-1" in c for c in rendered
-    )
+    contents = [str(m.get("content", "")) for m in stack.to_messages()]
+    progress_i = next(i for i, c in enumerate(contents) if c.startswith("<progress>"))
+    state_i = next(i for i, c in enumerate(contents) if c.startswith("<subagent_state>"))
+    # Appended in raw rounds, after durable head pins — not rewritten into the head.
+    assert state_i > progress_i
+    assert any(c.startswith("<subagent_state>") and "task-1" in c for c in contents)
+    assert stack.set_subagent_state_block("- RUNNING: agent_worker 'task-1'") is False
 
-    stack.set_subagent_state_block(None)
-    assert not any(
-        str(m.get("content", "")).startswith("<subagent_state>")
+    assert stack.set_subagent_state_block(None)
+    state_msgs = [
+        str(m.get("content", ""))
         for m in stack.to_messages()
-    )
+        if str(m.get("content", "")).startswith("<subagent_state>")
+    ]
+    # History stays (prefix-cache friendly); latest update clears RUNNING.
+    assert len(state_msgs) >= 2
+    assert "task-1" in state_msgs[0]
+    assert "No subagent activity to report." in state_msgs[-1]
+    assert stack.subagent_state_block is None
 
 
-def test_bootstrap_absorbs_subagent_state_block(stack):
+def test_bootstrap_migrates_legacy_head_subagent_state(stack):
     messages = [
         {"role": "system", "content": "system prompt"},
         {"role": "user", "content": "<subagent_state>\n- No subagent is running\n</subagent_state>"},
@@ -166,7 +176,43 @@ def test_bootstrap_absorbs_subagent_state_block(stack):
     ]
     stack.bootstrap_from_messages(messages)
     assert stack.subagent_state_block == "- No subagent is running"
-    assert len(stack.raw_rounds) == 1
+    # Legacy head pin becomes a tail raw round after the tool round.
+    assert len(stack.raw_rounds) == 2
+    assert any(
+        str(m.get("content", "")).startswith("<subagent_state>")
+        for m in stack.to_messages()
+    )
+
+
+def test_subagent_state_ignores_elapsed_only_changes(stack):
+    assert stack.set_subagent_state_block(
+        "- RUNNING: agent_worker 'task-1' (elapsed 1s); still going"
+    )
+    assert (
+        stack.set_subagent_state_block(
+            "- RUNNING: agent_worker 'task-1' (elapsed 12s); still going"
+        )
+        is False
+    )
+    assert stack.subagent_state_block.endswith("(elapsed 1s); still going")
+
+
+def test_bootstrap_keeps_appended_subagent_state_rounds(stack):
+    messages = [
+        {"role": "system", "content": "system prompt"},
+        {"role": "user", "content": "task"},
+        *_tool_step("c0", "grep", "one"),
+        {
+            "role": "user",
+            "content": "<subagent_state>\n- RUNNING: agent_worker 'task-1'\n</subagent_state>",
+        },
+    ]
+    stack.bootstrap_from_messages(messages)
+    assert stack.subagent_state_block == "- RUNNING: agent_worker 'task-1'"
+    assert any(
+        str(m.get("content", "")).startswith("<subagent_state>") and "task-1" in str(m.get("content", ""))
+        for m in stack.to_messages()
+    )
 
 
 def test_agent_context_manager_mutates_in_place():
