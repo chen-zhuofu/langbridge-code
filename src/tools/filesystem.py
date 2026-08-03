@@ -391,10 +391,7 @@ def read_file(path, offset=None, limit=None, start_line=None, end_line=None, fun
         effective_limit = MAX_LINES_TO_READ
 
     line_offset = 0 if int(effective_offset) == 0 else int(effective_offset) - 1
-    # When a line limit applies (default 2000), return that window — do not reject
-    # the whole file for exceeding MAX_FILE_BYTES. Only unbounded reads keep the
-    # byte cap (file already on disk; no spill needed).
-    max_bytes = MAX_FILE_BYTES if effective_limit is None else None
+    max_bytes = None if partial_read else MAX_FILE_BYTES
 
     try:
         result = read_file_in_range(target, line_offset, effective_limit, max_bytes)
@@ -414,16 +411,7 @@ def read_file(path, offset=None, limit=None, start_line=None, end_line=None, fun
     numbered = add_line_numbers(result.content, int(effective_offset))
     end_line_no = int(effective_offset) + max(result.line_count - 1, 0)
     header = f"# {path} lines {effective_offset}-{end_line_no} ({result.total_lines} lines total)"
-    body = f"{header}\n{numbered}"
-    if end_line_no < result.total_lines:
-        next_offset = end_line_no + 1
-        body += (
-            f"\n\n<system-reminder>Stopped at line {end_line_no} of "
-            f"{result.total_lines}. File path: {path} (absolute: {target}). "
-            f"Continue with offset={next_offset} and limit "
-            f"(default max {MAX_LINES_TO_READ} lines per call).</system-reminder>"
-        )
-    return body
+    return f"{header}\n{numbered}"
 
 
 def _format_function_excerpt(path, text, function_name):
