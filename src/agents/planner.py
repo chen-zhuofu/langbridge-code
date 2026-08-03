@@ -283,6 +283,9 @@ class PlannerSession:
             arguments = without_description(json.loads(call.get("arguments") or "{}"), name)
             if name not in self.tools:
                 raise ValueError(f"Unknown planner tool: {name}")
+            from langbridge_code.tools.execution import attach_run_log_path
+
+            attach_run_log_path(name, arguments, self.run_log_path)
             output = self.tools[name](**arguments)
         except Exception as error:
             output = f"Tool error: {error}"

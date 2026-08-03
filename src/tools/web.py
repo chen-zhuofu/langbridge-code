@@ -29,7 +29,11 @@ TOOL_SCHEMAS = [
         "description": (
             "Fetch a web page over HTTP(S) and return its readable text content "
             "(HTML stripped to plain text). Use it to read documentation, issues, "
-            "or articles. Returns JSON with the page title and text."
+            "or articles. Returns JSON with the page title and text. "
+            "Oversized page text is saved in full under the session "
+            "attachments/; the tool result only keeps a short head preview "
+            "plus the absolute path — use read_file with offset/limit when "
+            "you need more."
         ),
         "parameters": {
             "type": "object",
@@ -41,7 +45,10 @@ TOOL_SCHEMAS = [
                 },
                 "max_chars": {
                     "type": "integer",
-                    "description": "Maximum characters of text to return before truncating.",
+                    "description": (
+                        "Inline character budget before spilling the full page "
+                        "text to a readable attachment (preview + path)."
+                    ),
                     "default": MAX_WEBPAGE_CHARS,
                 },
                 "timeout_seconds": {
@@ -68,7 +75,14 @@ def tool(name):
 
 
 @tool("read_webpage")
-def read_webpage(url, max_chars=MAX_WEBPAGE_CHARS, timeout_seconds=DEFAULT_WEB_TIMEOUT_SECONDS):
+def read_webpage(
+    url,
+    max_chars=MAX_WEBPAGE_CHARS,
+    timeout_seconds=DEFAULT_WEB_TIMEOUT_SECONDS,
+    run_log_path=None,
+):
+    from langbridge_code.tools.execution import prepare_tool_output
+
     url = validate_url(url)
     limit = max(1, int(max_chars))
     timeout = max(1, min(int(timeout_seconds), MAX_WEB_TIMEOUT_SECONDS))
@@ -88,20 +102,24 @@ def read_webpage(url, max_chars=MAX_WEBPAGE_CHARS, timeout_seconds=DEFAULT_WEB_T
     else:
         body = f"[non-text content: {content_type or 'unknown'}; cannot read as a web page]"
 
-    text, truncated = truncate(body, limit)
-    return json.dumps(
-        {
-            "url": url,
-            "final_url": str(response.url),
-            "status_code": response.status_code,
-            "content_type": content_type,
-            "title": title,
-            "truncated": truncated,
-            "text": text,
-        },
-        ensure_ascii=False,
-        indent=2,
+    text, truncated, output_path = prepare_tool_output(
+        body,
+        run_log_path=run_log_path,
+        max_chars=limit,
+        kind="webpage",
     )
+    payload = {
+        "url": url,
+        "final_url": str(response.url),
+        "status_code": response.status_code,
+        "content_type": content_type,
+        "title": title,
+        "truncated": truncated,
+        "text": text,
+    }
+    if output_path is not None:
+        payload["output_path"] = str(output_path)
+    return json.dumps(payload, ensure_ascii=False, indent=2)
 
 
 def validate_url(url):

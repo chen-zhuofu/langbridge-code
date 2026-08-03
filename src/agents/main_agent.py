@@ -681,6 +681,9 @@ class MainAgentSession:
                     raise PermissionError(f"{name} was not approved ({risk})")
                 if name == "merge_branch":
                     arguments["run_log_path"] = self.run_log_path
+                from langbridge_code.tools.execution import attach_run_log_path
+
+                attach_run_log_path(name, arguments, self.run_log_path)
                 plan_target = (
                     artifact_plan_path(self.run_log_path)
                     if name in PLAN_FILE_TOOL_NAMES

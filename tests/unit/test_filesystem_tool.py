@@ -137,6 +137,28 @@ def test_read_file_large_file_offset(isolated_workspace):
     assert "_calculate_separability_matrix" in output
 
 
+def test_read_file_default_window_on_byte_huge_file(isolated_workspace, monkeypatch):
+    """Default read returns the first line window even when the whole file is huge."""
+    from langbridge_code.tools import filesystem as filesystem_mod
+
+    monkeypatch.setattr(filesystem_mod, "MAX_LINES_TO_READ", 10)
+    payload = "\n".join(f"line {index}" for index in range(1, 501)) + "\n"
+    assert len(payload.encode("utf-8")) > 1000
+    monkeypatch.setattr(filesystem_mod, "MAX_FILE_BYTES", 1000)
+    (isolated_workspace / "huge.txt").write_text(payload, encoding="utf-8")
+
+    output = read_file("huge.txt")
+
+    assert "# huge.txt lines 1-10 (500 lines total)" in output
+    assert "1\tline 1" in output
+    assert "10\tline 10" in output
+    assert "11\tline 11" not in output
+    assert "Stopped at line 10 of 500" in output
+    assert "offset=11" in output
+    assert "File path: huge.txt" in output
+    assert "absolute:" in output
+
+
 def test_read_file_by_function_name(isolated_workspace):
     (isolated_workspace / "sample.py").write_text(
         "def helper():\n    return 1\n\ndef target():\n    x = 2\n    return x\n",

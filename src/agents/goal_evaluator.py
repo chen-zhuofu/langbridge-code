@@ -136,6 +136,9 @@ class GoalEvaluatorAgent:
             elif name not in GOAL_VERIFICATION_TOOLS:
                 raise ValueError(f"Unknown evaluator tool: {name}")
             else:
+                from langbridge_code.tools.execution import attach_run_log_path
+
+                attach_run_log_path(name, arguments, self.run_log_path)
                 with plan_file_scope(artifact_plan_path(self.run_log_path)):
                     output = GOAL_VERIFICATION_TOOLS[name](**arguments)
         except Exception as error:
