@@ -699,6 +699,8 @@ class ReviewerSession(MemoryPhaseMixin):
         )
         self._init_memory_phase_state()
         if self.task_progress.enabled:
+            self.tools["note_progress"] = self.task_progress.write_note
+            self.tool_schemas.append(TASK_NOTE_PROGRESS_TOOL_SCHEMA)
             self.task_progress.attach(
                 self.context.stack, self.messages, self.tool_schemas
             )
@@ -809,6 +811,7 @@ class ReviewerSession(MemoryPhaseMixin):
             )
         self.step += 1
         finish_step(self.context, step_items, self, budget)
+        self.task_progress.maybe_force_write(self.context)
         self._publish_foreground()
         return StepOutcome.TOOL, None
 
@@ -1054,31 +1057,70 @@ def run_worker_reviewer_loop(
     base_snapshot=None,
 ) -> tuple[bool, str]:
     """One loop from LangBridge: worker until ready → reviewer → repeat; shared step budget."""
+    from langbridge_code.agents.common.workspace import (
+        configure_agent_artifacts,
+        get_agent_artifact_state,
+        set_agent_artifact_state,
+    )
+
+    parent_artifacts = get_agent_artifact_state()
     normalized = normalize_task_type(task_type)
     git_root = _git_cwd(cwd)
     snapshot = base_snapshot or snapshot_head(git_root)
     locked_approval = _locked_approval(approval_callback)
-    worker = new_worker_session(
-        api_key,
-        model,
-        task_type=normalized,
-        trace_sink=trace_sink,
-        approval_callback=locked_approval,
-        run_log_path=run_log_path,
-        turn_id=turn_id,
-        phase_sink=phase_sink,
-        task_name=task_name,
-    )
-    reviewer = new_reviewer_session(
-        api_key,
-        model_for_agent("reviewer", model),
-        task_type=normalized,
-        trace_sink=trace_sink,
-        run_log_path=run_log_path,
-        turn_id=turn_id,
-        phase_sink=phase_sink,
-        task_name=task_name,
-    )
+    try:
+        worker = new_worker_session(
+            api_key,
+            model,
+            task_type=normalized,
+            trace_sink=trace_sink,
+            approval_callback=locked_approval,
+            run_log_path=run_log_path,
+            turn_id=turn_id,
+            phase_sink=phase_sink,
+            task_name=task_name,
+        )
+        reviewer = new_reviewer_session(
+            api_key,
+            model_for_agent("reviewer", model),
+            task_type=normalized,
+            trace_sink=trace_sink,
+            run_log_path=run_log_path,
+            turn_id=turn_id,
+            phase_sink=phase_sink,
+            task_name=task_name,
+        )
+        return _run_worker_reviewer_loop_body(
+            worker=worker,
+            reviewer=reviewer,
+            task=task,
+            context=context,
+            normalized=normalized,
+            git_root=git_root,
+            snapshot=snapshot,
+            run_log_path=run_log_path,
+            phase_sink=phase_sink,
+            task_name=task_name,
+        )
+    finally:
+        set_agent_artifact_state(parent_artifacts)
+
+
+def _run_worker_reviewer_loop_body(
+    *,
+    worker,
+    reviewer,
+    task,
+    context,
+    normalized,
+    git_root,
+    snapshot,
+    run_log_path,
+    phase_sink,
+    task_name,
+) -> tuple[bool, str]:
+    from langbridge_code.agents.common.workspace import configure_agent_artifacts
+
     loop_budget = WorkerReviewerLoopBudget(max_steps=MAX_WORKER_REVIEWER_STEPS)
     phase = "worker"
     feedback = ""
@@ -1090,6 +1132,9 @@ def run_worker_reviewer_loop(
 
     while loop_budget.steps_left() > 0 and not loop_budget.timed_out():
         if phase == "worker":
+            configure_agent_artifacts(
+                run_log_path, label="Worker", task_name=task_name
+            )
             if not worker_phase_open:
                 worker.begin_send(
                     worker_user_prompt(task, context if not feedback else "", feedback),
@@ -1134,6 +1179,9 @@ def run_worker_reviewer_loop(
             continue
 
         if phase == "reviewer":
+            configure_agent_artifacts(
+                run_log_path, label="Reviewer", task_name=task_name
+            )
             if not reviewer_phase_open:
                 emit_phase(phase_sink, "reviewing")
                 diff = git_diff_since(snapshot, git_root)

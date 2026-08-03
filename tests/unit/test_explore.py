@@ -29,14 +29,12 @@ def test_read_only_bash_rejects_write_commands(monkeypatch):
         read_only_bash(command="rm -rf /tmp/x")
 
 
-def test_explorer_prompt_requires_structured_report_sections():
-    assert "## Findings" in EXPLORER_PROMPT
-    assert "## Answer" in EXPLORER_PROMPT
-    assert "## Open questions" in EXPLORER_PROMPT
-    assert "path:line" in EXPLORER_PROMPT
+def test_explorer_prompt_is_read_only_and_evidence_based():
     assert "READ-ONLY MODE" in EXPLORER_PROMPT
+    assert "path:line" in EXPLORER_PROMPT
     assert "read_webpage" in EXPLORER_PROMPT
     assert "read-only" in EXPLORER_PROMPT.lower()
+    assert "note_progress" in EXPLORER_PROMPT
     assert "Systematic debugging" not in EXPLORER_PROMPT
 
 
@@ -92,16 +90,21 @@ def test_format_explore_output_truncates_without_report_path():
     assert len(output) < EXPLORE_REPORT_MAX_CHARS + 200
 
 
-def test_write_report_copy_saves_next_to_trace(tmp_path):
-    trace = tmp_path / "explore-auth-flow" / "explore-1.md"
-    trace.parent.mkdir(parents=True)
-    dest = write_report_copy(trace, 1, "## Answer\nfindings")
-    assert dest == trace.parent / "report-1.md"
+def test_write_report_copy_saves_under_explorer_reports(tmp_path):
+    dest = write_report_copy(tmp_path, "explore-auth-flow", 1, "## Answer\nfindings")
+    assert dest == (
+        tmp_path
+        / "tasks"
+        / "explore-auth-flow"
+        / "explorer"
+        / "reports"
+        / "report-1.md"
+    )
     assert dest.read_text(encoding="utf-8") == "## Answer\nfindings"
 
-    # No trace dir (run without task_name) or empty report: no-op, no crash.
-    assert write_report_copy(None, None, "## Answer") is None
-    assert write_report_copy(trace, 1, "   ") is None
+    # Missing session/task or empty report: no-op, no crash.
+    assert write_report_copy(None, "t", 1, "## Answer") is None
+    assert write_report_copy(tmp_path, "explore-auth-flow", 1, "   ") is None
 
 
 def test_format_explore_output_preview_cuts_at_newline(tmp_path):
@@ -187,6 +190,7 @@ def test_explore_budget_stop_falls_back_to_progress_notes(monkeypatch, tmp_path)
         session_dir,
         "# Session progress\n\n#### Key discoveries\n- saw foo.py:9\n",
         "explore-auth",
+        role="Explore",
     )
 
     def boom(*a, **k):
@@ -207,24 +211,37 @@ def test_explore_budget_stop_falls_back_to_progress_notes(monkeypatch, tmp_path)
     assert "## Progress notes so far" in report
 
 
-def test_read_file_follows_registered_session_report(tmp_path):
-    from langbridge_code.agents.common.workspace import add_readable_root
+def test_read_file_follows_main_readable_explorer_report(tmp_path):
+    from langbridge_code.agents.common.workspace import configure_agent_artifacts
     from langbridge_code.tools.filesystem import read_file, write
 
     session_dir = tmp_path / "session"
-    report = session_dir / "explore-auth-flow" / "report-1.md"
+    report = (
+        session_dir
+        / "tasks"
+        / "explore-auth-flow"
+        / "explorer"
+        / "reports"
+        / "report-1.md"
+    )
     report.parent.mkdir(parents=True)
     report.write_text("## Answer\nfindings\n", encoding="utf-8")
+    traces = session_dir / "traces.md"
+    traces.write_text("# Session traces\nsecret\n", encoding="utf-8")
 
     workspace = tmp_path / "repo"
     workspace.mkdir()
     with workspace_scope(workspace):
-        # Unregistered absolute paths outside the workspace stay blocked.
+        # Without agent ACL, absolute paths outside the workspace stay blocked.
         with pytest.raises(ValueError):
             read_file(str(report))
 
-        add_readable_root(session_dir)
+        configure_agent_artifacts(session_dir, label="LangBridge")
         assert "findings" in read_file(str(report))
+
+        # Engine-only logs stay denied even for main.
+        with pytest.raises(ValueError):
+            read_file(str(traces))
 
         # The carve-out is read-only: writes must still be refused.
         with pytest.raises(ValueError):

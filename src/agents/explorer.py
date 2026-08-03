@@ -189,16 +189,21 @@ EXPLORE_REPORT_MAX_CHARS = 50_000
 EXPLORE_REPORT_PREVIEW_CHARS = 2_000
 
 
-def write_report_copy(trace_path, instance_id, report) -> Path | None:
-    """Save the final report next to the trace (report-<n>.md); return its path.
+def write_report_copy(run_log_path, task_name, instance_id, report) -> Path | None:
+    """Save the final report under explorer/reports/ for main to read_file.
 
-    The session artifact dir is registered as a readable root, so agents can
-    follow this absolute path with read_file when the inline result overflows.
+    Explorer itself does not get this path in its readable roots — only main
+    may follow the absolute path when the inline result overflows.
     """
-    if trace_path is None or not (report or "").strip():
+    from langbridge_code.util.artifacts import explorer_report_path
+
+    if not (report or "").strip() or instance_id is None:
         return None
-    dest = Path(trace_path).with_name(f"report-{instance_id}.md")
+    dest = explorer_report_path(run_log_path, task_name, instance_id)
+    if dest is None:
+        return None
     try:
+        dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_text(report, encoding="utf-8")
     except OSError:
         return None
@@ -252,18 +257,21 @@ def run_explore(
     task_name="",
 ) -> tuple[str, Path | None]:
     """Run one explore dispatch; return (report, persisted report path or None)."""
-    session = ExploreSession(
-        api_key,
-        model,
-        EXPLORE_TOOL_SCHEMAS,
-        EXPLORE_TOOLS,
-        trace_sink=trace_sink,
-        run_log_path=run_log_path,
-        turn_id=turn_id,
-        task_name=task_name,
-    )
-    report = session.send(build_explore_prompt(prompt, thoroughness=thoroughness))
-    return report, session.report_path
+    from langbridge_code.agents.common.workspace import nested_agent_artifacts
+
+    with nested_agent_artifacts(run_log_path, label="Explore", task_name=task_name):
+        session = ExploreSession(
+            api_key,
+            model,
+            EXPLORE_TOOL_SCHEMAS,
+            EXPLORE_TOOLS,
+            trace_sink=trace_sink,
+            run_log_path=run_log_path,
+            turn_id=turn_id,
+            task_name=task_name,
+        )
+        report = session.send(build_explore_prompt(prompt, thoroughness=thoroughness))
+        return report, session.report_path
 
 
 class ExploreSession:
@@ -451,7 +459,11 @@ class ExploreSession:
             return ""
         from langbridge_code.util.progress import PROGRESS_HEADER, read_progress
 
-        content = read_progress(self.run_log_path, self.task_progress.task_name).strip()
+        content = read_progress(
+            self.run_log_path,
+            self.task_progress.task_name,
+            role=self.label,
+        ).strip()
         if not content or content == PROGRESS_HEADER.strip():
             return ""
         return content
@@ -459,7 +471,8 @@ class ExploreSession:
     def _finish(self, report):
         write_worklog_finish(self.run_log_path, self.label, self.worklog_id, self.turn_id, report)
         self.report_path = write_report_copy(
-            self.context.agent_trace_path,
+            self.run_log_path,
+            self.task_progress.task_name,
             self.context.agent_trace_instance_id,
             report,
         )

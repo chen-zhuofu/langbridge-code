@@ -33,17 +33,27 @@ class GoalBlock:
     next_step: str = ""
 
 
-def progress_path(run_log_path, task_name: str | None = None):
-    """Session progress.md, or the per-task file when task_name is given."""
+def progress_path(
+    run_log_path,
+    task_name: str | None = None,
+    role: str | None = None,
+):
+    """Session progress.md, or the per-task/per-role file when task_name is given."""
     if task_name:
-        return artifact_task_progress_path(run_log_path, task_name)
+        return artifact_task_progress_path(
+            run_log_path, task_name, role=role or "Worker"
+        )
     return artifact_progress_path(run_log_path)
 
 
-def read_progress(run_log_path, task_name: str | None = None) -> str:
+def read_progress(
+    run_log_path,
+    task_name: str | None = None,
+    role: str | None = None,
+) -> str:
     if not run_log_path:
         return ""
-    path = progress_path(run_log_path, task_name)
+    path = progress_path(run_log_path, task_name, role=role)
     if path is None or not path.exists():
         return ""
     return path.read_text(encoding="utf-8")
@@ -54,6 +64,7 @@ def clip_progress_for_context(
     *,
     run_log_path,
     task_name: str | None = None,
+    role: str | None = None,
     max_tokens: int = PROGRESS_CONTEXT_MAX_TOKENS,
 ) -> str:
     """Truncate progress text before pinning it into ``<progress>``.
@@ -68,7 +79,7 @@ def clip_progress_for_context(
         return ""
     if max_tokens <= 0 or estimate_tokens(text) <= max_tokens:
         return text
-    path = progress_path(run_log_path, task_name)
+    path = progress_path(run_log_path, task_name, role=role)
     path_label = str(path.resolve()) if path is not None else "progress.md"
     notice = (
         f"\n\n[progress truncated for context — kept the first ~{max_tokens} tokens; "
@@ -90,8 +101,13 @@ def clip_progress_for_context(
     return clipped + notice
 
 
-def write_progress(run_log_path, content: str, task_name: str | None = None) -> None:
-    path = progress_path(run_log_path, task_name)
+def write_progress(
+    run_log_path,
+    content: str,
+    task_name: str | None = None,
+    role: str | None = None,
+) -> None:
+    path = progress_path(run_log_path, task_name, role=role)
     if path is None:
         return
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -203,6 +219,7 @@ def remove_goal_block(run_log_path) -> None:
 def ensure_progress_template(
     run_log_path,
     task_name: str | None = None,
+    role: str | None = None,
 ) -> str:
     """Ensure progress.md exists with the section template; return current text.
 
@@ -219,7 +236,7 @@ def ensure_progress_template(
         return ""
     template = TASK_PROGRESS_TEMPLATE if task_name else SESSION_PROGRESS_TEMPLATE
     with _progress_lock:
-        existing = read_progress(run_log_path, task_name).strip()
+        existing = read_progress(run_log_path, task_name, role=role).strip()
         note = _extract_note_body(existing)
         if note:
             return existing + ("\n" if not existing.endswith("\n") else "")
@@ -233,7 +250,7 @@ def ensure_progress_template(
             parts.append(goal)
         parts.append(body)
         content = "\n\n".join(parts) + "\n"
-        write_progress(run_log_path, content, task_name)
+        write_progress(run_log_path, content, task_name, role=role)
         return content
 
 
@@ -267,6 +284,7 @@ def write_progress_note(
     task_name: str | None = None,
     *,
     turn_id: int | None = None,
+    role: str | None = None,
 ) -> str:
     """Full-body override (tests / legacy). Prefer the Edit-based fork in agents."""
     note = (text or "").strip()
@@ -280,13 +298,13 @@ def write_progress_note(
     if not _NOTE_BODY_START_RE.match(note):
         note = "#### Note\n" + note
     with _progress_lock:
-        existing = read_progress(run_log_path, task_name).strip()
+        existing = read_progress(run_log_path, task_name, role=role).strip()
         goal = _extract_goal_markdown(existing)
         parts = [PROGRESS_HEADER.strip()]
         if goal:
             parts.append(goal)
         parts.append(note)
-        write_progress(run_log_path, "\n\n".join(parts) + "\n", task_name)
+        write_progress(run_log_path, "\n\n".join(parts) + "\n", task_name, role=role)
     if task_name is None and turn_id is not None:
         from langbridge_code.util.session_traces import append_progress_boundary
 

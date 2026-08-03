@@ -20,8 +20,6 @@ WORKSPACE_ROOT = Path.cwd().resolve()
 # Claude Code v2.1.2+: spill full output to disk; context keeps a short head preview.
 TOOL_OUTPUT_PREVIEW_CHARS = 2_000
 EXECUTION_OUTPUT_PREVIEW_CHARS = TOOL_OUTPUT_PREVIEW_CHARS  # back-compat alias
-# No-session fallback under langbridge-code artifacts/{project}/tool-output/.
-_TOOL_OUTPUT_FALLBACK_DIRNAME = "tool-output"
 _tool_output_seq = itertools.count(1)
 _SHELL_SPILL_TOOLS = frozenset({"bash", "powershell"})
 _SPILL_TOOLS = _SHELL_SPILL_TOOLS | frozenset({"read_webpage"})
@@ -51,10 +49,10 @@ TOOL_SCHEMAS = [
             "commands (e.g. rm -rf on home/workspace roots, git reset --hard, "
             "force-push) unless the user clearly asked for that exact "
             "operation; if the target or scope is unclear, ask first. "
-            "Oversized stdout/stderr is saved in full under the session "
-            "attachments/ (or artifacts/.../tool-output/ when no session); "
-            "the tool result only keeps a short head preview plus the absolute "
-            "path — use read_file with offset/limit when you need more."
+            "Oversized stdout/stderr is saved in full under this agent's "
+            "session attachments/; the tool result only keeps a short head "
+            "preview plus the absolute path — use read_file with offset/limit "
+            "when you need more. A session directory is required."
         ),
         "parameters": {
             "type": "object",
@@ -261,17 +259,13 @@ def _execution_result(*, command, target_cwd, exit_code, timed_out, output, run_
     return json.dumps(payload, ensure_ascii=False, indent=2)
 
 
-def _tool_output_fallback_dir() -> Path:
-    """Project-scoped spill dir under langbridge-code artifacts/ (not workspace)."""
-    from langbridge_code.settings import ARTIFACTS_DIR
-
-    return Path(ARTIFACTS_DIR).resolve() / _TOOL_OUTPUT_FALLBACK_DIRNAME
-
-
 def _resolve_spill_directory(run_log_path=None) -> Path:
-    """Prefer session attachments/; else artifacts/{project}/tool-output/."""
-    from langbridge_code.agents.common.workspace import add_readable_root
-    from langbridge_code.util.artifacts import attachments_dir
+    """Current agent's session attachments/ — session is required."""
+    from langbridge_code.agents.common.workspace import (
+        get_agent_label,
+        get_agent_task_name,
+    )
+    from langbridge_code.util.artifacts import agent_attachments_dir
     from langbridge_code.util.trace_log import get_trace_context
 
     explicit = run_log_path
@@ -279,18 +273,24 @@ def _resolve_spill_directory(run_log_path=None) -> Path:
         ctx = get_trace_context()
         if ctx is not None:
             explicit = ctx.run_log_path
-    if explicit is not None:
-        directory = attachments_dir(explicit)
-        if directory is not None:
-            return directory
-    # Outside the workspace — register so read_file can follow the path.
-    directory = _tool_output_fallback_dir()
-    add_readable_root(directory)
+    if explicit is None:
+        raise RuntimeError(
+            "No session directory; oversized tool output cannot be saved."
+        )
+    label = get_agent_label() or "LangBridge"
+    task_name = get_agent_task_name()
+    directory = agent_attachments_dir(
+        explicit, role=label, task_name=task_name
+    )
+    if directory is None:
+        raise RuntimeError(
+            "No session directory; oversized tool output cannot be saved."
+        )
     return directory
 
 
 def persist_tool_output(text: str, *, run_log_path=None, kind: str = "tool-output") -> Path:
-    """Write full tool output to a readable path; return the absolute path."""
+    """Write full tool output to this agent's attachments/; return the path."""
     from langbridge_code.util.artifacts import format_trace_timestamp
 
     safe_kind = re.sub(r"[^A-Za-z0-9._-]+", "-", (kind or "tool-output").strip()) or "tool-output"

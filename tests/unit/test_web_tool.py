@@ -5,7 +5,7 @@ import httpx
 import pytest
 
 from langbridge_code.agents.common.workspace import (
-    add_readable_root,
+    configure_agent_artifacts,
     set_workspace_root,
 )
 from langbridge_code.tools.execution import TOOL_OUTPUT_PREVIEW_CHARS
@@ -20,6 +20,7 @@ def isolated_workspace(tmp_path):
     yield tmp_path
     set_workspace_root(None)
     set_trace_context(None)
+    configure_agent_artifacts(None, label="LangBridge")
 
 
 class _FakeResponse:
@@ -54,7 +55,7 @@ def test_truncate_back_compat_still_cuts():
 def test_read_webpage_spills_oversized_body(isolated_workspace, monkeypatch):
     session = isolated_workspace / "session-web"
     session.mkdir()
-    add_readable_root(session)
+    configure_agent_artifacts(session, label="LangBridge")
 
     body = "<html><title>Docs</title><body>" + ("paragraph " * 500) + "</body></html>"
     monkeypatch.setattr(
@@ -73,7 +74,7 @@ def test_read_webpage_spills_oversized_body(isolated_workspace, monkeypatch):
     assert result["title"] == "Docs"
     path = Path(result["output_path"])
     assert path.is_file()
-    assert path.parent.name == "attachments"
+    assert path.parent == (session / "main" / "attachments").resolve()
     assert path.name.startswith("webpage-")
     full = path.read_text(encoding="utf-8")
     assert len(full) > 80

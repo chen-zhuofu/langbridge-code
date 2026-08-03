@@ -27,9 +27,9 @@ def test_trace_instance_ids_start_at_zero_and_increment_per_role_task(tmp_path):
     assert first_id == 0
     assert second_id == 1
     assert other_id == 0
-    assert first == tmp_path / "task-3-api" / "worker-0.md"
-    assert second == tmp_path / "task-3-api" / "worker-1.md"
-    assert other == tmp_path / "task-4-ui" / "worker-0.md"
+    assert first == tmp_path / "tasks" / "task-3-api" / "traces" / "worker-0.md"
+    assert second == tmp_path / "tasks" / "task-3-api" / "traces" / "worker-1.md"
+    assert other == tmp_path / "tasks" / "task-4-ui" / "traces" / "worker-0.md"
 
 
 def test_agent_trace_keeps_full_raw_round(tmp_path):
@@ -83,7 +83,9 @@ def test_reviewer_session_keeps_task_name_for_trace_resume(tmp_path):
     )
 
     assert session.context.task_name == "task-3-api"
-    assert session.context.agent_trace_path == tmp_path / "task-3-api" / "reviewer-0.md"
+    assert session.context.agent_trace_path == (
+        tmp_path / "tasks" / "task-3-api" / "traces" / "reviewer-0.md"
+    )
 
 
 def test_full_compaction_event_moves_to_attachment(tmp_path):
@@ -166,7 +168,7 @@ def test_finish_step_persists_subagent_round(tmp_path):
         budget=100_000,
     )
 
-    trace = tmp_path / "plan-interview-tool" / "planner-0.md"
+    trace = tmp_path / "tasks" / "plan-interview-tool" / "traces" / "planner-0.md"
     content = trace.read_text(encoding="utf-8")
     assert "## Round 0" in content
     payload = json.loads(content.split("```json\n", 1)[1].split("\n```", 1)[0])

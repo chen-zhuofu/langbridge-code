@@ -7,13 +7,16 @@ from langbridge_code.util.agent_traces import append_agent_raw_round, reserve_ag
 
 
 def test_task_progress_path_is_stable_per_task_name(tmp_path):
-    first = task_progress_path(tmp_path, "task 3: game state")
-    again = task_progress_path(tmp_path, "task 3: game state")
-    other = task_progress_path(tmp_path, "task 4: UI wiring")
+    first = task_progress_path(tmp_path, "task 3: game state", role="Worker")
+    again = task_progress_path(tmp_path, "task 3: game state", role="Worker")
+    other = task_progress_path(tmp_path, "task 4: UI wiring", role="Worker")
+    reviewer = task_progress_path(tmp_path, "task 3: game state", role="Reviewer")
     assert first == again
     assert first != other
+    assert first != reviewer
     assert first.name == "progress.md"
-    assert first.parent.parent == tmp_path
+    assert first.parent.name == "worker"
+    assert first.parent.parent.parent.parent == tmp_path
 
 
 def test_task_progress_path_requires_task_name(tmp_path):

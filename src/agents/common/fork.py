@@ -194,6 +194,7 @@ def fork_progress_note(
     *,
     run_log_path,
     task_name: str | None = None,
+    role: str | None = None,
     turn_id: int | None = None,
     tool_schemas=None,
     label: str = "progress note fork",
@@ -213,10 +214,10 @@ def fork_progress_note(
         read_progress,
     )
 
-    path = progress_path(run_log_path, task_name)
+    path = progress_path(run_log_path, task_name, role=role)
     if path is None:
         return "No session directory; note not recorded."
-    before = ensure_progress_template(run_log_path, task_name)
+    before = ensure_progress_template(run_log_path, task_name, role=role)
     schemas = _progress_note_schemas(tool_schemas)
     tools = _progress_note_tools(path, schemas)
     instruction = build_progress_note_instruction(
@@ -237,7 +238,7 @@ def fork_progress_note(
         )
     except Exception as error:
         return f"Progress note fork failed: {error}"
-    after = read_progress(run_log_path, task_name)
+    after = read_progress(run_log_path, task_name, role=role)
     return note_progress_edit_succeeded(
         before,
         after,

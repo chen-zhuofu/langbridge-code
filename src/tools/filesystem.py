@@ -281,23 +281,21 @@ def resolve_workspace_path(path):
 
 
 def resolve_readable_path(path):
-    """Workspace resolution plus read-only access to registered session dirs.
+    """Workspace resolution plus per-agent session artifact read ACL.
 
     Read tools use this so agents can follow absolute paths handed to them in
-    tool results (e.g. persisted explorer reports in the session artifact dir).
-    Write tools must keep using resolve_workspace_path.
+    tool results (e.g. explorer reports, own bash spills). Write tools must
+    keep using resolve_workspace_path. Engine-only logs (traces.md, session.md)
+    are never readable via this path.
     """
-    from langbridge_code.agents.common.workspace import readable_roots
+    from langbridge_code.agents.common.workspace import can_read_artifact
 
     try:
         return resolve_workspace_path(path)
     except ValueError:
         candidate = Path(path)
-        if candidate.is_absolute():
-            resolved = candidate.resolve()
-            for root in readable_roots():
-                if resolved.is_relative_to(root):
-                    return resolved
+        if candidate.is_absolute() and can_read_artifact(candidate):
+            return candidate.resolve()
         raise
 
 

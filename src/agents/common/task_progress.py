@@ -1,6 +1,6 @@
 """Per-task progress notes for subagents — Session Memory Edit model.
 
-A task's note lives at {session}/…/progress.md (per task_name). Loaded into
+A task's note lives at {session}/tasks/{slug}/{role}/progress.md. Loaded into
 ``<progress>`` on attach (resume) and after context compaction. Mid-turn
 ``note_progress`` forks an Edit-restricted writer that updates section bodies
 in place and does not rewrite the pinned block.
@@ -11,7 +11,7 @@ from langbridge_code.settings import PROGRESS_NOTE_REMINDER_ROUNDS
 
 
 class TaskProgress:
-    """Binds one subagent session to its task progress file."""
+    """Binds one subagent session to its role-scoped task progress file."""
 
     def __init__(
         self,
@@ -68,7 +68,9 @@ class TaskProgress:
             read_progress,
         )
 
-        content = read_progress(self.run_log_path, self.task_name).strip()
+        content = read_progress(
+            self.run_log_path, self.task_name, role=self.label
+        ).strip()
         if content == PROGRESS_HEADER.strip():
             content = ""
         if include_traces:
@@ -86,6 +88,7 @@ class TaskProgress:
             content,
             run_log_path=self.run_log_path,
             task_name=self.task_name,
+            role=self.label,
         )
         self._stack.set_progress_block(content or None)
         self._sync_messages()
@@ -98,7 +101,7 @@ class TaskProgress:
         self._messages.extend(rebuilt)
 
     def write_note(self, **_ignored) -> str:
-        """Fork an Edit-restricted note-writer for this task's progress file."""
+        """Fork an Edit-restricted note-writer for this role's progress file."""
         if not self.enabled:
             return "No task progress file for this session; note not recorded."
         from langbridge_code.agents.common.fork import fork_progress_note
@@ -110,6 +113,7 @@ class TaskProgress:
                 list(self._messages or []),
                 run_log_path=self.run_log_path,
                 task_name=self.task_name,
+                role=self.label,
                 tool_schemas=self._tool_schemas,
                 label=f"{self.label} note fork",
             )

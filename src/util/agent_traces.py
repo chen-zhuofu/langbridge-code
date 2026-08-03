@@ -1,8 +1,9 @@
 """Per-subagent raw markdown traces and compaction audit records.
 
-Each subagent dispatch writes {session}/{task-slug}/{role}-{n}.md — the same
-"## Round N" + ```json block format as the main agent's traces.md, so every
-trace in a session reads the same way.
+Each subagent dispatch writes
+{session}/tasks/{task-slug}/traces/{role}-{n}.md — the same "## Round N" +
+```json block format as the main agent's traces.md. These paths are
+engine/human only (not agent-readable via read_file).
 """
 from __future__ import annotations
 
@@ -20,7 +21,7 @@ from langbridge_code.util.artifacts import (
     artifact_dir,
     attachments_dir,
     slug_first_message,
-    task_dir,
+    task_traces_dir,
 )
 
 _INLINE_COMPACTION_CHARS = 4_000
@@ -46,8 +47,8 @@ def _role_slug(role: str) -> str:
 
 
 def reserve_agent_trace(run_log_path, role: str, task_name: str) -> tuple[Path | None, int | None]:
-    """Reserve ``{task-slug}/{role}-{id}.md``; ids start at zero per task."""
-    directory = task_dir(run_log_path, task_name)
+    """Reserve ``tasks/{slug}/traces/{role}-{id}.md``; ids start at zero per task."""
+    directory = task_traces_dir(run_log_path, task_name)
     if directory is None:
         return None, None
     directory.mkdir(parents=True, exist_ok=True)
@@ -102,7 +103,7 @@ def agent_trace_paths(
     exclude: Path | None = None,
 ) -> list[Path]:
     """Existing traces for one role/task, oldest dispatch first."""
-    directory = task_dir(run_log_path, task_name)
+    directory = task_traces_dir(run_log_path, task_name)
     if directory is None or not directory.exists():
         return []
     prefix = f"{_role_slug(role)}-"

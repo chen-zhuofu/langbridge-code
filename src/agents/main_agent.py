@@ -199,6 +199,11 @@ class MainAgentSession:
             registry_changed = run_log_path != self.run_log_path
             self.run_log_path = run_log_path
             if registry_changed:
+                from langbridge_code.agents.common.workspace import configure_agent_artifacts
+
+                configure_agent_artifacts(
+                    self.run_log_path, label=self.label, task_name=""
+                )
                 self._reconcile_subagent_registry()
         if trace_sink is not None:
             self.trace_sink = trace_sink

@@ -1,6 +1,8 @@
 """Shared context-stack wiring for all agent sessions."""
 from __future__ import annotations
 
+from pathlib import Path
+
 from langbridge_code.context.common.stack import ContextStack
 from langbridge_code.llm.parse import extract_output_text
 from langbridge_code.util.agent_worklog import new_worklog_id
@@ -124,13 +126,25 @@ def init_agent_context(
     seed_messages=None,
     task_name: str = "",
 ) -> tuple[list[dict], AgentContextManager, int | None]:
-    if run_log_path is not None:
-        from langbridge_code.agents.common.workspace import add_readable_root
-        from langbridge_code.util.artifacts import artifact_dir
+    from langbridge_code.agents.common.workspace import (
+        configure_agent_artifacts,
+        get_agent_label,
+        get_agent_session_dir,
+        get_agent_task_name,
+    )
 
-        # Read tools may follow absolute paths into the session artifact dir
-        # (persisted explorer reports and the like) — reads only.
-        add_readable_root(artifact_dir(run_log_path))
+    # Bind per-agent readable roots when the caller has not already nested a scope
+    # (dispatch entry points use nested_agent_artifacts so the parent ACL restores).
+    session = get_agent_session_dir()
+    same = (
+        session is not None
+        and run_log_path is not None
+        and Path(run_log_path).resolve() == session
+        and get_agent_label() == label
+        and get_agent_task_name() == (task_name or "").strip()
+    )
+    if not same:
+        configure_agent_artifacts(run_log_path, label=label, task_name=task_name)
     messages = seed_messages if seed_messages is not None else [{"role": "system", "content": system_prompt}]
     context = AgentContextManager(
         system_content=system_prompt,

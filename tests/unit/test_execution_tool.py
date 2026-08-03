@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 from langbridge_code.agents.common.workspace import (
-    add_readable_root,
+    configure_agent_artifacts,
     set_workspace_root,
 )
 from langbridge_code.tools import TOOL_SCHEMAS, TOOLS
@@ -23,6 +23,7 @@ def isolated_workspace(tmp_path):
     yield tmp_path
     set_workspace_root(None)
     set_trace_context(None)
+    configure_agent_artifacts(None, label="LangBridge")
 
 
 def test_bash_is_registered():
@@ -66,7 +67,7 @@ def test_prepare_execution_output_inline_under_limit():
     assert inline == text
 
 
-def test_prepare_execution_output_spills_to_session_attachments(
+def test_prepare_execution_output_spills_to_main_attachments(
     isolated_workspace, monkeypatch
 ):
     monkeypatch.setattr(
@@ -74,7 +75,7 @@ def test_prepare_execution_output_spills_to_session_attachments(
     )
     session = isolated_workspace / "session-test"
     session.mkdir()
-    add_readable_root(session)
+    configure_agent_artifacts(session, label="LangBridge")
 
     full = ("HEAD-" + ("body" * 80) + "-TAIL\n") * 40
     assert len(full) > 100
@@ -84,7 +85,7 @@ def test_prepare_execution_output_spills_to_session_attachments(
     assert truncated is True
     assert path is not None
     assert path.is_file()
-    assert path.parent.name == "attachments"
+    assert path.parent == (session / "main" / "attachments").resolve()
     assert path.read_text(encoding="utf-8") == full
     assert inline.startswith(full[:EXECUTION_OUTPUT_PREVIEW_CHARS])
     assert str(path) in inline
@@ -99,7 +100,7 @@ def test_bash_oversized_output_spills_and_is_readable(isolated_workspace, monkey
     )
     session = isolated_workspace / "session-bash"
     session.mkdir()
-    add_readable_root(session)
+    configure_agent_artifacts(session, label="LangBridge")
     set_trace_context(TraceContext(run_log_path=session, trace_id="t1"))
 
     # 300 'a' chars via python — over the 200-char spill threshold.
@@ -114,25 +115,15 @@ def test_bash_oversized_output_spills_and_is_readable(isolated_workspace, monkey
     assert "output truncated" in result["output"]
     assert str(path) in result["output"]
 
-    # Absolute path under the registered session root must be readable.
+    # Absolute path under the main agent's attachments must be readable.
     listed = read_file(str(path), offset=1, limit=5)
     assert "aaa" in listed
 
 
-def test_prepare_execution_output_falls_back_to_artifacts_dir(
-    isolated_workspace, monkeypatch
-):
-    artifacts = isolated_workspace / "artifacts-root"
+def test_prepare_execution_output_requires_session(isolated_workspace, monkeypatch):
     monkeypatch.setattr(
         "langbridge_code.tools.execution.MAX_EXECUTION_OUTPUT_CHARS", 50
     )
-    monkeypatch.setattr("langbridge_code.settings.ARTIFACTS_DIR", artifacts)
-    full = "z" * 120
-    inline, truncated, path = prepare_execution_output(full)
-    assert truncated is True
-    assert path is not None
-    assert path.parent == (artifacts / "tool-output").resolve()
-    assert path.read_text(encoding="utf-8") == full
-    assert str(path) in inline
-    # Fallback dir is outside the workspace — must still be readable.
-    assert "zzz" in read_file(str(path), offset=1, limit=1)
+    configure_agent_artifacts(None, label="LangBridge")
+    with pytest.raises(RuntimeError, match="No session directory"):
+        prepare_execution_output("z" * 120)

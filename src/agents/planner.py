@@ -119,19 +119,22 @@ def run_planner(
     turn_id=None,
     task_name="",
 ) -> str:
-    session = PlannerSession(
-        api_key,
-        model,
-        planner_system_prompt(),
-        PLANNER_TOOL_SCHEMAS,
-        PLANNER_TOOLS,
-        "Planner",
-        trace_sink=trace_sink,
-        run_log_path=run_log_path,
-        turn_id=turn_id,
-        task_name=task_name,
-    )
-    return session.send(prompt)
+    from langbridge_code.agents.common.workspace import nested_agent_artifacts
+
+    with nested_agent_artifacts(run_log_path, label="Planner", task_name=task_name):
+        session = PlannerSession(
+            api_key,
+            model,
+            planner_system_prompt(),
+            PLANNER_TOOL_SCHEMAS,
+            PLANNER_TOOLS,
+            "Planner",
+            trace_sink=trace_sink,
+            run_log_path=run_log_path,
+            turn_id=turn_id,
+            task_name=task_name,
+        )
+        return session.send(prompt)
 
 
 def initial_plan_prompt(user_task: str) -> str:

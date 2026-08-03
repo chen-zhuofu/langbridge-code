@@ -19,6 +19,8 @@ def _bind_trace_context(run_fn, ctx):
     paths against the main workspace instead of their worktree.
     """
     from langbridge_code.agents.common.workspace import (
+        agent_artifact_scope,
+        get_agent_artifact_state,
         get_plan_file_override,
         get_workspace_root,
         plan_file_scope,
@@ -29,6 +31,7 @@ def _bind_trace_context(run_fn, ctx):
     tel = telemetry.get_telemetry()
     workspace_root = get_workspace_root()
     plan_file = get_plan_file_override()
+    artifact_state = get_agent_artifact_state()
 
     def runner(call):
         set_trace_context(ctx)
@@ -36,6 +39,7 @@ def _bind_trace_context(run_fn, ctx):
             telemetry.telemetry_scope(tel),
             workspace_scope(workspace_root),
             plan_file_scope(plan_file),
+            agent_artifact_scope(artifact_state),
         ):
             return run_fn(call)
 
