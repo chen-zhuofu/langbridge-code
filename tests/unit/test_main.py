@@ -3,7 +3,7 @@ from datetime import date
 
 from langbridge_code.prompt.system import LANGBRIDGE_PROMPT, langbridge_system_prompt
 from langbridge_code.prompt.system import WORKER_ENGINEER_PROMPT
-from langbridge_code.prompt.system.reviewer import REVIEWER_ENGINEER_PROMPT
+from langbridge_code.prompt.system import REVIEWER_ENGINEER_PROMPT
 
 
 def _normalized(text):

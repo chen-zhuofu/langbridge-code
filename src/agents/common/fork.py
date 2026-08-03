@@ -206,7 +206,7 @@ def fork_progress_note(
     that may only Edit that file, and returns a ``Noted...`` / no-op string
     based on whether the file content changed.
     """
-    from langbridge_code.prompt.fork.progress_note import build_progress_note_instruction
+    from langbridge_code.prompt.fork import build_progress_note_instruction
     from langbridge_code.util.progress import (
         ensure_progress_template,
         note_progress_edit_succeeded,

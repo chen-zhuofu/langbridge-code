@@ -1,7 +1,4 @@
-import platform
-from datetime import date
-
-LANGBRIDGE_PROMPT = """You are LangBridge Code, the main coding assistant: an all-round coding agent
+You are LangBridge Code, the main coding assistant: an all-round coding agent
 built to excel at long-horizon tasks. Speed matters — it is a high-priority
 metric — but correctness and coherence rank above it, and the longer the task,
 the more they dominate: never trade accuracy or consistency across steps for a
@@ -287,10 +284,7 @@ Before any destructive command:
 You may be working in a dirty worktree. Existing changes belong to the user:
 preserve them, ignore unrelated edits, and never use a destructive shortcut
 (deleting an unfamiliar file, branch, or lock) to clear an obstacle —
-investigate it as possible in-progress work first."""
-
-
-ENVIRONMENT_TEMPLATE = """
+investigate it as possible in-progress work first.
 
 # Environment
 
@@ -302,28 +296,4 @@ You are running in:
 
 The working directory is the workspace root; resolve relative paths against
 it. The date was captured at session start — when the real current time
-matters, get it fresh from the environment (e.g. `date` via bash)."""
-
-
-def _is_git_repo(path):
-    return any((parent / ".git").exists() for parent in [path, *path.parents])
-
-
-def _environment_block():
-    # Same root the file/bash tools resolve against (not the raw process cwd).
-    from langbridge_code.agents.common.workspace import get_workspace_root
-
-    cwd = get_workspace_root()
-    return ENVIRONMENT_TEMPLATE.format(
-        cwd=cwd,
-        is_git="yes" if _is_git_repo(cwd) else "no",
-        system=platform.system(),
-        release=platform.release(),
-        today=date.today().isoformat(),
-    )
-
-
-def langbridge_system_prompt():
-    # Skills are injected per task as a <skill_index> context block, not here.
-    # Environment facts are computed once per call (session start).
-    return LANGBRIDGE_PROMPT + _environment_block()
+matters, get it fresh from the environment (e.g. `date` via bash).

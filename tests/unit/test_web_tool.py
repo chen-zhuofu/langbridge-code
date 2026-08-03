@@ -8,6 +8,7 @@ from langbridge_code.agents.common.workspace import (
     configure_agent_artifacts,
     set_workspace_root,
 )
+from langbridge_code.settings import MAX_WEBPAGE_CHARS
 from langbridge_code.tools.execution import TOOL_OUTPUT_PREVIEW_CHARS
 from langbridge_code.tools.filesystem import read_file
 from langbridge_code.tools.web import read_webpage, truncate
@@ -97,3 +98,7 @@ def test_read_webpage_inline_when_under_limit(isolated_workspace, monkeypatch):
     assert result["truncated"] is False
     assert "output_path" not in result
     assert "short page" in result["text"]
+
+
+def test_max_webpage_chars_matches_claude_web_fetch_budget():
+    assert MAX_WEBPAGE_CHARS == 100_000

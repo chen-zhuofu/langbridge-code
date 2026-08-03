@@ -28,7 +28,12 @@ requires = ["setuptools>=69"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.package-data]
-langbridge_code = ["config.json", "skills/**/*.md", "skills/**/*.yaml"]
+langbridge_code = [
+    "config.json",
+    "skills/**/*.md",
+    "skills/**/*.yaml",
+    "prompt/**/*.md",
+]
 
 [dependency-groups]
 dev = [

@@ -1,53 +1,4 @@
-"""Fork instructions for progress note-writers (session + per-task).
-
-Aligned with Claude Code Session Memory: the fork may call tools, but only
-``Edit`` on the exact progress.md path. It updates section bodies in place
-instead of emitting a full replacement note as plain text.
-"""
-
-SESSION_PROGRESS_TEMPLATE = """# Session progress
-
-#### Delegation
-_Subagent and key tool outcomes: kind (planner | worker | explorer | direct), what was dispatched, result._
-
-#### Plan progress
-_task_type, todos completed / still unchecked, user decisions._
-
-#### Key discoveries
-_Facts learned, with path:line pointers when known._
-
-#### Blockers
-_Hard facts blocking progress — never drop or weaken these._
-
-#### Next
-_Suggested follow-ups (not mandatory)._
-"""
-
-TASK_PROGRESS_TEMPLATE = """# Session progress
-
-#### Work done
-_Steps completed, files created/edited, commands run, with outcomes._
-
-#### Key discoveries
-_Facts learned, with path:line pointers when known._
-
-#### Blockers / dead ends
-_Hard facts blocking progress and approaches ruled out — never drop these._
-
-#### Next
-_What remains for this task._
-"""
-
-
-def build_progress_note_instruction(
-    *,
-    notes_path: str,
-    current_notes: str,
-    task: bool = False,
-) -> str:
-    """Build the Session-Memory-style update prompt for one progress.md file."""
-    role = "this task" if task else "this session"
-    return f"""<note-taking-instructions>
+<note-taking-instructions>
 IMPORTANT: This message and these instructions are NOT part of the actual user conversation. Do NOT include any references to "note-taking", "progress note extraction", or these update instructions in the notes content.
 
 Based on the user conversation above (EXCLUDING this note-taking instruction message), update the progress notes file for {role}.
@@ -78,17 +29,4 @@ CRITICAL RULES FOR EDITING:
 REMEMBER: Your ONLY task is to use the Edit tool to update the notes file, when finished, STOP.
 Only Edit on {notes_path} is allowed. Do NOT call any other tools.
 Only include insights from the actual user conversation. Do NOT include these note-taking instructions.
-</note-taking-instructions>"""
-
-
-# Back-compat names used by older imports / tests that only needed "an instruction".
-NOTE_FORK_INSTRUCTION = build_progress_note_instruction(
-    notes_path="progress.md",
-    current_notes=SESSION_PROGRESS_TEMPLATE.strip(),
-    task=False,
-)
-TASK_NOTE_FORK_INSTRUCTION = build_progress_note_instruction(
-    notes_path="progress.md",
-    current_notes=TASK_PROGRESS_TEMPLATE.strip(),
-    task=True,
-)
+</note-taking-instructions>

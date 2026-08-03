@@ -1,7 +1,11 @@
-from langbridge_code.prompt.system import WORKER_ENGINEER_PROMPT, worker_system_prompt
-from langbridge_code.prompt.system.planner import PLANNER_PROMPT, planner_system_prompt
-from langbridge_code.prompt.system.explorer import explorer_system_prompt
-from langbridge_code.prompt.system.langbridge import langbridge_system_prompt
+from langbridge_code.prompt.system import (
+    PLANNER_PROMPT,
+    WORKER_ENGINEER_PROMPT,
+    explorer_system_prompt,
+    langbridge_system_prompt,
+    planner_system_prompt,
+    worker_system_prompt,
+)
 from langbridge_code.skills import (
     attach_skill_tracking,
     ensure_skill_index_block,
@@ -199,7 +203,7 @@ def test_worker_coding_prompt_tells_worker_to_commit_as_it_goes():
 
 
 def test_reviewer_coding_prompt_includes_general_loop_guidance():
-    from langbridge_code.prompt.system.reviewer import reviewer_system_prompt
+    from langbridge_code.prompt.system import reviewer_system_prompt
 
     prompt = reviewer_system_prompt("coding")
     assert "worker-reviewer loop" in prompt.lower()

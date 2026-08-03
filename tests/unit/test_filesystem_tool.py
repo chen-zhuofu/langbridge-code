@@ -149,3 +149,38 @@ def test_read_file_by_function_name(isolated_workspace):
     assert "def target():" in output
     assert "return x" in output
     assert "def helper" not in output
+
+
+def test_read_file_rejects_over_token_budget(isolated_workspace, monkeypatch):
+    """Few lines can still exceed the token cap when each line is dense."""
+    from langbridge_code.tools import filesystem as filesystem_mod
+
+    # ~5×400-char lines ≈ 500+ tokens; one line still fits under 150.
+    monkeypatch.setattr(filesystem_mod, "MAX_FILE_READ_TOKENS", 150)
+    monkeypatch.setattr(filesystem_mod, "MAX_LINES_TO_READ", 100)
+    monkeypatch.setattr("langbridge_code.tools.filesystem.MAX_FILE_BYTES", 10**9)
+    dense = "x" * 400
+    (isolated_workspace / "dense.txt").write_text(
+        "\n".join(dense for _ in range(5)) + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="exceeds maximum allowed tokens"):
+        read_file("dense.txt")
+
+
+def test_read_file_token_budget_allows_smaller_window(isolated_workspace, monkeypatch):
+    from langbridge_code.tools import filesystem as filesystem_mod
+
+    monkeypatch.setattr(filesystem_mod, "MAX_FILE_READ_TOKENS", 150)
+    monkeypatch.setattr("langbridge_code.tools.filesystem.MAX_FILE_BYTES", 10**9)
+    dense = "x" * 400
+    (isolated_workspace / "dense.txt").write_text(
+        "\n".join(dense for _ in range(5)) + "\n",
+        encoding="utf-8",
+    )
+
+    output = read_file("dense.txt", offset=1, limit=1)
+
+    assert "# dense.txt lines 1-1" in output
+    assert dense in output

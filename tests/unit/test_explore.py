@@ -1,6 +1,6 @@
 import pytest
 
-from langbridge_code.prompt.system.explorer import EXPLORER_PROMPT
+from langbridge_code.prompt.system import EXPLORER_PROMPT
 from langbridge_code.agents.common.workspace import workspace_scope
 from langbridge_code.agents.explorer import (
     EXPLORE_REPORT_MAX_CHARS,

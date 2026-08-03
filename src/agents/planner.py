@@ -26,7 +26,7 @@ from langbridge_code.tools import (
     web,
 )
 from langbridge_code.agents.common.phases import emit_phase
-from langbridge_code.prompt.system.planner import planner_system_prompt
+from langbridge_code.prompt.system import planner_system_prompt
 
 PLANNER_TOOL_NAMES = (
     FILE_READ_TOOL_NAMES

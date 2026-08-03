@@ -3,6 +3,7 @@ import re
 import subprocess
 from pathlib import Path
 
+from langbridge_code.context.common.budget import estimate_tokens
 from langbridge_code.settings import MAX_FILE_BYTES
 from langbridge_code.tools.common.description import DESCRIPTION_PARAMETER
 from langbridge_code.tools.common.runtime import managed_binary
@@ -22,6 +23,8 @@ from langbridge_code.agents.common.workspace import (  # noqa: E402
 DEFAULT_GLOB_LIMIT = 100
 DEFAULT_GREP_HEAD_LIMIT = 250
 MAX_LINES_TO_READ = 2000
+# Claude Code FileReadTool DEFAULT_MAX_OUTPUT_TOKENS — post-read gate on returned text.
+MAX_FILE_READ_TOKENS = 25_000
 RG_TIMEOUT_SECONDS = 60
 VCS_DIRECTORIES_TO_EXCLUDE = (".git", ".svn", ".hg", ".bzr", ".jj", ".sl")
 
@@ -62,7 +65,8 @@ TOOL_SCHEMAS = [
         "description": (
             "Read a text file under the current workspace. "
             f"By default reads from the beginning of the file (up to {MAX_LINES_TO_READ} lines "
-            f"or {MAX_FILE_BYTES} bytes). Use offset and limit for partial reads of large files."
+            f"or {MAX_FILE_BYTES} bytes). Output is also capped at ~{MAX_FILE_READ_TOKENS} tokens; "
+            "if that limit is exceeded, use offset and limit for a smaller window."
         ),
         "parameters": {
             "type": "object",
@@ -369,7 +373,9 @@ def read_file(path, offset=None, limit=None, start_line=None, end_line=None, fun
 
     if function_name:
         text = target.read_text(encoding="utf-8")
-        return _format_function_excerpt(path, text, function_name)
+        return _ensure_read_within_token_budget(
+            _format_function_excerpt(path, text, function_name)
+        )
 
     effective_offset = offset if offset is not None else start_line
     if effective_offset is None:
@@ -409,7 +415,20 @@ def read_file(path, offset=None, limit=None, start_line=None, end_line=None, fun
     numbered = add_line_numbers(result.content, int(effective_offset))
     end_line_no = int(effective_offset) + max(result.line_count - 1, 0)
     header = f"# {path} lines {effective_offset}-{end_line_no} ({result.total_lines} lines total)"
-    return f"{header}\n{numbered}"
+    return _ensure_read_within_token_budget(f"{header}\n{numbered}")
+
+
+def _ensure_read_within_token_budget(body: str) -> str:
+    """Reject oversized Read output (Claude Code maxTokens); never spill to disk."""
+    token_count = estimate_tokens(body)
+    if token_count <= MAX_FILE_READ_TOKENS:
+        return body
+    raise ValueError(
+        f"File content ({token_count} tokens) exceeds maximum allowed tokens "
+        f"({MAX_FILE_READ_TOKENS}). Use offset and limit parameters to read "
+        "specific portions of the file, or search for specific content instead "
+        "of reading the whole file."
+    )
 
 
 def _format_function_excerpt(path, text, function_name):

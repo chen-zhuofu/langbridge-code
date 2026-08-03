@@ -227,7 +227,7 @@ def ensure_progress_template(
     note bodies (including legacy notes without italic descriptions) are kept.
     A ``## Goal`` block is preserved when seeding.
     """
-    from langbridge_code.prompt.fork.progress_note import (
+    from langbridge_code.prompt.fork import (
         SESSION_PROGRESS_TEMPLATE,
         TASK_PROGRESS_TEMPLATE,
     )

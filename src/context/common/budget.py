@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 
-from langbridge_code.prompt.context.context_budget_notice import (
+from langbridge_code.prompt.context import (
     CONTEXT_BUDGET_BODY,
     CONTEXT_BUDGET_NEAR_LIMIT,
     CONTEXT_BUDGET_NOTICE_PREFIX,
