@@ -9,7 +9,7 @@ NOTE_PROGRESS_TOOL_SCHEMA = {
     "description": (
         "Fork a note-writer that Edits progress.md in place (main agent only; "
         "you do not write the note). Call after every subagent return and other "
-        "milestones (see Session rules). Harness may also auto-write after "
+        "milestones (see Context management). Harness may also auto-write after "
         "silent rounds / turn end. Survives compaction via <progress>."
     ),
     "parameters": {

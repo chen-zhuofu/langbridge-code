@@ -26,7 +26,7 @@ from langbridge_code.tools import (
     web,
 )
 from langbridge_code.agents.common.phases import emit_phase
-from langbridge_code.prompt.system.planner import PLANNER_WORKFLOW_SUMMARY, planner_system_prompt
+from langbridge_code.prompt.system.planner import planner_system_prompt
 
 PLANNER_TOOL_NAMES = (
     FILE_READ_TOOL_NAMES
@@ -136,7 +136,6 @@ def run_planner(
 
 def initial_plan_prompt(user_task: str) -> str:
     return (
-        f"{PLANNER_WORKFLOW_SUMMARY}\n"
         "Create an evidence-based plan for this user task.\n\n"
         "Before your final reply:\n"
         "1. Read user-named files and primary context FULLY (no limit/offset).\n"
@@ -144,14 +143,16 @@ def initial_plan_prompt(user_task: str) -> str:
         "cite `path:line` for every discovery.\n"
         "3. If assumptions are unclear, put them in Open questions — do NOT ask the user.\n\n"
         "Your final reply must put the FULL plan document in a ```markdown fenced\n"
-        "block with the FULL plan: Desired end state, Success criteria,\n"
+        "block with the FULL plan: Reference (human-approved design/spec path when\n"
+        "given), Desired end state, Success criteria,\n"
         "Key discoveries, Out of scope, Current state, Design options (if non-trivial),\n"
         "Open questions, Todo list, Changes required (file:line pointers with one-line\n"
         "intents; a short illustrative snippet only when it clarifies an interface —\n"
         "do not write the implementation, the worker writes the code).\n"
         "Keep supporting prose concise. Never shorten a task by dropping its\n"
         "requirements, acceptance criteria, deliverables, verification, or boundaries.\n"
-        "You have no write access and no ask_user — the main agent writes the plan file.\n\n"
+        "You have no write access and no ask_user — the main agent writes todo_list.md\n"
+        "only (no separate workspace plan file).\n\n"
         "Every todo is a complete task contract. Its checkbox and deps note are MANDATORY:\n"
         "  - [ ] Task N: <reviewable deliverable> (deps: none | tasks N, M)\n"
         "    - Objective: <specific outcome>\n"
@@ -208,10 +209,9 @@ class PlannerSession:
 
     def send(self, user_prompt):
         from langbridge_code.skills import (
-            PLANNER_SKILL_NAMES,
             attach_skill_tracking,
             ensure_skill_index_block,
-            skill_catalog_text_for,
+            planner_skill_catalog,
         )
 
         ensure_skill_index_block(
@@ -219,7 +219,7 @@ class PlannerSession:
             self.api_key,
             self.model,
             user_prompt,
-            skill_catalog_text_for(PLANNER_SKILL_NAMES),
+            planner_skill_catalog(),
             label=f"{self.label} skill listing",
         )
         attach_skill_tracking(self.context.stack, self.tools, role="planner")
@@ -325,10 +325,13 @@ def dispatch_planner(
         "2. Reject vague or contradictory acceptance criteria; ask_user when code and "
         "the request cannot resolve them — do not make a worker guess.",
         "3. Write the final markdown (edited as needed) to the session-artifact "
-        "virtual path todo_list.md with the write tool.",
+        "virtual path todo_list.md with the write tool — order: approved "
+        "design/spec Reference (if any) → plan sections → Todo list. Do not "
+        "also save a separate workspace plan file.",
         "4. Only then dispatch agent_worker. Copy one complete task contract "
-        "word-for-word into task_contract and put only new repository facts in "
-        "supplemental_context.",
+        "word-for-word into task_contract. Put the approved design/spec path "
+        "(if any), the plan sections from todo_list.md, and any later "
+        "repository facts in supplemental_context.",
     ]
     header = "\n".join(review_lines)
     # Pass the planner's report through untruncated: cutting the draft mid-plan

@@ -313,10 +313,9 @@ class ExploreSession:
 
     def send(self, user_prompt):
         from langbridge_code.skills import (
-            EXPLORER_SKILL_NAMES,
             attach_skill_tracking,
             ensure_skill_index_block,
-            skill_catalog_text_for,
+            explorer_skill_catalog,
         )
 
         ensure_skill_index_block(
@@ -324,7 +323,7 @@ class ExploreSession:
             self.api_key,
             self.model,
             user_prompt,
-            skill_catalog_text_for(EXPLORER_SKILL_NAMES),
+            explorer_skill_catalog(),
             label=f"{self.label} skill listing",
         )
         attach_skill_tracking(self.context.stack, self.tools, role="explorer")

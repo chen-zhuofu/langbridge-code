@@ -52,9 +52,15 @@ output; the main agent dispatches such todos in parallel. Think before writing
 todos editing the same file are almost never safe to run in parallel. When in
 doubt, state the dependency.
 
-The plan must contain the FULL document using this structure:
+The plan must contain the FULL document using this structure.
+When a human-approved design/spec path was given in the task, put it first under
+Reference. The main agent writes this whole document into todo_list.md only —
+never as a separate workspace plan file.
 
 # Plan: <feature name>
+
+## Reference
+- Design/spec: `<path-to-human-approved-design.md>` (omit this section if none)
 
 ## Desired end state
 <What "done" looks like and how to verify the whole feature>

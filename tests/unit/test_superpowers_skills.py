@@ -10,7 +10,6 @@ def test_agent_skills_are_discoverable():
     names = {name for name, _ in list_skills()}
     assert "superpowers_test-driven-development" in names
     assert "superpowers_systematic-debugging" in names
-    assert "presentation-skill" in names
     # Karpathy guidance is inlined in the worker system prompt, not a skill.
     assert "karpathy_think-before-coding" not in names
     assert "karpathy_surgical-changes" not in names
@@ -22,31 +21,21 @@ def test_superpowers_skill_has_body():
     assert len(body) > 100
 
 
-def test_presentation_skill_loads_for_worker():
-    body = load_skill("presentation-skill", role="worker_coder")
-    assert "powerpoint" in body.lower() or "pptx" in body.lower()
-    assert "LangBridge usage" in body
-    outline = load_skill(
-        "presentation-skill/references/outline_schema.md", role="worker_coder"
-    )
-    assert len(outline) > 100
-
-
 def test_list_skills_for_role():
     planner_names = {name for name, _ in list_skills("planner")}
-    assert "superpowers_brainstorming" in planner_names
-    assert "superpowers_test-driven-development" not in planner_names
+    assert planner_names == set()
 
     langbridge_names = {name for name, _ in list_skills("langbridge")}
     assert "grilling" in langbridge_names
     assert "writing-simple-plans" in langbridge_names
+    assert "langbridge_brainstorming" in langbridge_names
 
     explorer_names = {name for name, _ in list_skills("explorer")}
     assert explorer_names == set()
 
     worker_names = {name for name, _ in list_skills("worker_coder")}
     assert "superpowers_test-driven-development" in worker_names
-    assert "presentation-skill" in worker_names
+    assert "superpowers_systematic-debugging" in worker_names
     assert "superpowers_using-git-worktrees" not in worker_names
 
     reviewer_names = {name for name, _ in list_skills("reviewer_code")}
@@ -71,20 +60,20 @@ def test_load_skill_respects_role_scope():
 
 
 def test_agent_read_skill_tools_are_role_scoped():
-    # Main agent can load langbridge skills, not planner/worker ones.
+    # Main agent can load langbridge skills, not worker ones.
     assert "grill" in MAIN_TOOLS["read_skill"]("grilling").lower()
     assert "unknown skill" in MAIN_TOOLS["read_skill"](
-        "superpowers_writing-plans"
+        "superpowers_test-driven-development"
     ).lower()
 
-    # Planner cannot load main-agent grilling.
+    # Planner has no role skills on disk; foreign skills stay unknown.
     assert "unknown skill" in PLANNER_TOOLS["read_skill"]("grilling").lower()
-    assert "plan" in PLANNER_TOOLS["read_skill"](
+    assert "unknown skill" in PLANNER_TOOLS["read_skill"](
         "superpowers_writing-plans"
     ).lower()
 
     schema = skills_tools.read_skill_schema("planner")
-    assert "superpowers_writing-plans" in schema["description"]
+    assert "(none for this role)" in schema["description"]
     assert "grilling" not in schema["description"]
 
 

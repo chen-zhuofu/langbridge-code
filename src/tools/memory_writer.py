@@ -20,7 +20,7 @@ MEMORY_WRITER_TOOL_SCHEMA = {
     "name": "memory_writer",
     "description": (
         "Schedule a Memory Writer fork on the live conversation prefix "
-        "(what to store / not store: Session rules). Runs in the background; "
+        "(what to store / not store: Memory). Runs in the background; "
         "results appear on the next memory prefetch. No-ops if nothing durable "
         "is worth saving."
     ),

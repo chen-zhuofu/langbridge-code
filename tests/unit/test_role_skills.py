@@ -3,15 +3,14 @@ from langbridge_code.prompt.system.planner import PLANNER_PROMPT, planner_system
 from langbridge_code.prompt.system.explorer import explorer_system_prompt
 from langbridge_code.prompt.system.langbridge import langbridge_system_prompt
 from langbridge_code.skills import (
-    EXPLORER_SKILL_NAMES,
-    PLANNER_SKILL_NAMES,
-    WORKER_CODING_SKILL_NAMES,
     attach_skill_tracking,
     ensure_skill_index_block,
+    explorer_skill_catalog,
     format_invoked_skills_block,
     langbridge_skill_catalog,
+    list_skills,
+    planner_skill_catalog,
     record_invoked_skill,
-    skill_catalog_text_for,
     worker_skill_catalog,
     reviewer_skill_catalog,
 )
@@ -20,11 +19,10 @@ from langbridge_code.agents.planner import PLANNER_TOOL_NAMES
 from langbridge_code.context.common.stack import ContextStack, INVOKED_SKILLS_TAG, SKILL_INDEX_TAG
 
 
-def test_planner_skill_catalog_excludes_coder_only_skills():
-    catalog = skill_catalog_text_for(PLANNER_SKILL_NAMES)
-    assert "superpowers_writing-plans" in catalog
-    assert "superpowers_brainstorming" in catalog
-    assert "superpowers_test-driven-development" not in catalog
+def test_planner_skill_catalog_reads_planner_folder():
+    # Planner folder is empty on purpose; catalog comes from disk, not a name list.
+    assert planner_skill_catalog() == ""
+    assert {name for name, _ in list_skills("planner")} == set()
 
 
 def test_worker_skill_catalog_includes_coder_expertise():
@@ -32,6 +30,8 @@ def test_worker_skill_catalog_includes_coder_expertise():
     assert "superpowers_test-driven-development" in catalog
     assert "superpowers_systematic-debugging" in catalog
     assert "reviewer_code" not in catalog
+    # Only skills present under skills/worker_coder/ appear.
+    assert "presentation-skill" not in catalog
 
 
 def test_legacy_slide_task_type_coerces_to_coding_catalog():
@@ -64,6 +64,8 @@ def test_langbridge_catalog_scoped_to_main_agent_skills():
     assert "grilling" in catalog
     assert "writing-simple-plans" in catalog
     assert "superpowers_systematic-debugging" in catalog
+    # Folder contents are the source of truth (includes draft brainstorming).
+    assert "langbridge_brainstorming" in catalog
     assert "superpowers_test-driven-development" not in catalog
     assert "clean-code-guard" not in catalog
 
@@ -214,22 +216,23 @@ def test_explorer_has_read_skill_tool():
     assert "read_skill" in EXPLORE_TOOL_NAMES
 
 
-def test_worker_coding_skill_names_are_expertise_only():
-    catalog = skill_catalog_text_for(WORKER_CODING_SKILL_NAMES)
+def test_worker_coding_catalog_is_expertise_only():
+    catalog = worker_skill_catalog("coding")
     assert "superpowers_test-driven-development" in catalog
     assert "karpathy_simplicity-first" not in catalog
 
 
 def test_explorer_skill_catalog_is_empty():
-    assert EXPLORER_SKILL_NAMES == ()
-    assert skill_catalog_text_for(EXPLORER_SKILL_NAMES) == ""
+    assert explorer_skill_catalog() == ""
+    assert {name for name, _ in list_skills("explorer")} == set()
 
 
 def test_explorer_prompt_stays_a_narrow_searcher():
     prompt = explorer_system_prompt()
     assert "Systematic debugging" not in prompt
     assert "NO FIXES WITHOUT ROOT CAUSE" not in prompt
-    assert "searcher, not a debugger" in prompt
+    assert "READ-ONLY" in prompt
+    assert "do NOT implement or propose" in prompt
     assert "Role playbooks" not in prompt
     assert "superpowers_subagent-driven-development" not in prompt
     # Explorer shares the main agent's skill mechanism: <skill_index> + read_skill.

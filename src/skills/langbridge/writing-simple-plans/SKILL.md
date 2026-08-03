@@ -9,8 +9,9 @@ This is the self-planning playbook for your middle triage tier: multi-step work
 whose plan is obvious. Light work needs no plan at all. Heavy planning
 (research, trade-offs, decomposition) goes to agent_planner — do not do it
 yourself. Write the plan to the session-artifact virtual path `todo_list.md`
-with the write tool; never leave a copy in the workspace root
-before dispatching any agent_worker.
+with the write tool; never leave a copy in the workspace root, and never write
+a separate workspace plan file (e.g. `docs/superpowers/plans/...`), before
+dispatching any agent_worker.
 
 # Writing Simple Plans
 
@@ -28,11 +29,15 @@ agent_explorer for the missing facts or agent_planner for the plan.
 
 ## Format
 
-`todo_list.md` holds the full session plan markdown. Keep every section short,
-but include them all:
+`todo_list.md` holds the full session plan markdown in this order: approved
+design/spec Reference (when one exists) → plan sections → Todo list. Keep every
+section short, but include them all:
 
 ```markdown
 # Plan: <short name>
+
+## Reference
+- Design/spec: `<path-to-human-approved-design.md>` (omit this section if none)
 
 ## Desired end state
 <one or two sentences — what "done" looks like and how to verify the whole thing>
@@ -44,7 +49,7 @@ but include them all:
 - <what we are NOT doing>
 
 ## Todo list
-- [ ] Task 1: Add X to src/pkg/mod.py (deps: none)
+- [ ] Task 1: Add X to src/pkg/mod.py (id: task-1-<slug>) (deps: none)
   - Objective: <specific outcome>
   - Detailed requirements:
     - <required behavior or constraint>
@@ -54,7 +59,7 @@ but include them all:
   - Verify: `pytest tests/test_mod.py -v`
   - Out of scope: <task-local exclusions>
 
-- [ ] Task 2: Wire X into Y (deps: task 1)
+- [ ] Task 2: Wire X into Y (id: task-2-<slug>) (deps: task 1)
   - Objective: ...
   - Detailed requirements: ...
   - Acceptance spec: ...

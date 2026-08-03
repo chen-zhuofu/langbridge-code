@@ -28,7 +28,8 @@ def test_worker_dispatch_requires_verbatim_task_contract():
     assert "supplemental_context" in properties
     assert "prompt" not in properties
     assert "word-for-word" in properties["task_contract"]["description"].lower()
-    assert "WORKER_STATUS: BLOCKED" in WORKER_ENGINEER_PROMPT
+    assert "WORKER_STATUS: BLOCKED" not in WORKER_ENGINEER_PROMPT
+    assert "until the reviewer votes PASS" in WORKER_ENGINEER_PROMPT
     assert "Acceptance checklist" in REVIEWER_ENGINEER_PROMPT
 
 
@@ -114,15 +115,13 @@ def test_reviewer_passed_tolerates_prose_preamble():
 
 
 def test_worker_ready_tolerates_prose_preamble():
-    from langbridge_code.agents.worker_reviewer import worker_blocked, worker_ready_for_review
+    from langbridge_code.agents.worker_reviewer import worker_ready_for_review
 
     assert worker_ready_for_review("WORKER_STATUS: READY_FOR_REVIEW\nSummary: done")
     assert worker_ready_for_review(
         "## Summary\nTask complete, verified.\nWORKER_STATUS: READY_FOR_REVIEW"
     )
-    assert not worker_ready_for_review("WORKER_STATUS: IN_PROGRESS\nSummary: blocked on X")
-    assert worker_blocked("Conflicting requirements.\nWORKER_STATUS: BLOCKED")
-    assert not worker_blocked("WORKER_STATUS: IN_PROGRESS\nSummary: still working")
+    assert not worker_ready_for_review("WORKER_STATUS: IN_PROGRESS\nSummary: still working")
 
 
 def test_worker_write_tool_runs_without_approval():

@@ -73,12 +73,13 @@ def test_failed_worktree_resumes_by_task_name_only(tmp_path):
     assert resumed_new_contract.task_description == "Changed contract wording"
 
 
-def test_reconcile_stale_working_marks_interrupted(tmp_path):
+def test_reconcile_stale_working_marks_failed(tmp_path):
     run_log = tmp_path / "run.json"
     for name, status in (
         ("task-1", "merged"),
         ("task-2", "working"),
         ("task-3", "ready"),
+        ("task-4", "interrupted"),  # legacy status migrated to failed
     ):
         worktree_mod.record_branch(
             run_log,
@@ -91,17 +92,22 @@ def test_reconcile_stale_working_marks_interrupted(tmp_path):
             status,
         )
 
-    assert worktree_mod.reconcile_stale_working(run_log) == ["task-2"]
+    assert sorted(worktree_mod.reconcile_stale_working(run_log)) == ["task-2", "task-4"]
     statuses = {
         item["task_name"]: item["status"]
         for item in worktree_mod.registry_snapshot(run_log)
     }
-    assert statuses == {"task-1": "merged", "task-2": "interrupted", "task-3": "ready"}
+    assert statuses == {
+        "task-1": "merged",
+        "task-2": "failed",
+        "task-3": "ready",
+        "task-4": "failed",
+    }
     # Idempotent: a second reconcile finds nothing stale.
     assert worktree_mod.reconcile_stale_working(run_log) == []
 
 
-def test_interrupted_worktree_is_resumable(tmp_path):
+def test_failed_worktree_after_reconcile_is_resumable(tmp_path):
     run_log = tmp_path / "run.json"
     worktree = tmp_path / "wt"
     worktree.mkdir()
@@ -140,23 +146,24 @@ def test_build_subagent_state_lists_running_and_registry():
     ]
     registry = [
         {"task_name": "task-3-sprites", "status": "ready"},
-        {"task_name": "task-2-levels", "status": "interrupted"},
+        {"task_name": "task-2-levels", "status": "failed"},
     ]
     text = worktree_mod.build_subagent_state(pending, registry)
     assert "RUNNING: agent_worker 'task-5-map' (elapsed 2m05s)" in text
     assert "task-3-sprites [ready]" in text
     assert "merge it with merge_branch" in text
-    assert "task-2-levels [interrupted]" in text
+    assert "task-2-levels [failed]" in text
     assert "re-dispatch" in text
     assert "new id in todo_list.md" in text
 
 
 def test_build_subagent_state_says_nothing_running_when_runner_idle():
-    registry = [{"task_name": "task-2-levels", "status": "interrupted"}]
+    registry = [{"task_name": "task-2-levels", "status": "failed"}]
     text = worktree_mod.build_subagent_state([], registry)
     assert "No subagent is running in this process right now." in text
     assert "Never infer that a task is still running" in text
-    assert "Resume with the listed task_name" in text
+    assert "resume the same task_name" in text
+    assert "discard old worktree" in text
 
 
 def test_create_worktree_in_git_repo(tmp_path):

@@ -15,8 +15,11 @@ call. Prefer tools / `agent_explorer` for facts over asking. Do not start
 approves the design (short chat approval is enough; a written spec is optional).
 
 After approval: if the implementation plan is obvious, use `writing-simple-plans`;
-if drafting is heavy, dispatch `agent_planner`. Pass any approved design path in
-worker `supplemental_context` when you later dispatch.
+if drafting is heavy, dispatch `agent_planner`. Write the result only into
+`todo_list.md` (spec Reference at top → plan sections → todos). Do not also
+save a separate workspace plan file. When you later dispatch workers, put the
+approved design/spec path and the plan sections in `supplemental_context`, and
+one todo contract in `task_contract`.
 
 This skill does **not** replace Triage light-work (do it yourself, no plan) or
 the Ambiguity gate (one blocking product fork → ask and continue).
@@ -65,8 +68,9 @@ sentences of design; a large one gets sections.
    path they name). No required `docs/superpowers/...` path. Do not commit unless
    the user wants a commit.
 7. **Hand off to planning** — after approval, write or dispatch the
-   implementation plan (`writing-simple-plans` or `agent_planner`). Do not jump
-   straight to `agent_worker`.
+   implementation plan into `todo_list.md` (`writing-simple-plans` or
+   `agent_planner`). Do not write a second plan file under the workspace. Do
+   not jump straight to `agent_worker`.
 
 ## Design quality bar
 

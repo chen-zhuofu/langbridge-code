@@ -285,7 +285,7 @@ class BridgeServer:
 
         status, payload = resolve_skill_slash(text)
         if status == "unknown":
-            available = ", ".join(name for name, _ in list_skills())
+            available = ", ".join(name for name, _ in list_skills(role="langbridge"))
             hint = f" Skills: {available}." if available else ""
             self.system(
                 f"Unknown command or skill: /{payload}. Try /help.{hint}",

@@ -127,21 +127,22 @@ def registry_snapshot(run_log_path) -> list[dict]:
 
 
 def reconcile_stale_working(run_log_path) -> list[str]:
-    """Rewrite leftover 'working' entries to 'interrupted'; return changed names.
+    """Rewrite leftover 'working' (and legacy 'interrupted') entries to 'failed'.
 
     Subagents only run as threads inside the owning session's process, so when
     a session (re)binds to this registry nothing can still be running. Any
     'working' entry is a claim left behind by a process that died mid-dispatch
     — without this rewrite the main agent would keep "waiting" for a result
-    that can never arrive. Terminal states (ready/failed/merged) are facts and
-    are kept as-is.
+    that can never arrive. Legacy 'interrupted' is migrated to the same
+    resumable 'failed' stage. Terminal states (ready/failed/merged) stay.
     """
     with _REGISTRY_LOCK:
         data = load_registry(run_log_path)
         changed = []
         for item in data.get("branches", []):
-            if item.get("status") == "working":
-                item["status"] = "interrupted"
+            status = item.get("status")
+            if status in {"working", "interrupted"}:
+                item["status"] = "failed"
                 changed.append(str(item.get("task_name") or item.get("branch") or ""))
         if changed:
             save_registry(run_log_path, data)
@@ -169,15 +170,11 @@ def _format_elapsed(seconds: float) -> str:
 
 _REGISTRY_STATUS_HINTS = {
     "ready": "review PASSED — merge it with merge_branch before dependent tasks",
-    "interrupted": (
-        "dispatch died with a previous process; NOT running now — re-dispatch "
-        "agent_worker with this same task_name (the todo id) to resume its worktree; "
-        "if the todo body must change, assign a new id in todo_list.md instead"
-    ),
     "failed": (
-        "stopped before reviewer approval — re-dispatch the same task_name "
-        "(the todo id) to resume from its partial work; if the todo body must "
-        "change, assign a new id in todo_list.md instead"
+        "stopped before approval — NOT running; inspect the failure reason, "
+        "then either re-dispatch the same task_name to resume, or Edit the "
+        "todo (new id if content changes), discard the old worktree/branch, "
+        "and dispatch fresh"
     ),
     "working": "dispatched by this process; result pending",
     "merged": "merged into the main workspace",
@@ -220,10 +217,11 @@ def build_subagent_state(pending_calls: list[dict], registry_entries: list[dict]
             suffix = f": {hint}" if hint else ""
             lines.append(f"- {name} [{status}]{suffix}")
     lines.append(
-        "Resume with the listed task_name (the todo id). Changing a todo's "
-        "meaning/content requires a new id in todo_list.md — do not reuse an "
-        "old id. Never infer that a task is still running from git worktrees, "
-        "branches, or this registry — only the RUNNING lines above mean live work."
+        "On [failed]: inspect why it stopped, then resume the same task_name "
+        "OR reset (new id in todo_list.md + discard old worktree/branch) before "
+        "dispatching again. Never infer that a task is still running from git "
+        "worktrees, branches, or this registry — only the RUNNING lines above "
+        "mean live work."
     )
     return "\n".join(lines)
 
@@ -269,12 +267,13 @@ def resumable_worktree(
     task_name: str,
     task_description: str,
 ) -> WorktreeInfo | None:
-    """Return/recreate the failed or interrupted worktree for the same task id.
+    """Return/recreate the failed worktree for the same task id.
 
     Matching is by ``task_name`` (the todo ``id``) only. Contract text is not
     part of the key: real contract rewrites must use a new id so they do not
     resume here. ``task_description`` is kept as the latest contract snapshot
-    stored when the branch is recorded again.
+    stored when the branch is recorded again. Legacy ``interrupted`` entries
+    remain resumable until reconcile migrates them to ``failed``.
     """
     stable_name = (task_name or "").strip()
     if not stable_name:

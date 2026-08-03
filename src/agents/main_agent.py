@@ -307,8 +307,8 @@ class MainAgentSession:
 
         Subagents run only as threads of this process, so at bind time nothing
         can still be running: leftover 'working' entries are from a process
-        that died and become 'interrupted' (resumable). Then publish the
-        corrected picture to the model via <subagent_state>.
+        that died and become 'failed' (resumable). Then publish the corrected
+        picture to the model via <subagent_state>.
         """
         worktree_mod.reconcile_stale_working(self.run_log_path)
         self._refresh_subagent_state_block(None)
@@ -421,8 +421,9 @@ class MainAgentSession:
             "<background_tool_results>\n"
             "Previously launched subagent calls have completed. Process every "
             "result now: note it, merge and check off PASS tasks, handle failures "
-            "or BLOCKED tasks, and dispatch newly unblocked work while other "
-            "background calls continue.\n\n"
+            "(inspect the reason — resume same task_name, or reset: new id + "
+            "discard old worktree, then dispatch), and dispatch newly unblocked "
+            "work while other background calls continue.\n\n"
             f"{body}\n"
             "</background_tool_results>"
         )
@@ -500,7 +501,7 @@ class MainAgentSession:
         try:
             user_prompt = expand_skill_slash(raw_prompt)
         except FileNotFoundError as error:
-            available = ", ".join(name for name, _ in list_skills())
+            available = ", ".join(name for name, _ in list_skills(role="langbridge"))
             return (
                 f"Unknown skill '/{error}'. "
                 f"Available skills: {available or '(none)'}. Try /help for built-in commands."

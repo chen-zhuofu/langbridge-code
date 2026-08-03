@@ -11,7 +11,7 @@ ASK_USER_TOOL_SCHEMA = {
         "ends the turn with no answer channel). Exactly 3 plausible options; "
         "UI adds 'Other'. User's language. Skip trivial choices. Do not ask "
         "what you can look up or verify yourself (code, docs, repo, tools). "
-        "For continue/resume vs new-project rules, see Session rules / When to act."
+        "For continue/resume vs new-project rules, see User interaction."
     ),
     "parameters": {
         "type": "object",

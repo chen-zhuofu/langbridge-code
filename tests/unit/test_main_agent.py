@@ -342,10 +342,10 @@ def test_session_init_reconciles_stale_working_registry(tmp_path):
         item["task_name"]: item["status"]
         for item in worktree_mod.registry_snapshot(run_log)
     }
-    assert statuses == {"task-2-levels": "interrupted", "task-3-sprites": "ready"}
+    assert statuses == {"task-2-levels": "failed", "task-3-sprites": "ready"}
     block = session.context.stack.subagent_state_block
     assert "No subagent is running in this process right now." in block
-    assert "task-2-levels [interrupted]" in block
+    assert "task-2-levels [failed]" in block
     assert "task-3-sprites [ready]" in block
 
 
@@ -359,13 +359,21 @@ def test_subagent_state_block_shows_running_worker_during_send(tmp_path, monkeyp
     monkeypatch.setattr("langbridge_code.agents.main_agent.write_worklog_finish", lambda *a, **k: None)
     monkeypatch.setattr("langbridge_code.agents.main_agent.write_worklog_observation", lambda *a, **k: None)
 
+    def _pinned_subagent_state(messages):
+        return [
+            str(message.get("content", ""))
+            for message in messages
+            if isinstance(message, dict)
+            and str(message.get("content", "")).startswith("<subagent_state>")
+        ]
+
     def fake_response(*args, **kwargs):
         nonlocal model_round
         model_round += 1
         current_messages = kwargs.get("messages") or args[2]
-        rendered = str(current_messages)
+        pinned = _pinned_subagent_state(current_messages)
         if model_round == 1:
-            assert "<subagent_state>" not in rendered
+            assert pinned == []
             return {
                 "output": [
                     {
@@ -384,8 +392,8 @@ def test_subagent_state_block_shows_running_worker_during_send(tmp_path, monkeyp
             }
         if model_round == 2:
             # The worker is still pending: the live block must say RUNNING.
-            assert "<subagent_state>" in rendered
-            assert "RUNNING: agent_worker 'task-slow'" in rendered
+            assert pinned
+            assert "RUNNING: agent_worker 'task-slow'" in pinned[0]
             release_slow.set()
             return {
                 "output": [
@@ -396,7 +404,7 @@ def test_subagent_state_block_shows_running_worker_during_send(tmp_path, monkeyp
                 ]
             }
         # After the worker completed, no RUNNING line remains.
-        assert "RUNNING: agent_worker" not in rendered
+        assert all("RUNNING: agent_worker" not in block for block in pinned)
         return {
             "output": [
                 {

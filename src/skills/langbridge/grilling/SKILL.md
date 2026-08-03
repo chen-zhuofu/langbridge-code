@@ -16,11 +16,11 @@ Interview me relentlessly about every aspect of this until we reach a shared und
 
 Ask the questions one at a time, waiting for feedback on each question before continuing. Asking multiple questions at once is bewildering.
 
-When useful, give a rough count of questions still ahead (e.g. "about 3 left")
-so the user has a progress feel. Put it briefly with the question (including in
-`ask_user`). This estimate is **not** a budget or hard limit: ask every question
-you still need, even if that means exceeding an earlier estimate. Revise the
-count as the decision tree changes.
+When useful, give a rough range of questions still ahead (e.g. "about 2-4
+left") so the user has a progress feel. Put it briefly with the question
+(including in `ask_user`). This range is **not** a budget or hard limit: ask
+every question you still need, even if that means exceeding an earlier
+estimate. Revise the range as the decision tree changes.
 
 If a *fact* can be found by exploring the environment (filesystem, tools, etc.), look it up rather than asking me. The *decisions*, though, are mine — put each one to me and wait for my answer.
 

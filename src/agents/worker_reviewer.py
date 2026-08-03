@@ -147,14 +147,16 @@ AGENT_WORKER_TOOL_SCHEMA = {
         "When to use:\n"
         "- todo_list.md is already written, and one unchecked todo is unblocked\n"
         "  (deps done / merged) and ready to implement.\n"
-        "- Resume a failed or interrupted todo: same task_name, prior return in\n"
-        "  supplemental_context.\n"
+        "- Resume a failed todo whose contract is still right: same task_name,\n"
+        "  prior return in supplemental_context.\n"
         "\n"
         "When not to use:\n"
         "- No committed plan yet — plan first (agent_planner or write todo_list.md).\n"
         "- Light work you can finish in a few targeted edits yourself.\n"
-        "- Merge, mark `[x]`, edit the plan, or rewrite a contract — those stay with you\n"
-        "  (merge_branch / Edit). Never dispatch merge via this tool.\n"
+        "- Merge, mark `[x]`, edit the plan, rewrite a contract, or discard a\n"
+        "  failed worktree — those stay with you (merge_branch / Edit / bash).\n"
+        "  After a failed return, decide resume vs reset before calling again.\n"
+        "  Never dispatch merge via this tool.\n"
         "- A todo whose deps are still unchecked or unmerged.\n"
         "\n"
         "One subtask per call. Independent unblocked todos may run in parallel in one\n"
@@ -176,15 +178,19 @@ AGENT_WORKER_TOOL_SCHEMA = {
             "supplemental_context": {
                 "type": "string",
                 "description": (
-                    "Additional facts discovered after the contract was written: "
-                    "exact paths, line ranges, relevant snippets, and how components "
-                    "connect. If an approved design/spec (or other authoritative "
-                    "playbook) exists for this project, always include its path here "
-                    "on every dispatch and re-dispatch so the worker can open it on "
-                    "demand. When resuming the same task_name (todo id), include the "
-                    "previous agent_worker return so the worker knows why it stopped "
-                    "and what review feedback remains. Must not override or "
-                    "reinterpret the task contract."
+                    "Supporting context the worker cannot read from todo_list.md. "
+                    "On every dispatch and re-dispatch include: (1) the "
+                    "human-approved design/spec path when one exists, so the "
+                    "worker can open it on demand; (2) the plan sections from "
+                    "todo_list.md above the Todo list (Desired end state, "
+                    "Success criteria, Key discoveries, Out of scope, Current "
+                    "state, Design options, Open questions, Changes required — "
+                    "omit empty ones). Also add later repository facts: exact "
+                    "paths, line ranges, relevant snippets, and how components "
+                    "connect. When resuming the same task_name (todo id), include "
+                    "the previous agent_worker return so the worker knows why it "
+                    "stopped and what review feedback remains. Must not override "
+                    "or reinterpret the task contract."
                 ),
             },
             "description": {
@@ -275,10 +281,6 @@ def _last_status_line(report: str, prefix: str) -> str:
 
 def worker_ready_for_review(report):
     return _last_status_line(report, "worker_status:") == "worker_status: ready_for_review"
-
-
-def worker_blocked(report):
-    return _last_status_line(report, "worker_status:") == "worker_status: blocked"
 
 
 def reviewer_review_passed(report):
@@ -979,8 +981,10 @@ def partial_work_note(snapshot, cwd=None) -> str:
     return (
         "\n\nPartial work left in the working tree (not reverted):\n"
         + body[:2000]
-        + "\nMain agent decides: re-dispatch agent_worker to continue from this state, "
-        "or revise todo_list.md (Edit) into smaller steps accounting for these changes."
+        + "\nMain agent: inspect this failure, then either (1) re-dispatch "
+        "agent_worker with the same task_name to continue from this state, or "
+        "(2) Edit todo_list.md (new id if the contract changes), discard this "
+        "failed worktree/branch, and dispatch the updated todo fresh."
     )
 
 
@@ -1322,21 +1326,17 @@ def dispatch_worker(
             # cleanup and can be merged later if the main agent wants it.
             commit_task("worker-partial", task, worktree_info.path)
         worktree_mod.record_branch(run_log_path, worktree_info, "ready" if passed else "failed")
-        blocked = worker_blocked(detail)
-        status = "completed" if passed else ("blocked" if blocked else "stopped before approval")
+        status = "completed" if passed else "stopped before approval"
         branch_note = f"\n\nWorktree branch: {worktree_info.branch}"
         if passed:
             branch_note += " (ready to merge)"
-        elif blocked:
-            branch_note += (
-                " (the task contract needs clarification; any partial work is "
-                "committed on this branch)"
-            )
         else:
             branch_note += (
                 " (partial work is committed on this branch — do NOT merge it yet; "
-                "re-dispatch the same task_name (todo id) with the previous return "
-                "in supplemental_context to resume here)"
+                "inspect the failure, then either re-dispatch the same task_name "
+                "with the previous return in supplemental_context to resume, or "
+                "Edit the todo with a new id, discard this worktree/branch, and "
+                "dispatch fresh)"
             )
         return f"[{description or 'worker'}] Worktree task {status}.{branch_note}\n\n{detail}{_todo_completion_suffix(passed)}"
 
@@ -1355,9 +1355,7 @@ def dispatch_worker(
         approval_callback=approval_callback,
         task_name=task_name,
     )
-    status = "completed" if passed else (
-        "blocked" if worker_blocked(detail) else "stopped before approval"
-    )
+    status = "completed" if passed else "stopped before approval"
     return f"[{description or 'worker'}] Single-task {status}.\n\n{detail}{_todo_completion_suffix(passed)}"
 
 
