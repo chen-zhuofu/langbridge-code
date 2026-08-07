@@ -1,0 +1,4 @@
+# Ship TUI sources with sdists so wheels / uv tool installs can build on first run.
+recursive-include tui *
+prune tui/node_modules
+prune tui/dist

@@ -13,11 +13,18 @@ from pathlib import Path
 
 PACKAGE_DIR = Path(__file__).resolve().parent
 DEFAULT_CONFIG_PATH = PACKAGE_DIR / "config.json"
-# Checkout root: src/settings.py → repo root.
-INSTALL_ROOT = PACKAGE_DIR.parent
-
 CONFIG_DIR = Path.home() / ".langbridge-code"
 USER_CONFIG_PATH = CONFIG_DIR / "config.json"
+
+# Checkout: src/settings.py → repo root (sibling ``tui/`` + ``pyproject.toml``).
+# Installed wheel / ``uv tool``: no checkout; keep state under ~/.langbridge-code.
+_REPO_ROOT = PACKAGE_DIR.parent
+if (_REPO_ROOT / "pyproject.toml").is_file() and (
+    _REPO_ROOT / "tui" / "package.json"
+).is_file():
+    INSTALL_ROOT = _REPO_ROOT
+else:
+    INSTALL_ROOT = CONFIG_DIR
 
 def _deep_merge(base, override):
     merged = dict(base)

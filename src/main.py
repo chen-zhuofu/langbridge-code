@@ -8,15 +8,30 @@ if __package__ in (None, ""):
     # the repo root on path after `uv sync` (preferred) or fail clearly.
     sys.path.append(str(Path(__file__).resolve().parents[1]))
 
-from langbridge_code.settings import INSTALL_ROOT, ensure_api_credentials
+from langbridge_code.settings import INSTALL_ROOT, PACKAGE_DIR, ensure_api_credentials
 from langbridge_code.tools.common.runtime import (
     RuntimeBootstrapError,
     ensure_tui_tools,
     managed_binary,
 )
 
-TUI_DIR = INSTALL_ROOT / "tui"
-TUI_DIST = INSTALL_ROOT / "tui" / "dist" / "cli.js"
+
+def resolve_tui_dir() -> Path:
+    """Prefer packaged TUI (wheel / uv tool); fall back to checkout ``tui/``."""
+    candidates = (PACKAGE_DIR / "tui", INSTALL_ROOT / "tui")
+    for path in candidates:
+        if (path / "package-lock.json").is_file() or (
+            path / "dist" / "cli.js"
+        ).is_file():
+            return path
+    for path in candidates:
+        if path.is_dir():
+            return path
+    return candidates[0]
+
+
+TUI_DIR = resolve_tui_dir()
+TUI_DIST = TUI_DIR / "dist" / "cli.js"
 
 
 def ensure_tui_built(npm: str) -> None:
