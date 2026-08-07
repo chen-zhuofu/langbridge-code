@@ -13,16 +13,12 @@ then dispatches each unblocked subtask to an isolated **Worker↔Reviewer** loop
 Independent subtasks may run in parallel. It compacts
 long context automatically and can resume prior sessions and interrupted subtasks.
 
-Start it:
+Start it (requires [`uv`](https://docs.astral.sh/uv/)):
 
 ```bash
-uv run langbridge-code
+uv tool install git+https://github.com/chen-zhuofu/langbridge-code.git
+langbridge-code
 ```
-
-With `uv` installed, that is the only setup command required after cloning the
-repository. `uv` selects the pinned Python version and installs the Python
-application. On first start, LangBridge installs and builds its TypeScript TUI
-automatically.
 
 LangBridge also prepares a managed tool runtime under
 `<workspace>/.langbridge/runtime/`. Missing Node.js/npm, `rg`, Git, and Bash are
