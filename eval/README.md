@@ -4,7 +4,7 @@ Layout:
 
 ```
 eval/
-  run_eval.py          # internal langbridge-bench (agent + in-container grade)
+  run_eval.py          # langbridge-bench (agent container → patch → grade container)
   run_public_eval.py   # SWE-bench verified / pro (official images + harness)
   run_agent.py         # in-container agent entry
   grade_checkout.py    # in-container grade entry
@@ -18,7 +18,7 @@ eval/
 ```
 ## Manual test 
 ```bash
-uv run --project ~/langbridge-code langbridge-code
+uv run --project ~/langbridge langbridge
 ```
 
 ## Crawl task
@@ -31,7 +31,14 @@ uv run python eval/data-pipeline/run_pipeline.py --limit 1
 uv run python eval/data-pipeline/reset_task.py pytest-dev__pytest-14730
 ```
 
-## Own tasks (langbridge-bench): agent + grade in the same Docker image
+## Own tasks (langbridge-bench): sequential dual containers
+
+Same task image (`lb-task:<id>`), two containers in sequence:
+
+1. **Agent** container (optional egress guard) → `candidate.diff`
+2. Tear down agent
+3. **Grade** container (fresh same image, no egress) → `grade.json`
+
 ```bash
 uv run python eval/run_eval.py --task pytest-dev__pytest-14694
 uv run python eval/run_eval.py --workers 10
@@ -44,10 +51,14 @@ interactive CLI provider. Override with `--model` / `LANGBRIDGE_API_PROVIDER`.
 
 ## SWE-bench Verified / Pro
 
-Agent runs **inside the official instance image**. Bootstrap installs a
-portable Python 3.12 under `/opt/lb-venv` via uv and does **not** put that
-venv on PATH (so bash `python`/`pytest` stay on the image toolchain).
-Scoring uses the **official** harness, not our in-container grader.
+Also sequential dual containers, harness-owned grade:
+
+1. Agent runs **inside the official instance image**
+2. Official harness (Scale / swebench) starts **its own** grade containers
+
+Bootstrap installs a portable Python 3.12 under `/opt/lb-venv` via uv and does
+**not** put that venv on PATH (so bash `python`/`pytest` stay on the image
+toolchain). Scoring uses the **official** harness, not our in-container grader.
 
 Lite is dropped. Adapted LangBridge specs for public benches are not used.
 

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Create a Skill"
+  short_description: "Design LangBridge skills through guided discovery"
+  default_prompt: "Use $creating-skills to collaborate with me on a new LangBridge skill."

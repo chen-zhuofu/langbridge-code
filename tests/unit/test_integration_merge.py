@@ -14,13 +14,31 @@ def test_dispatch_worker_pass_instructs_main_agent_to_mark_todo(tmp_path, monkey
     run_log = tmp_path / "run.json"
     plan = "# Todo\n\n## Todo list\n- [ ] Create HTML slides\n- [ ] Browser verify\n"
     (tmp_path / "todo_list.md").write_text(plan, encoding="utf-8")
+    info = worktree_mod.WorktreeInfo(
+        "lb/run/t1-slides",
+        tmp_path / "wt",
+        "Create HTML slides",
+        task_name="task-slides",
+    )
     monkeypatch.setattr(
         "langbridge_code.agents.common.todo_list.plan_path",
         lambda: tmp_path / "todo_list.md",
     )
     monkeypatch.setattr(
-        "langbridge_code.agents.worker_reviewer.worktree_mod.is_git_repo",
-        lambda cwd=None: False,
+        "langbridge_code.agents.worker_reviewer.worktree_mod.ensure_git_repo",
+        lambda cwd=None: tmp_path,
+    )
+    monkeypatch.setattr(
+        "langbridge_code.agents.worker_reviewer.worktree_mod.resumable_worktree",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "langbridge_code.agents.worker_reviewer.worktree_mod.create_worktree",
+        lambda *args, **kwargs: info,
+    )
+    monkeypatch.setattr(
+        "langbridge_code.agents.worker_reviewer.worktree_mod.record_branch",
+        lambda *args, **kwargs: None,
     )
     monkeypatch.setattr(
         "langbridge_code.agents.worker_reviewer.run_worker_reviewer_loop",
@@ -42,9 +60,10 @@ def test_dispatch_worker_pass_instructs_main_agent_to_mark_todo(tmp_path, monkey
     reply = agent_worker(
         prompt="Create HTML slides",
         description="worker",
+        task_name="task-slides",
     )
 
-    assert "Single-task completed" in reply
+    assert "Worktree task completed" in reply
     assert "mark that line `[x]` yourself" in reply
     assert (tmp_path / "todo_list.md").read_text(encoding="utf-8") == plan
 
@@ -52,10 +71,32 @@ def test_dispatch_worker_pass_instructs_main_agent_to_mark_todo(tmp_path, monkey
 def test_dispatch_worker_does_not_auto_refine_plan(tmp_path, monkeypatch):
     run_log = tmp_path / "run.json"
     planner_calls = []
+    info = worktree_mod.WorktreeInfo(
+        "lb/run/t1-login",
+        tmp_path / "wt",
+        "Fix login",
+        task_name="task-login",
+    )
 
     monkeypatch.setattr(
-        "langbridge_code.agents.worker_reviewer.worktree_mod.is_git_repo",
-        lambda cwd=None: False,
+        "langbridge_code.agents.worker_reviewer.worktree_mod.ensure_git_repo",
+        lambda cwd=None: tmp_path,
+    )
+    monkeypatch.setattr(
+        "langbridge_code.agents.worker_reviewer.worktree_mod.resumable_worktree",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "langbridge_code.agents.worker_reviewer.worktree_mod.create_worktree",
+        lambda *args, **kwargs: info,
+    )
+    monkeypatch.setattr(
+        "langbridge_code.agents.worker_reviewer.worktree_mod.record_branch",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "langbridge_code.agents.worker_reviewer.commit_task",
+        lambda *args, **kwargs: None,
     )
     monkeypatch.setattr(
         "langbridge_code.agents.worker_reviewer.run_worker_reviewer_loop",
@@ -78,7 +119,11 @@ def test_dispatch_worker_does_not_auto_refine_plan(tmp_path, monkeypatch):
         messages=[],
         target="fix login",
     )
-    reply = agent_worker(prompt="Fix login", description="worker")
+    reply = agent_worker(
+        prompt="Fix login",
+        description="worker",
+        task_name="task-login",
+    )
 
     assert not planner_calls
     assert "stopped before approval" in reply
@@ -91,8 +136,12 @@ def test_dispatch_worker_uses_worktree_by_default(tmp_path, monkeypatch):
     captured = {}
 
     monkeypatch.setattr(
-        "langbridge_code.agents.worker_reviewer.worktree_mod.is_git_repo",
-        lambda cwd=None: True,
+        "langbridge_code.agents.worker_reviewer.worktree_mod.ensure_git_repo",
+        lambda cwd=None: tmp_path,
+    )
+    monkeypatch.setattr(
+        "langbridge_code.agents.worker_reviewer.worktree_mod.resumable_worktree",
+        lambda *args, **kwargs: None,
     )
     monkeypatch.setattr(
         "langbridge_code.agents.worker_reviewer.worktree_mod.create_worktree",
@@ -122,6 +171,7 @@ def test_dispatch_worker_uses_worktree_by_default(tmp_path, monkeypatch):
     reply = agent_worker(
         prompt="Add auth",
         description="auth",
+        task_name="task-auth",
     )
 
     assert captured["status"] == "ready"
@@ -135,8 +185,12 @@ def test_dispatch_worker_failure_records_failed_branch_with_partial_work(tmp_pat
     captured = {}
 
     monkeypatch.setattr(
-        "langbridge_code.agents.worker_reviewer.worktree_mod.is_git_repo",
-        lambda cwd=None: True,
+        "langbridge_code.agents.worker_reviewer.worktree_mod.ensure_git_repo",
+        lambda cwd=None: tmp_path,
+    )
+    monkeypatch.setattr(
+        "langbridge_code.agents.worker_reviewer.worktree_mod.resumable_worktree",
+        lambda *args, **kwargs: None,
     )
     monkeypatch.setattr(
         "langbridge_code.agents.worker_reviewer.worktree_mod.create_worktree",
@@ -168,7 +222,11 @@ def test_dispatch_worker_failure_records_failed_branch_with_partial_work(tmp_pat
         messages=[],
         target="ship",
     )
-    reply = agent_worker(prompt="Add auth", description="auth")
+    reply = agent_worker(
+        prompt="Add auth",
+        description="auth",
+        task_name="task-auth",
+    )
 
     assert captured["status"] == "failed"
     assert commits == [("worker-partial", info.path)]
@@ -190,8 +248,12 @@ def test_dispatch_worker_hard_stop_records_resumable_worktree_without_commit(
     commits = []
 
     monkeypatch.setattr(
-        "langbridge_code.agents.worker_reviewer.worktree_mod.is_git_repo",
-        lambda cwd=None: True,
+        "langbridge_code.agents.worker_reviewer.worktree_mod.ensure_git_repo",
+        lambda cwd=None: tmp_path,
+    )
+    monkeypatch.setattr(
+        "langbridge_code.agents.worker_reviewer.worktree_mod.resumable_worktree",
+        lambda *args, **kwargs: None,
     )
     monkeypatch.setattr(
         "langbridge_code.agents.worker_reviewer.worktree_mod.create_worktree",
@@ -237,16 +299,31 @@ def test_dispatch_worker_hard_stop_records_resumable_worktree_without_commit(
     assert commits == []
 
 
-def test_dispatch_worker_runs_in_place_outside_git_repo(tmp_path, monkeypatch):
+def test_dispatch_worker_ensures_git_repo_before_worktree(tmp_path, monkeypatch):
+    """Non-git workspaces are bootstrapped before worktree creation."""
     run_log = tmp_path / "run.json"
-    created = []
+    info = worktree_mod.WorktreeInfo(
+        "lb/run/t1-auth",
+        tmp_path / "wt",
+        "Add auth",
+        task_name="task-auth",
+    )
+    calls = []
     monkeypatch.setattr(
-        "langbridge_code.agents.worker_reviewer.worktree_mod.is_git_repo",
-        lambda cwd=None: False,
+        "langbridge_code.agents.worker_reviewer.worktree_mod.ensure_git_repo",
+        lambda cwd=None: calls.append("ensure") or tmp_path,
+    )
+    monkeypatch.setattr(
+        "langbridge_code.agents.worker_reviewer.worktree_mod.resumable_worktree",
+        lambda *args, **kwargs: None,
     )
     monkeypatch.setattr(
         "langbridge_code.agents.worker_reviewer.worktree_mod.create_worktree",
-        lambda *args, **kwargs: created.append(True),
+        lambda *args, **kwargs: calls.append("create") or info,
+    )
+    monkeypatch.setattr(
+        "langbridge_code.agents.worker_reviewer.worktree_mod.record_branch",
+        lambda *args, **kwargs: None,
     )
     monkeypatch.setattr(
         "langbridge_code.agents.worker_reviewer.run_worker_reviewer_loop",
@@ -265,10 +342,14 @@ def test_dispatch_worker_runs_in_place_outside_git_repo(tmp_path, monkeypatch):
         messages=[],
         target="ship",
     )
-    reply = agent_worker(prompt="Add auth", description="auth")
+    reply = agent_worker(
+        prompt="Add auth",
+        description="auth",
+        task_name="task-auth",
+    )
 
-    assert not created
-    assert "Single-task completed" in reply
+    assert calls == ["ensure", "create"]
+    assert "Worktree task completed" in reply
 
 
 def test_is_merge_task_prompt():

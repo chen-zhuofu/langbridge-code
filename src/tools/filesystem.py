@@ -4,7 +4,11 @@ import subprocess
 from pathlib import Path
 
 from langbridge_code.context.common.budget import estimate_tokens
-from langbridge_code.settings import MAX_FILE_BYTES
+from langbridge_code.settings import (
+    MAX_FILE_BYTES,
+    MAX_FILE_READ_TOKENS,
+    MAX_LINES_TO_READ,
+)
 from langbridge_code.tools.common.description import DESCRIPTION_PARAMETER
 from langbridge_code.tools.common.runtime import managed_binary
 from langbridge_code.util.read_file_in_range import (
@@ -22,9 +26,6 @@ from langbridge_code.agents.common.workspace import (  # noqa: E402
 
 DEFAULT_GLOB_LIMIT = 100
 DEFAULT_GREP_HEAD_LIMIT = 250
-MAX_LINES_TO_READ = 2000
-# Claude Code FileReadTool DEFAULT_MAX_OUTPUT_TOKENS — post-read gate on returned text.
-MAX_FILE_READ_TOKENS = 25_000
 RG_TIMEOUT_SECONDS = 60
 VCS_DIRECTORIES_TO_EXCLUDE = (".git", ".svn", ".hg", ".bzr", ".jj", ".sl")
 
@@ -267,8 +268,8 @@ def tool(name):
     return register
 
 
-def resolve_workspace_path(path):
-    candidate = Path(path)
+def resolve_workspace_path(path, *, allow_app_skills=False):
+    candidate = Path(path).expanduser()
     plan_override = get_plan_file_override()
     if (
         plan_override is not None
@@ -276,15 +277,31 @@ def resolve_workspace_path(path):
         and candidate.parts == ("todo_list.md",)
     ):
         return plan_override
-    target = (get_workspace_root() / path).resolve()
+    target = (
+        candidate.resolve()
+        if candidate.is_absolute()
+        else (get_workspace_root() / candidate).resolve()
+    )
     try:
         target.relative_to(get_workspace_root())
+        return target
     except ValueError:
-        raise ValueError("Path must stay inside the current workspace")
-    return target
+        pass
+    if allow_app_skills:
+        from langbridge_code.util.app_paths import app_skills_dir
+
+        root = app_skills_dir("langbridge").resolve()
+        try:
+            target.relative_to(root)
+            return target
+        except ValueError:
+            pass
+    raise ValueError(
+        "Path must stay inside the current workspace or the LangBridge app Skills directory"
+    )
 
 
-def resolve_readable_path(path):
+def resolve_readable_path(path, *, allow_app_skills=False):
     """Workspace resolution plus per-agent session artifact read ACL.
 
     Read tools use this so agents can follow absolute paths handed to them in
@@ -295,7 +312,7 @@ def resolve_readable_path(path):
     from langbridge_code.agents.common.workspace import can_read_artifact
 
     try:
-        return resolve_workspace_path(path)
+        return resolve_workspace_path(path, allow_app_skills=allow_app_skills)
     except ValueError:
         candidate = Path(path)
         if candidate.is_absolute() and can_read_artifact(candidate):
@@ -363,9 +380,17 @@ def glob(pattern, path=".", max_results=DEFAULT_GLOB_LIMIT):
 
 
 @tool("read_file")
-def read_file(path, offset=None, limit=None, start_line=None, end_line=None, function_name=None):
+def read_file(
+    path,
+    offset=None,
+    limit=None,
+    start_line=None,
+    end_line=None,
+    function_name=None,
+    _allow_app_skills=False,
+):
     """Read tool — ported from Claude Code Read (offset/limit, line-numbered output)."""
-    target = resolve_readable_path(path)
+    target = resolve_readable_path(path, allow_app_skills=_allow_app_skills)
     if not target.exists():
         raise FileNotFoundError(f"No such file: {path}")
     if not target.is_file():
@@ -648,13 +673,13 @@ def grep(pattern, path=".", **raw_kwargs):
 
 
 @tool("Edit")
-def Edit(path, old_string, new_string, replace_all=False):
+def Edit(path, old_string, new_string, replace_all=False, _allow_app_skills=False):
     if not old_string:
         raise ValueError("old_string must not be empty")
     if old_string == new_string:
         raise ValueError("No changes to make: old_string and new_string are exactly the same.")
 
-    target = resolve_workspace_path(path)
+    target = resolve_workspace_path(path, allow_app_skills=_allow_app_skills)
     if not target.exists():
         raise FileNotFoundError(f"No such file: {path}")
     if not target.is_file():
@@ -687,8 +712,8 @@ def Edit(path, old_string, new_string, replace_all=False):
 
 
 @tool("write")
-def write(path, content):
-    target = resolve_workspace_path(path)
+def write(path, content, _allow_app_skills=False):
+    target = resolve_workspace_path(path, allow_app_skills=_allow_app_skills)
     if not target.parent.exists():
         target.parent.mkdir(parents=True, exist_ok=True)
     existed = target.exists()

@@ -64,6 +64,7 @@ export type ClientMessage =
   | { type: "resume_session"; path: string }
   | { type: "delete_session"; path: string }
   | { type: "goal"; text: string }
+  | { type: "reviewer"; text: string }
   | { type: "queue_list" }
   | { type: "queue_clear" }
   | { type: "list_models" }

@@ -1,8 +1,11 @@
-"""Session / per-task progress.md (Claude Code Session Memory style).
+"""Session / per-task session_memory.md (Claude Code Session Memory style).
 
-``note_progress`` forks an Edit-restricted writer that updates section bodies
-in place. The in-memory ``<progress>`` block is loaded only on resume and after
-context compaction — mid-turn writes update the file only.
+``update_session_memory`` forks an Edit-restricted writer that updates section
+bodies in place. The in-memory ``<session_memory>`` block is loaded only on
+resume and after context compaction — mid-turn writes update the file only.
+
+Legacy sessions may still have ``progress.md``; reads fall back to it, writes
+always go to ``session_memory.md``.
 """
 from __future__ import annotations
 
@@ -12,16 +15,28 @@ from dataclasses import dataclass
 
 _progress_lock = threading.Lock()
 
-from langbridge_code.util.artifacts import progress_path as artifact_progress_path
-from langbridge_code.util.artifacts import task_progress_path as artifact_task_progress_path
+from langbridge_code.util.artifacts import (
+    resolve_session_memory_path as artifact_resolve_session_memory_path,
+)
+from langbridge_code.util.artifacts import (
+    resolve_task_session_memory_path as artifact_resolve_task_session_memory_path,
+)
+from langbridge_code.util.artifacts import session_memory_path as artifact_session_memory_path
+from langbridge_code.util.artifacts import (
+    task_session_memory_path as artifact_task_session_memory_path,
+)
 
-PROGRESS_HEADER = "# Session progress\n"
+SESSION_MEMORY_HEADER = "# Session memory\n"
+# Back-compat aliases.
+PROGRESS_HEADER = SESSION_MEMORY_HEADER
 GOAL_HEADER = "## Goal\n"
-# Cap for the pinned <progress> block. Larger files stay on disk; the model
-# is pointed at the path so it can read_file the rest.
-PROGRESS_CONTEXT_MAX_TOKENS = 20_000
+# Cap for the pinned <session_memory> block. Larger files stay on disk; the
+# model is pointed at the path so it can read_file the rest.
+SESSION_MEMORY_CONTEXT_MAX_TOKENS = 20_000
+PROGRESS_CONTEXT_MAX_TOKENS = SESSION_MEMORY_CONTEXT_MAX_TOKENS
 # Note body starts at #### sections (or legacy ## Turn after a goal block).
 _NOTE_BODY_START_RE = re.compile(r"^(#### |## Turn\b)", re.MULTILINE)
+_LEGACY_HEADERS = ("# Session memory", "# Session progress")
 
 
 @dataclass
@@ -33,17 +48,52 @@ class GoalBlock:
     next_step: str = ""
 
 
+def session_memory_path(
+    run_log_path,
+    task_name: str | None = None,
+    role: str | None = None,
+):
+    """Canonical write path: session_memory.md (session or per-task/role)."""
+    if task_name:
+        return artifact_task_session_memory_path(
+            run_log_path, task_name, role=role or "Worker"
+        )
+    return artifact_session_memory_path(run_log_path)
+
+
+def resolve_session_memory_file(
+    run_log_path,
+    task_name: str | None = None,
+    role: str | None = None,
+):
+    """Read path: prefer session_memory.md, else legacy progress.md."""
+    if task_name:
+        return artifact_resolve_task_session_memory_path(
+            run_log_path, task_name, role=role or "Worker"
+        )
+    return artifact_resolve_session_memory_path(run_log_path)
+
+
 def progress_path(
     run_log_path,
     task_name: str | None = None,
     role: str | None = None,
 ):
-    """Session progress.md, or the per-task/per-role file when task_name is given."""
-    if task_name:
-        return artifact_task_progress_path(
-            run_log_path, task_name, role=role or "Worker"
-        )
-    return artifact_progress_path(run_log_path)
+    """Back-compat alias for ``session_memory_path``."""
+    return session_memory_path(run_log_path, task_name, role=role)
+
+
+def read_session_memory(
+    run_log_path,
+    task_name: str | None = None,
+    role: str | None = None,
+) -> str:
+    if not run_log_path:
+        return ""
+    path = resolve_session_memory_file(run_log_path, task_name, role=role)
+    if path is None or not path.exists():
+        return ""
+    return path.read_text(encoding="utf-8")
 
 
 def read_progress(
@@ -51,23 +101,19 @@ def read_progress(
     task_name: str | None = None,
     role: str | None = None,
 ) -> str:
-    if not run_log_path:
-        return ""
-    path = progress_path(run_log_path, task_name, role=role)
-    if path is None or not path.exists():
-        return ""
-    return path.read_text(encoding="utf-8")
+    """Back-compat alias for ``read_session_memory``."""
+    return read_session_memory(run_log_path, task_name, role=role)
 
 
-def clip_progress_for_context(
+def clip_session_memory_for_context(
     content: str,
     *,
     run_log_path,
     task_name: str | None = None,
     role: str | None = None,
-    max_tokens: int = PROGRESS_CONTEXT_MAX_TOKENS,
+    max_tokens: int = SESSION_MEMORY_CONTEXT_MAX_TOKENS,
 ) -> str:
-    """Truncate progress text before pinning it into ``<progress>``.
+    """Truncate session memory text before pinning it into ``<session_memory>``.
 
     Disk file is untouched. When over budget, keep the head and tell the model
     where to read the full note.
@@ -79,11 +125,11 @@ def clip_progress_for_context(
         return ""
     if max_tokens <= 0 or estimate_tokens(text) <= max_tokens:
         return text
-    path = progress_path(run_log_path, task_name, role=role)
-    path_label = str(path.resolve()) if path is not None else "progress.md"
+    path = session_memory_path(run_log_path, task_name, role=role)
+    path_label = str(path.resolve()) if path is not None else "session_memory.md"
     notice = (
-        f"\n\n[progress truncated for context — kept the first ~{max_tokens} tokens; "
-        f"full file: {path_label}]"
+        f"\n\n[session memory truncated for context — kept the first ~{max_tokens} "
+        f"tokens; full file: {path_label}]"
     )
     notice_tokens = estimate_tokens(notice)
     budget = max(64, max_tokens - notice_tokens)
@@ -101,17 +147,32 @@ def clip_progress_for_context(
     return clipped + notice
 
 
+def clip_progress_for_context(*args, **kwargs) -> str:
+    """Back-compat alias for ``clip_session_memory_for_context``."""
+    return clip_session_memory_for_context(*args, **kwargs)
+
+
+def write_session_memory(
+    run_log_path,
+    content: str,
+    task_name: str | None = None,
+    role: str | None = None,
+) -> None:
+    path = session_memory_path(run_log_path, task_name, role=role)
+    if path is None:
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content.rstrip() + "\n", encoding="utf-8")
+
+
 def write_progress(
     run_log_path,
     content: str,
     task_name: str | None = None,
     role: str | None = None,
 ) -> None:
-    path = progress_path(run_log_path, task_name, role=role)
-    if path is None:
-        return
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content.rstrip() + "\n", encoding="utf-8")
+    """Back-compat alias for ``write_session_memory``."""
+    write_session_memory(run_log_path, content, task_name, role=role)
 
 
 def parse_goal_block(content: str) -> GoalBlock | None:
@@ -160,16 +221,20 @@ def render_goal_block(goal) -> str:
     return "\n".join(lines)
 
 
-def _strip_progress_header(content: str) -> str:
+def _strip_session_memory_header(content: str) -> str:
     text = (content or "").strip()
-    header = PROGRESS_HEADER.strip()
-    if text.startswith(header):
-        return text[len(header) :].lstrip()
+    for header in _LEGACY_HEADERS:
+        if text.startswith(header):
+            return text[len(header) :].lstrip()
     return text
 
 
+def _strip_progress_header(content: str) -> str:
+    return _strip_session_memory_header(content)
+
+
 def _extract_goal_markdown(content: str) -> str:
-    body = _strip_progress_header(content)
+    body = _strip_session_memory_header(content)
     if not body.startswith("## Goal"):
         return ""
     rest = body[len("## Goal") :].lstrip("\n")
@@ -179,8 +244,8 @@ def _extract_goal_markdown(content: str) -> str:
 
 
 def _extract_note_body(content: str) -> str:
-    """Everything after the header/goal — the overridable progress note."""
-    body = _strip_progress_header(content)
+    """Everything after the header/goal — the overridable session memory body."""
+    body = _strip_session_memory_header(content)
     if not body:
         return ""
     if body.startswith("## Goal"):
@@ -198,22 +263,62 @@ def upsert_goal_block(run_log_path, goal) -> None:
     if not goal_text:
         return
     with _progress_lock:
-        existing = read_progress(run_log_path).strip()
+        existing = read_session_memory(run_log_path).strip()
         note = _extract_note_body(existing)
-        parts = [PROGRESS_HEADER.strip(), goal_text]
+        parts = [SESSION_MEMORY_HEADER.strip(), goal_text]
         if note:
             parts.append(note)
-        write_progress(run_log_path, "\n\n".join(parts) + "\n")
+        write_session_memory(run_log_path, "\n\n".join(parts) + "\n")
 
 
 def remove_goal_block(run_log_path) -> None:
     with _progress_lock:
-        existing = read_progress(run_log_path).strip()
+        existing = read_session_memory(run_log_path).strip()
         note = _extract_note_body(existing)
         if not note:
-            write_progress(run_log_path, PROGRESS_HEADER)
+            write_session_memory(run_log_path, SESSION_MEMORY_HEADER)
             return
-        write_progress(run_log_path, PROGRESS_HEADER + note + "\n")
+        write_session_memory(run_log_path, SESSION_MEMORY_HEADER + note + "\n")
+
+
+def ensure_session_memory_template(
+    run_log_path,
+    task_name: str | None = None,
+    role: str | None = None,
+) -> str:
+    """Ensure session_memory.md exists with the section template; return text.
+
+    Empty / header-only files get the Session Memory-style template. Existing
+    note bodies (including legacy notes without italic descriptions) are kept.
+    A ``## Goal`` block is preserved when seeding.
+    """
+    from langbridge_code.prompt.fork import (
+        SESSION_MEMORY_TEMPLATE,
+        TASK_SESSION_MEMORY_TEMPLATE,
+    )
+
+    if not run_log_path:
+        return ""
+    template = TASK_SESSION_MEMORY_TEMPLATE if task_name else SESSION_MEMORY_TEMPLATE
+    with _progress_lock:
+        existing = read_session_memory(run_log_path, task_name, role=role).strip()
+        note = _extract_note_body(existing)
+        if note:
+            return existing + ("\n" if not existing.endswith("\n") else "")
+        goal = _extract_goal_markdown(existing)
+        # Drop the template's own "# Session memory" header; we rejoin below.
+        body = template.strip()
+        for header in _LEGACY_HEADERS:
+            if body.startswith(header):
+                body = body[len(header) :].lstrip()
+                break
+        parts = [SESSION_MEMORY_HEADER.strip()]
+        if goal:
+            parts.append(goal)
+        parts.append(body)
+        content = "\n\n".join(parts) + "\n"
+        write_session_memory(run_log_path, content, task_name, role=role)
+        return content
 
 
 def ensure_progress_template(
@@ -221,40 +326,11 @@ def ensure_progress_template(
     task_name: str | None = None,
     role: str | None = None,
 ) -> str:
-    """Ensure progress.md exists with the section template; return current text.
-
-    Empty / header-only files get the Session Memory-style template. Existing
-    note bodies (including legacy notes without italic descriptions) are kept.
-    A ``## Goal`` block is preserved when seeding.
-    """
-    from langbridge_code.prompt.fork import (
-        SESSION_PROGRESS_TEMPLATE,
-        TASK_PROGRESS_TEMPLATE,
-    )
-
-    if not run_log_path:
-        return ""
-    template = TASK_PROGRESS_TEMPLATE if task_name else SESSION_PROGRESS_TEMPLATE
-    with _progress_lock:
-        existing = read_progress(run_log_path, task_name, role=role).strip()
-        note = _extract_note_body(existing)
-        if note:
-            return existing + ("\n" if not existing.endswith("\n") else "")
-        goal = _extract_goal_markdown(existing)
-        # Drop the template's own "# Session progress" header; we rejoin below.
-        body = template.strip()
-        if body.startswith(PROGRESS_HEADER.strip()):
-            body = body[len(PROGRESS_HEADER.strip()) :].lstrip()
-        parts = [PROGRESS_HEADER.strip()]
-        if goal:
-            parts.append(goal)
-        parts.append(body)
-        content = "\n\n".join(parts) + "\n"
-        write_progress(run_log_path, content, task_name, role=role)
-        return content
+    """Back-compat alias for ``ensure_session_memory_template``."""
+    return ensure_session_memory_template(run_log_path, task_name, role=role)
 
 
-def note_progress_edit_succeeded(
+def session_memory_edit_succeeded(
     before: str,
     after: str,
     *,
@@ -262,23 +338,28 @@ def note_progress_edit_succeeded(
     turn_id: int | None = None,
     task_name: str | None = None,
 ) -> str:
-    """Return the tool result string after an Edit-based progress fork."""
+    """Return the tool result string after an Edit-based session-memory fork."""
     before_text = (before or "").strip()
     after_text = (after or "").strip()
     if not after_text or after_text == before_text:
-        return "Progress note fork made no file changes; nothing recorded."
+        return "Session memory fork made no file changes; nothing recorded."
     if task_name is None and run_log_path is not None and turn_id is not None:
-        from langbridge_code.util.session_traces import append_progress_boundary
+        from langbridge_code.util.session_traces import append_session_memory_boundary
 
-        append_progress_boundary(run_log_path, turn_id)
+        append_session_memory_boundary(run_log_path, turn_id)
     note = _extract_note_body(after_text) or after_text
     summary = " ".join(note.split())
     if len(summary) > 200:
         summary = summary[:197] + "..."
-    return f"Noted in progress.md: {summary}"
+    return f"Noted in session_memory.md: {summary}"
 
 
-def write_progress_note(
+def note_progress_edit_succeeded(*args, **kwargs) -> str:
+    """Back-compat alias for ``session_memory_edit_succeeded``."""
+    return session_memory_edit_succeeded(*args, **kwargs)
+
+
+def write_session_memory_note(
     run_log_path,
     text: str,
     task_name: str | None = None,
@@ -298,21 +379,28 @@ def write_progress_note(
     if not _NOTE_BODY_START_RE.match(note):
         note = "#### Note\n" + note
     with _progress_lock:
-        existing = read_progress(run_log_path, task_name, role=role).strip()
+        existing = read_session_memory(run_log_path, task_name, role=role).strip()
         goal = _extract_goal_markdown(existing)
-        parts = [PROGRESS_HEADER.strip()]
+        parts = [SESSION_MEMORY_HEADER.strip()]
         if goal:
             parts.append(goal)
         parts.append(note)
-        write_progress(run_log_path, "\n\n".join(parts) + "\n", task_name, role=role)
+        write_session_memory(
+            run_log_path, "\n\n".join(parts) + "\n", task_name, role=role
+        )
     if task_name is None and turn_id is not None:
-        from langbridge_code.util.session_traces import append_progress_boundary
+        from langbridge_code.util.session_traces import append_session_memory_boundary
 
-        append_progress_boundary(run_log_path, turn_id)
+        append_session_memory_boundary(run_log_path, turn_id)
     summary = " ".join(note.split())
     if len(summary) > 200:
         summary = summary[:197] + "..."
-    return f"Noted in progress.md: {summary}"
+    return f"Noted in session_memory.md: {summary}"
+
+
+def write_progress_note(*args, **kwargs) -> str:
+    """Back-compat alias for ``write_session_memory_note``."""
+    return write_session_memory_note(*args, **kwargs)
 
 
 def build_turn_user_content(
@@ -323,9 +411,9 @@ def build_turn_user_content(
 ) -> str:
     """Build the appendable user message for one main-agent turn.
 
-    Progress is carried by the pinned ``<progress>`` context block (set by
-    MainAgentSession) — not embedded here. ``include_history_briefing`` is
-    retained for call-site compatibility but no longer inlines progress.md.
+    Session memory is carried by the pinned ``<session_memory>`` context block
+    (set by MainAgentSession) — not embedded here. ``include_history_briefing``
+    is retained for call-site compatibility but no longer inlines the file.
     """
     del run_log_path, include_history_briefing
     return (user_prompt or "").strip()

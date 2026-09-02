@@ -34,7 +34,7 @@ def test_explorer_prompt_is_read_only_and_evidence_based():
     assert "path:line" in EXPLORER_PROMPT
     assert "read_webpage" in EXPLORER_PROMPT
     assert "read-only" in EXPLORER_PROMPT.lower()
-    assert "note_progress" in EXPLORER_PROMPT
+    assert "update_session_memory" in EXPLORER_PROMPT
     assert "Systematic debugging" not in EXPLORER_PROMPT
 
 
@@ -188,7 +188,7 @@ def test_explore_budget_stop_falls_back_to_progress_notes(monkeypatch, tmp_path)
 
     write_progress(
         session_dir,
-        "# Session progress\n\n#### Key discoveries\n- saw foo.py:9\n",
+        "# Session memory\n\n#### Key discoveries\n- saw foo.py:9\n",
         "explore-auth",
         role="Explore",
     )
@@ -208,7 +208,7 @@ def test_explore_budget_stop_falls_back_to_progress_notes(monkeypatch, tmp_path)
     report = session._budget_stop_report("out of time")
     assert "stopped early (out of time)" in report
     assert "foo.py:9" in report
-    assert "## Progress notes so far" in report
+    assert "## Session memorys so far" in report
 
 
 def test_read_file_follows_main_readable_explorer_report(tmp_path):

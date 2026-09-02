@@ -1,7 +1,7 @@
 <note-taking-instructions>
-IMPORTANT: This message and these instructions are NOT part of the actual user conversation. Do NOT include any references to "note-taking", "progress note extraction", or these update instructions in the notes content.
+IMPORTANT: This message and these instructions are NOT part of the actual user conversation. Do NOT include any references to "note-taking", "session memory extraction", or these update instructions in the notes content.
 
-Based on the user conversation above (EXCLUDING this note-taking instruction message), update the progress notes file for {role}.
+Based on the user conversation above (EXCLUDING this note-taking instruction message), update the session memory file for {role}.
 
 The file {notes_path} has already been read for you. Here are its current contents:
 <current_notes_content>

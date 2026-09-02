@@ -38,6 +38,49 @@ def is_git_repo(cwd=None) -> bool:
     return (root / ".git").exists()
 
 
+def ensure_git_repo(cwd=None) -> Path:
+    """Make the workspace a git repo with HEAD, if it is not already.
+
+    Workers need a real repository (and a commit) so they can create isolated
+    worktrees from HEAD. Idempotent: existing repos are left unchanged.
+    """
+    root = Path(cwd or WORKSPACE_ROOT).resolve()
+    if not root.is_dir():
+        raise RuntimeError(f"Workspace does not exist: {root}")
+
+    if not (root / ".git").exists():
+        result = _run_git("init", cwd=root)
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout or "").strip()
+            raise RuntimeError(f"git init failed in {root}: {detail}")
+
+    head = _run_git("rev-parse", "--verify", "HEAD", cwd=root)
+    if head.returncode == 0:
+        return root
+
+    # New repo (or orphan branch): seed HEAD so `git worktree add … HEAD` works.
+    # Include existing files so worktrees inherit the current project tree.
+    add = _run_git("add", "-A", cwd=root)
+    if add.returncode != 0:
+        detail = (add.stderr or add.stdout or "").strip()
+        raise RuntimeError(f"git add failed in {root}: {detail}")
+    commit = _run_git(
+        "-c",
+        "user.email=langbridge@localhost",
+        "-c",
+        "user.name=LangBridge",
+        "commit",
+        "--allow-empty",
+        "-m",
+        "Initial commit",
+        cwd=root,
+    )
+    if commit.returncode != 0:
+        detail = (commit.stderr or commit.stdout or "").strip()
+        raise RuntimeError(f"initial git commit failed in {root}: {detail}")
+    return root
+
+
 def slugify(text: str, max_len: int = 28) -> str:
     cleaned = re.sub(r"<!--.*?-->", "", text or "", flags=re.IGNORECASE)
     slug = re.sub(r"[^a-zA-Z0-9]+", "-", cleaned.lower()).strip("-")

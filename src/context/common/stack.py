@@ -4,7 +4,8 @@ Assembled message order:
   system
   <memory>…</memory>            (main agent: prefetched user/project memories)
   [ASSIGNED_TASK] pinned user   (subagents)
-  <progress>…</progress>        (main agent: progress.md)
+  <session_memory>…</session_memory>  (main agent: session_memory.md)
+  <history_conversation>…</history_conversation>  (main: prior clean Q&A)
   <skill_index>…</skill_index>  (full skill listing — cleared after compaction)
   <invoked_skills>…</invoked_skills>  (invoked skill bodies re-pinned after compaction)
   …raw rounds (tail)…
@@ -14,8 +15,8 @@ own user-only raw round so the prompt prefix stays cache-stable.
 
 Hyperparameters (settings):
   COMPACT_RAW_KEEP — raw rounds kept verbatim in the tail (default 11 — one
-                     more than the progress-note cadence, so dropped rounds
-                     are always covered by progress.md)
+                     more than the session-memory cadence, so dropped rounds
+                     are always covered by session_memory.md)
   COMPACT_THRESHOLD_TOKENS — when assembled context reaches this many tokens
                      (fixed, model-independent), older rounds are dropped
 
@@ -23,8 +24,8 @@ Flow after each agent step:
   1. Append one raw round (user message on first step of a send(), then assistant+tools).
   2. When tokens >= COMPACT_THRESHOLD_TOKENS (or the caller's tighter budget):
      drop every round except the last COMPACT_RAW_KEEP. History lives in
-     progress.md and on-disk agent traces — no LLM prose summary. Then
-     ``on_compacted`` fires so the owner can refresh <memory> / <progress>
+     session_memory.md and on-disk agent traces — no LLM prose summary. Then
+     ``on_compacted`` fires so the owner can refresh <memory> / <session_memory>
      and re-pin invoked skill bodies (skill listing is dropped).
   3. Rebuild flat messages[] for the next model call.
 """
@@ -32,6 +33,7 @@ from __future__ import annotations
 
 import copy
 import re
+from typing import Any
 
 from langbridge_code.context.common.budget import estimate_tokens
 from langbridge_code.context.message import iter_tool_rounds
@@ -45,8 +47,13 @@ ASSIGNED_TASK_PREFIX = "[ASSIGNED_TASK]\n"
 _LEGACY_COMPACT_PREFIX = "[CONTEXT_COMPACT]\n"
 
 MEMORY_TAG = "memory"
-PROGRESS_TAG = "progress"
+SESSION_MEMORY_TAG = "session_memory"
+# Back-compat: older resumes may still carry <progress>…</progress>.
+PROGRESS_TAG = SESSION_MEMORY_TAG
+LEGACY_PROGRESS_TAG = "progress"
+HISTORY_CONVERSATION_TAG = "history_conversation"
 SUBAGENT_STATE_TAG = "subagent_state"
+SYSTEM_REMINDER_TAG = "system-reminder"
 SKILL_INDEX_TAG = "skill_index"
 INVOKED_SKILLS_TAG = "invoked_skills"
 # Published when live state clears so the latest tail message is not a stale
@@ -57,7 +64,9 @@ _SUBAGENT_STATE_CLEAR = "No subagent activity to report."
 _SUBAGENT_STATE_ELAPSED_RE = re.compile(r"\(elapsed [^)]*\)")
 _HEAD_BLOCK_TAGS = (
     MEMORY_TAG,
-    PROGRESS_TAG,
+    SESSION_MEMORY_TAG,
+    LEGACY_PROGRESS_TAG,
+    HISTORY_CONVERSATION_TAG,
     SKILL_INDEX_TAG,
     INVOKED_SKILLS_TAG,
 )
@@ -85,6 +94,19 @@ def unwrap_block(tag: str, content: str) -> str | None:
     return body.strip()
 
 
+def _text_content(content: Any) -> str:
+    """Plain text from string or multimodal message content."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "".join(
+            str(part.get("text", ""))
+            for part in content
+            if isinstance(part, dict)
+        )
+    return ""
+
+
 class ContextStack:
     def __init__(
         self,
@@ -106,6 +128,7 @@ class ContextStack:
         self.pinned_user_content: str | None = None
         self.memory_block: str | None = None
         self.progress_block: str | None = None
+        self.history_conversation_block: str | None = None
         self.subagent_state_block: str | None = None
         self.skill_index_block: str | None = None
         self.invoked_skills_block: str | None = None
@@ -116,13 +139,13 @@ class ContextStack:
         self.raw_rounds: list[list[dict]] = []
         self.dropped_round_count = 0
         # Called after a successful drop so the owner can refresh
-        # the <memory> / <progress> blocks (re-prefetch, re-read progress.md).
+        # the <memory> / <session_memory> blocks (re-prefetch, re-read file).
         self.on_compacted = None
 
-        self._pending_user: str | None = None
+        self._pending_user: str | list[dict] | None = None
 
-    def start_turn(self, user_content: str) -> None:
-        self._pending_user = user_content
+    def start_turn(self, user_content: str | list[dict]) -> None:
+        self._pending_user = copy.deepcopy(user_content)
 
     def _set_block(self, attr: str, content: str | None) -> None:
         text = (content or "").strip()
@@ -133,6 +156,13 @@ class ContextStack:
 
     def set_progress_block(self, content: str | None) -> None:
         self._set_block("progress_block", content)
+
+    def set_session_memory_block(self, content: str | None) -> None:
+        """Pin ``<session_memory>`` (alias of ``set_progress_block``)."""
+        self.set_progress_block(content)
+
+    def set_history_conversation_block(self, content: str | None) -> None:
+        self._set_block("history_conversation_block", content)
 
     def set_subagent_state_block(self, content: str | None) -> bool:
         """Append live subagent status at the tail when it changes.
@@ -155,6 +185,27 @@ class ContextStack:
             body = text
         self.raw_rounds.append(
             [{"role": "user", "content": wrap_block(SUBAGENT_STATE_TAG, body)}]
+        )
+        return True
+
+    def append_system_reminder(self, content: str) -> bool:
+        """Append an unpinned system reminder at the live conversation tail.
+
+        Some provider APIs do not allow a new system message mid-conversation,
+        so LangBridge follows the established harness convention and publishes
+        dynamic state as a tagged user message.  If a real user turn is pending,
+        keep it first and place the reminder immediately after it.
+        """
+        text = (content or "").strip()
+        if not text:
+            return False
+        if self._pending_user is not None:
+            self.raw_rounds.append(
+                [{"role": "user", "content": copy.deepcopy(self._pending_user)}]
+            )
+            self._pending_user = None
+        self.raw_rounds.append(
+            [{"role": "user", "content": wrap_block(SYSTEM_REMINDER_TAG, text)}]
         )
         return True
 
@@ -219,13 +270,14 @@ class ContextStack:
                 continue
             break
 
-        pending_user: str | None = None
+        pending_user: str | list[dict] | None = None
         # Continue after head pins so mid-transcript <subagent_state> appends
         # are kept as real user rounds (not re-skipped as head blocks).
         while index < len(messages):
             message = messages[index]
             if message.get("role") == "user" and not message.get("type"):
-                content = str(message.get("content", ""))
+                raw_content = message.get("content", "")
+                content = _text_content(raw_content)
                 if content.startswith(ASSIGNED_TASK_PREFIX):
                     index += 1
                     continue
@@ -244,8 +296,10 @@ class ContextStack:
                         self.subagent_state_block = stripped
                 if pending_user is not None:
                     # Consecutive user-only updates (e.g. state appends).
-                    self.raw_rounds.append([{"role": "user", "content": pending_user}])
-                pending_user = content
+                    self.raw_rounds.append(
+                        [{"role": "user", "content": copy.deepcopy(pending_user)}]
+                    )
+                pending_user = copy.deepcopy(raw_content)
                 index += 1
                 continue
             if message.get("role") == "assistant":
@@ -257,7 +311,13 @@ class ContextStack:
                 index += 1
                 self.raw_rounds.append(round_items)
                 continue
-            if message.get("type") in {"reasoning", "function_call", "function_call_output"}:
+            if message.get("type") in {
+                "reasoning",
+                "function_call",
+                "function_call_output",
+                "tool_search_call",
+                "tool_search_output",
+            }:
                 round_items = []
                 if pending_user is not None:
                     round_items.append({"role": "user", "content": pending_user})
@@ -293,7 +353,7 @@ class ContextStack:
                 if body is not None:
                     return body or None
         if self._pending_user is not None:
-            body = unwrap_block(SUBAGENT_STATE_TAG, self._pending_user)
+            body = unwrap_block(SUBAGENT_STATE_TAG, _text_content(self._pending_user))
             if body is not None:
                 return body or None
         return None
@@ -301,7 +361,9 @@ class ContextStack:
     def _absorb_block_message(self, content: str) -> bool:
         for tag, attr in (
             (MEMORY_TAG, "memory_block"),
-            (PROGRESS_TAG, "progress_block"),
+            (SESSION_MEMORY_TAG, "progress_block"),
+            (LEGACY_PROGRESS_TAG, "progress_block"),
+            (HISTORY_CONVERSATION_TAG, "history_conversation_block"),
             (SKILL_INDEX_TAG, "skill_index_block"),
             (INVOKED_SKILLS_TAG, "invoked_skills_block"),
         ):
@@ -326,7 +388,9 @@ class ContextStack:
         """Record one agent step (assistant output + tool results)."""
         round_messages: list[dict] = []
         if self._pending_user is not None:
-            round_messages.append({"role": "user", "content": self._pending_user})
+            round_messages.append(
+                {"role": "user", "content": copy.deepcopy(self._pending_user)}
+            )
             self._pending_user = None
         round_messages.extend(copy.deepcopy(step_items))
         self.raw_rounds.append(round_messages)
@@ -362,10 +426,24 @@ class ContextStack:
             messages.append({"role": "user", "content": wrap_block(MEMORY_TAG, self.memory_block)})
         if self.pinned_user_content:
             messages.append({"role": "user", "content": self.pinned_user_content})
-        # <progress> only at the head after resume / compaction — mid-turn
-        # note_progress overrides the file but does not rewrite this block.
+        # <session_memory> only at the head after resume / compaction — mid-turn
+        # update_session_memory overrides the file but does not rewrite this block.
         if self.progress_block:
-            messages.append({"role": "user", "content": wrap_block(PROGRESS_TAG, self.progress_block)})
+            messages.append(
+                {
+                    "role": "user",
+                    "content": wrap_block(SESSION_MEMORY_TAG, self.progress_block),
+                }
+            )
+        if self.history_conversation_block:
+            messages.append(
+                {
+                    "role": "user",
+                    "content": wrap_block(
+                        HISTORY_CONVERSATION_TAG, self.history_conversation_block
+                    ),
+                }
+            )
         # <subagent_state> is append-on-change inside raw_rounds (cache-stable).
         if self.skill_index_block:
             messages.append(
@@ -381,7 +459,9 @@ class ContextStack:
         for round_messages in self.raw_rounds:
             messages.extend(copy.deepcopy(round_messages))
         if self._pending_user is not None:
-            messages.append({"role": "user", "content": self._pending_user})
+            messages.append(
+                {"role": "user", "content": copy.deepcopy(self._pending_user)}
+            )
         return messages
 
     def token_count(self) -> int:
@@ -392,6 +472,7 @@ class ContextStack:
             "pinned_user": bool(self.pinned_user_content),
             "memory_block": bool(self.memory_block),
             "progress_block": bool(self.progress_block),
+            "history_conversation_block": bool(self.history_conversation_block),
             "subagent_state_block": bool(self.subagent_state_block),
             "skill_index_block": bool(self.skill_index_block),
             "invoked_skills_block": bool(self.invoked_skills_block),

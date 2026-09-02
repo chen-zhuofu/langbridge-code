@@ -1,0 +1,4 @@
+interface:
+  display_name: "Writing App Skills"
+  short_description: "Capture reusable workflows as personal LangBridge skills"
+  default_prompt: "Use $writing-app-skills to turn this verified workflow into an app-level skill."

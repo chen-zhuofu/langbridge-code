@@ -5,9 +5,13 @@ from langbridge_code.tools import GOAL_VERIFICATION_TOOL_NAMES, MAIN_TOOL_NAMES
 from langbridge_code.util.goal import SessionGoal, build_continuation_prompt
 
 
-def test_goal_verification_tools_match_main_agent_except_merge():
-    # The evaluator verifies only; merge_branch mutates the workspace.
-    assert GOAL_VERIFICATION_TOOL_NAMES == MAIN_TOOL_NAMES - {"merge_branch"}
+def test_goal_verification_tools_exclude_stateful_main_tools():
+    # The evaluator verifies only; it must not merge, browse, or change schedules.
+    assert GOAL_VERIFICATION_TOOL_NAMES == MAIN_TOOL_NAMES - {
+        "merge_branch",
+        "browser",
+        "schedule",
+    }
 
 
 def test_evaluator_prompt_and_tools_include_memory_writer():

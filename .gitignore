@@ -11,11 +11,18 @@ artifacts/
 session-history/
 *.egg-info/
 *.py[cod]
+.venv
+.venv 2
 .langbridge/runtime/
 
 # TypeScript TUI
 tui/node_modules/
 tui/dist/
+
+# Native macOS desktop client
+desktop/.build/
+desktop/.build-test/
+desktop/dist/
 
 # Vendored presentation-skill Node deps (install locally when building decks)
 src/skills/**/node_modules/

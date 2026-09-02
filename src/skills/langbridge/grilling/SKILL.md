@@ -3,7 +3,7 @@ name: grilling
 description: Grill the user relentlessly about a plan, decision, or idea. Use when the user wants to stress-test a plan/design before coding, or says grill / grill me / grilling.
 ---
 
-## LangBridge Code mapping (main agent)
+## LangBridge mapping (main agent)
 
 Run the session yourself, before you plan or implement. Ask via `ask_user` only —
 one question per call. Prefer looking up facts with tools (read files, explore)

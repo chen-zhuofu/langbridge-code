@@ -1,6 +1,9 @@
+import json
 import re
 import sys
 from pathlib import Path
+
+from langbridge_code.util.app_paths import app_skills_dir
 
 SKILLS_DIR = Path(__file__).resolve().parent
 
@@ -30,9 +33,22 @@ def _agent_skill_dirs():
             yield path
 
 
+def _role_skill_dirs(role: str):
+    if role == "langbridge":
+        personal = app_skills_dir(role)
+        if personal.is_dir():
+            yield personal
+    bundled = SKILLS_DIR / role
+    if bundled.is_dir():
+        yield bundled
+
+
 def _skill_dirs():
     """Search roots for skills, in priority order."""
-    yield from _agent_skill_dirs()
+    yield from _role_skill_dirs("langbridge")
+    for role in AGENT_ROLES:
+        if role != "langbridge":
+            yield from _role_skill_dirs(role)
 
 
 def load_skill(name, *, role=None):
@@ -50,20 +66,15 @@ def load_skill(name, *, role=None):
     if not name or ".." in Path(name).parts:
         raise FileNotFoundError(name)
 
-    roots = [SKILLS_DIR / role] if role is not None else list(_skill_dirs())
+    roots = list(_role_skill_dirs(role)) if role is not None else list(_skill_dirs())
 
     for root in roots:
         if not root.is_dir():
             continue
-        # Progressive disclosure: skill/references/foo.md
-        # Resolve may land under skills/_external via a role-dir symlink; allow
-        # any path still inside SKILLS_DIR (block escapes outside the package).
+        # Progressive disclosure: skill/references/foo.md. A reference must
+        # remain under that exact skill root (blocks traversal and symlink escape).
         if "/" in name:
             target = (root / name).resolve()
-            try:
-                target.relative_to(SKILLS_DIR.resolve())
-            except ValueError:
-                continue
             if not target.is_file():
                 continue
             # Prefer hits that belong to this role root (direct or symlink).
@@ -84,11 +95,11 @@ def load_skill(name, *, role=None):
 def list_skills(role=None, roles=None):
     """Return [(name, description), ...] for skills under agent folders."""
     if roles is not None:
-        roots = [SKILLS_DIR / role_name for role_name in roles]
+        roots = [root for role_name in roles for root in _role_skill_dirs(role_name)]
     elif role is not None:
-        roots = [SKILLS_DIR / role]
+        roots = list(_role_skill_dirs(role))
     else:
-        roots = list(_agent_skill_dirs())
+        roots = list(_skill_dirs())
 
     skills = []
     seen = set()
@@ -303,7 +314,13 @@ def _frontmatter(text):
     for line in text[3:end].splitlines():
         if ":" in line:
             key, _, value = line.partition(":")
-            meta[key.strip()] = value.strip()
+            cleaned = value.strip()
+            if cleaned.startswith('"') and cleaned.endswith('"'):
+                try:
+                    cleaned = json.loads(cleaned)
+                except json.JSONDecodeError:
+                    pass
+            meta[key.strip()] = cleaned
     return meta
 
 
@@ -333,6 +350,7 @@ RESERVED_SLASH_COMMANDS = frozenset(
         "stop",
         "queue",
         "goal",
+        "reviewer",
         "banner",
     }
 )
@@ -379,13 +397,14 @@ def substitute_arguments(content: str, args: str | None, *, append_if_no_placeho
 
 
 def resolve_skill_dir(name: str, *, role: str = "langbridge") -> Path | None:
-    """Absolute skill directory for ``name`` under ``skills/<role>/``, if present."""
+    """Absolute skill directory for ``name`` in the role's search roots."""
     skill_name = (name or "").strip().strip("/").split("/", 1)[0]
     if not skill_name or ".." in skill_name or "/" in skill_name:
         return None
-    path = SKILLS_DIR / role / skill_name
-    if (path / "SKILL.md").exists():
-        return path.resolve()
+    for root in _role_skill_dirs(role):
+        path = root / skill_name
+        if (path / "SKILL.md").exists():
+            return path.resolve()
     return None
 
 

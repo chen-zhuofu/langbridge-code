@@ -1,7 +1,8 @@
 """grade_checkout.py — grade a candidate diff against the checkout at cwd.
 
-Used by the Docker eval runner inside each task container so scoring does not
-need a host checkout cache. Expects cwd to already be at base_commit (clean).
+Used by the Docker eval runner inside a **fresh** grade container (same task
+image as the agent, after the agent container is torn down). Expects cwd to
+already be at base_commit (clean).
 
   python -m grade_checkout \\
     --spec /tmp/spec.json --diff /tmp/candidate.diff --out /tmp/grade.json

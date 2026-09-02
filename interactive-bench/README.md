@@ -31,7 +31,7 @@ swe-chat/
 
 2. Env vars:
    - `GITHUB_TOKEN` / `GH_TOKEN` — resolve + enrich diffs
-   - `OPENAI_API_KEY` / LangBridge `~/.langbridge-code/config.json` `api_keys`
+   - `OPENAI_API_KEY` / LangBridge `~/.langbridge/config.json` `api_keys`
      (deepseek / moonshot / openai / anthropic) — intent / sim LLM
    - Models: intent extraction defaults to `claude-fable-5` (pipeline-only).
      Eval sim / coverage defaults live in `eval/config.json` → `interactive`
@@ -66,9 +66,12 @@ uv run python interactive-bench/data-pipeline/curate/curate.py --data-dir /path/
 # uv run python interactive-bench/data-pipeline/intent/analyze.py --limit 20
 ```
 Eval (same CLI shape as langbridge-bench: `--workers` / `--offset` / `--limit` / `--task`).
-The coding agent under test defaults to DeepSeek (`eval/config.json`); sim and
-intent-coverage judge models live in the same file under `interactive`
-(`sim_model` / `coverage_model`). Env overrides: `LB_SIM_MODEL`,
+Sim and coverage judge run on the **host**. The coding agent runs in
+`lb-interactive:<id>`; after the episode the runner captures `candidate.diff`,
+tears down the agent container, then grades F2P in a **fresh** same-image
+container (sequential dual Docker). The coding agent under test defaults to
+DeepSeek (`eval/config.json`); sim and intent-coverage judge models live under
+`interactive` (`sim_model` / `coverage_model`). Env overrides: `LB_SIM_MODEL`,
 `LB_COVERAGE_MODEL`, or `LB_INTERACTIVE_MODEL` for both. The resolved models are
 written into `eval/out/<stamp>/report.json` as `config`.
 

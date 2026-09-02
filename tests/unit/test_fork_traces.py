@@ -61,7 +61,7 @@ def test_fork_agent_writes_tool_trace(tmp_path, monkeypatch):
     assert "Memory updated." in text
 
 
-def test_fork_progress_note_edits_and_denies_other_tools(tmp_path, monkeypatch):
+def test_fork_session_memory_edits_and_denies_other_tools(tmp_path, monkeypatch):
     import json
     import re
 
@@ -75,7 +75,7 @@ def test_fork_progress_note_edits_and_denies_other_tools(tmp_path, monkeypatch):
     mod = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
     spec.loader.exec_module(mod)
-    monkeypatch.setattr(fork_mod, "fork_progress_note", mod.fork_progress_note)
+    monkeypatch.setattr(fork_mod, "fork_session_memory", mod.fork_session_memory)
 
     calls = {"n": 0}
     notes_path = {"value": None}
@@ -144,7 +144,7 @@ def test_fork_progress_note_edits_and_denies_other_tools(tmp_path, monkeypatch):
 
     run_log = create_artifact_session("Progress edit")
     begin_trace(run_log, "2026-07-24T010400.00")
-    result = fork_mod.fork_progress_note(
+    result = fork_mod.fork_session_memory(
         "key",
         "model",
         [{"role": "user", "content": "fixed the parser"}],
@@ -153,7 +153,7 @@ def test_fork_progress_note_edits_and_denies_other_tools(tmp_path, monkeypatch):
             {"type": "function", "name": "bash"},
             {"type": "function", "name": "Edit"},
         ],
-        label="progress note fork",
+        label="session memory fork",
     )
     end_trace()
 
@@ -165,7 +165,7 @@ def test_fork_progress_note_edits_and_denies_other_tools(tmp_path, monkeypatch):
     assert "→ Edit" in text
 
 
-def test_fork_progress_note_no_edit_reports_noop(tmp_path, monkeypatch):
+def test_fork_session_memory_no_edit_reports_noop(tmp_path, monkeypatch):
     from langbridge_code.agents.common import fork as fork_mod
 
     monkeypatch.setattr("langbridge_code.util.artifacts.ARTIFACTS_DIR", tmp_path)
@@ -174,7 +174,7 @@ def test_fork_progress_note_no_edit_reports_noop(tmp_path, monkeypatch):
     mod = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
     spec.loader.exec_module(mod)
-    monkeypatch.setattr(fork_mod, "fork_progress_note", mod.fork_progress_note)
+    monkeypatch.setattr(fork_mod, "fork_session_memory", mod.fork_session_memory)
 
     def fake_create(api_key, model, messages, **kwargs):
         return {
@@ -192,7 +192,7 @@ def test_fork_progress_note_no_edit_reports_noop(tmp_path, monkeypatch):
     )
 
     run_log = create_artifact_session("Progress noop")
-    result = fork_mod.fork_progress_note(
+    result = fork_mod.fork_session_memory(
         "key",
         "model",
         [{"role": "user", "content": "hi"}],

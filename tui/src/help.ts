@@ -17,6 +17,8 @@ export const HELP_TEXT = `Commands:
   /goal clear        remove the current goal
   /goal pause        pause goal auto-continue
   /goal resume       resume a paused goal
+  /reviewer <request> post-hoc review: reviewer checks each reply and either
+                     releases it or sends the agent back with a next step
   /banner [on|off]   show or hide the header box (Ctrl+B toggles)
   /copy              copy the last assistant reply to the clipboard
   /<skill> [args]    invoke a skill (e.g. /grilling, /writing-simple-plans)

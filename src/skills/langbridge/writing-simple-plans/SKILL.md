@@ -3,7 +3,7 @@ name: writing-simple-plans
 description: Use when multi-step work needs a todo_list.md but the plan is already obvious — write the file yourself instead of dispatching agent_planner.
 ---
 
-## LangBridge Code mapping (main agent)
+## LangBridge mapping (main agent)
 
 This is the self-planning playbook for your middle triage tier: multi-step work
 whose plan is obvious. Light work needs no plan at all. Heavy planning

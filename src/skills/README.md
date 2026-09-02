@@ -1,9 +1,9 @@
-# langbridge-code skills (analysis copy)
+# langbridge skills (analysis copy)
 
-Copied from `/Users/zhuofuchen/Desktop/Repo/langbridge-code/src/skills`
+Copied from `/Users/zhuofuchen/Desktop/Repo/langbridge/src/skills`
 for prompt review alongside [`../_full.md`](../_full.md) and
 [`../subagents/`](../subagents/). **Not the live runtime** — edit here first,
-apply back to `langbridge-code` later.
+apply back to `langbridge` later.
 
 ## Layout
 

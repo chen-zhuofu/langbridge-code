@@ -22,8 +22,8 @@ def _no_llm_prefetch(monkeypatch):
     )
     monkeypatch.setattr(
         fork_mod,
-        "fork_progress_note",
-        lambda *args, **kwargs: "Progress note fork made no file changes; nothing recorded.",
+        "fork_session_memory",
+        lambda *args, **kwargs: "Session memory fork made no file changes; nothing recorded.",
     )
     yield
 
@@ -42,7 +42,7 @@ def _isolated_worktree_git(monkeypatch, tmp_path):
     """Point worktree git operations away from the developer's real repo.
 
     Without this, any test that dispatches a coding task without mocking
-    ``is_git_repo`` creates real branches/worktrees in the langbridge-code
+    ``is_git_repo`` creates real branches/worktrees in the langbridge
     checkout (e.g. the stale ``lb/run.json/fix-login`` debris). Tests that
     need real git monkeypatch ``worktree_mod.WORKSPACE_ROOT`` to their own
     temp repo, which overrides this default.

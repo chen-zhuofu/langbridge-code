@@ -11,6 +11,7 @@ from langbridge_code.settings import TRACES_RESUME_MAX_FRACTION
 from langbridge_code.util.artifacts import traces_md_path as artifact_traces_md_path
 
 TRACES_HEADER = "# Session traces\n"
+_PENDING_USER_KEY = "_langbridge_pending_user"
 PROGRESS_BOUNDARY_RE = re.compile(
     r"^## Progress boundary \(turn (\d+)\)\s*$",
     re.MULTILINE,
@@ -55,46 +56,147 @@ def _message_text(item: dict) -> str:
     return ""
 
 
+def _message_images(item: dict) -> list[str]:
+    """Local attachment paths from internal multimodal message content."""
+    content = item.get("content")
+    if not isinstance(content, list):
+        return []
+    return [
+        str(part.get("image_path"))
+        for part in content
+        if isinstance(part, dict)
+        and part.get("type") == "input_image"
+        and part.get("image_path")
+    ]
+
+
 # Engine-injected user messages (hooks, status blocks, pinned background);
-# not part of the human conversation, so hidden from resume replay.
+# not part of the human conversation, so hidden from resume replay / seed.
 _INJECTED_PREFIXES = (
     "[HOOK]",
     "[CONTEXT_STATUS]",
     "<background>",
     "<background_tool_results>",
     "<assigned_task>",
+    "<subagent_state>",
+    "<session_memory>",
+    "<progress>",  # legacy pin tag
+    "<memory>",
+    "<skill_index>",
+    "<invoked_skills>",
+    "<history_conversation>",
 )
 
 
-def read_conversation(run_log_path) -> list[tuple[str, str]]:
-    """Ordered (role, text) user/assistant messages from the raw session traces.
-
-    Used by the TUI to replay the full past conversation on resume. Tool
-    calls, tool outputs, reasoning items, and engine-injected user messages
-    (progress-note hooks, context status, background blocks) are skipped.
-    """
-    content = read_traces(run_log_path)
-    conversation: list[tuple[str, str]] = []
+def _json_blocks_with_turn(content: str):
+    """Yield ``(match, turn_id, items)`` for parseable trace JSON blocks."""
+    headings = list(_TURN_ID_RE.finditer(content))
+    heading_index = 0
+    turn_id = None
     for match in _JSON_BLOCK_RE.finditer(content):
+        while (
+            heading_index < len(headings)
+            and headings[heading_index].start() < match.start()
+        ):
+            turn_id = int(headings[heading_index].group(1))
+            heading_index += 1
         try:
             items = json.loads(match.group(1))
         except (json.JSONDecodeError, ValueError):
             continue
-        if not isinstance(items, list):
-            continue
+        if isinstance(items, list):
+            yield match, turn_id, items
+
+
+def read_conversation_items(
+    run_log_path, *, exclude_pending_turn_id: int | None = None
+) -> list[dict]:
+    """Ordered displayable user/assistant messages from raw session traces.
+
+    Each item contains ``role``, ``text``, the durable backend ``turn_id`` it
+    belongs to, and (when present) local ``images``. Tool calls, tool outputs,
+    reasoning, and engine-injected user messages are skipped.
+    """
+    content = read_traces(run_log_path)
+    conversation: list[dict] = []
+    for _match, turn_id, items in _json_blocks_with_turn(content):
         for item in items:
             if not isinstance(item, dict):
+                continue
+            if (
+                item.get(_PENDING_USER_KEY)
+                and exclude_pending_turn_id is not None
+                and turn_id == exclude_pending_turn_id
+            ):
                 continue
             role = item.get("role")
             if role not in ("user", "assistant"):
                 continue
             text = _message_text(item).strip()
-            if not text:
+            images = _message_images(item)
+            if not text and not images:
                 continue
             if role == "user" and text.startswith(_INJECTED_PREFIXES):
                 continue
-            conversation.append((role, text))
+            entry = {"role": role, "text": text, "turn_id": turn_id}
+            if images:
+                entry["images"] = images
+            conversation.append(entry)
     return conversation
+
+
+def read_conversation(
+    run_log_path, *, exclude_pending_turn_id: int | None = None
+) -> list[tuple[str, str]]:
+    """Back-compatible text-only view of ``read_conversation_items``."""
+    return [
+        (str(item["role"]), str(item.get("text", "")))
+        for item in read_conversation_items(
+            run_log_path, exclude_pending_turn_id=exclude_pending_turn_id
+        )
+        if str(item.get("text", "")).strip()
+    ]
+
+
+def conversation_to_raw_rounds(
+    conversation: list[tuple[str, str]],
+) -> list[list[dict]]:
+    """Turn clean (role, text) pairs into ContextStack raw rounds.
+
+    Consecutive users without an assistant reply become a user-only round.
+    """
+    rounds: list[list[dict]] = []
+    pending_user: str | None = None
+    for role, text in conversation or []:
+        body = (text or "").strip()
+        if not body or role not in ("user", "assistant"):
+            continue
+        if role == "user":
+            if pending_user is not None:
+                rounds.append([{"role": "user", "content": pending_user}])
+            pending_user = body
+            continue
+        items: list[dict] = []
+        if pending_user is not None:
+            items.append({"role": "user", "content": pending_user})
+            pending_user = None
+        items.append({"role": "assistant", "content": body})
+        rounds.append(items)
+    if pending_user is not None:
+        rounds.append([{"role": "user", "content": pending_user}])
+    return rounds
+
+
+def format_history_conversation(conversation: list[tuple[str, str]]) -> str:
+    """Render clean Q&A as a single tagged transcript body (no outer tags)."""
+    blocks: list[str] = []
+    for role, text in conversation or []:
+        body = (text or "").strip()
+        if not body or role not in ("user", "assistant"):
+            continue
+        label = "USER" if role == "user" else "ASSISTANT"
+        blocks.append(f"{label}: {body}")
+    return "\n\n".join(blocks)
 
 
 def _filter_round_messages(round_messages: list[dict]) -> list[dict]:
@@ -113,16 +215,83 @@ def _json_block(messages: list[dict]) -> str:
     return f"```json\n{payload}\n```"
 
 
+def _is_displayable_user(item: dict) -> bool:
+    if not isinstance(item, dict) or item.get("role") != "user":
+        return False
+    text = _message_text(item).strip()
+    if text.startswith(_INJECTED_PREFIXES):
+        return False
+    return bool(text or _message_images(item))
+
+
+def _finalize_pending_user(content: str, turn_id: int) -> tuple[str, bool]:
+    """Remove the pending marker from the eager user message for one turn."""
+    replacements: list[tuple[int, int, str]] = []
+    found = False
+    for match, block_turn_id, items in _json_blocks_with_turn(content):
+        if block_turn_id != turn_id:
+            continue
+        changed = False
+        for item in items:
+            if isinstance(item, dict) and item.pop(_PENDING_USER_KEY, None):
+                changed = True
+                found = True
+        if changed:
+            replacements.append((match.start(), match.end(), _json_block(items)))
+    for start, end, replacement in reversed(replacements):
+        content = content[:start] + replacement + content[end:]
+    return content, found
+
+
+def append_user_message(
+    run_log_path,
+    turn_id: int,
+    text: str,
+    *,
+    image_paths=None,
+) -> None:
+    """Persist a user message before any model work begins.
+
+    The marker lets the first completed agent round replace its expanded copy
+    with this exact UI text. If the process stops early, resume replay still
+    has the original prompt and attachments.
+    """
+    from langbridge_code.llm.images import user_content_with_images
+
+    content = user_content_with_images(text, image_paths)
+    append_raw_round(
+        run_log_path,
+        turn_id,
+        [
+            {
+                "role": "user",
+                "content": content,
+                _PENDING_USER_KEY: True,
+            }
+        ],
+    )
+
+
 def append_raw_round(run_log_path, turn_id: int, round_messages: list[dict]) -> None:
     """Append one main-agent raw round (no system) under ``## Turn N``."""
     filtered = _filter_round_messages(round_messages)
     if not run_log_path or not filtered:
         return
     turn = int(turn_id or 0)
-    block = _json_block(filtered)
     heading = f"## Turn {turn}"
     with _traces_lock:
         existing = read_traces(run_log_path).strip()
+        incoming_pending = any(item.get(_PENDING_USER_KEY) for item in filtered)
+        if not incoming_pending and filtered and _is_displayable_user(filtered[0]):
+            existing, had_pending_user = _finalize_pending_user(existing, turn)
+            if had_pending_user:
+                # The eager copy is the canonical UI prompt. The context copy
+                # may be slash-expanded, so retain only the later round items.
+                filtered = filtered[1:]
+                if not filtered:
+                    write_traces(run_log_path, existing)
+                    return
+        block = _json_block(filtered)
         if not existing or existing == TRACES_HEADER.strip():
             body = TRACES_HEADER + heading + "\n\n" + block + "\n"
             write_traces(run_log_path, body)
@@ -138,8 +307,8 @@ def append_raw_round(run_log_path, turn_id: int, round_messages: list[dict]) -> 
         write_traces(run_log_path, body)
 
 
-def append_progress_boundary(run_log_path, turn_id: int) -> None:
-    """Mark that progress.md now covers traces through this turn."""
+def append_session_memory_boundary(run_log_path, turn_id: int) -> None:
+    """Mark that session_memory.md now covers traces through this turn."""
     if not run_log_path:
         return
     turn = int(turn_id or 0)
@@ -152,6 +321,11 @@ def append_progress_boundary(run_log_path, turn_id: int) -> None:
         if existing.rstrip().endswith(marker):
             return
         write_traces(run_log_path, existing.rstrip() + "\n\n" + marker + "\n")
+
+
+def append_progress_boundary(run_log_path, turn_id: int) -> None:
+    """Back-compat alias for ``append_session_memory_boundary``."""
+    append_session_memory_boundary(run_log_path, turn_id)
 
 
 def last_traces_turn_id(run_log_path) -> int:
@@ -196,9 +370,9 @@ def build_resume_background(run_log_path, *, model: str, progress: str = "") -> 
     """Background text for a cold start (new session object / resume).
 
     When the full raw traces fit the resume budget on their own, use them
-    directly — the progress notes are just a summary of the same rounds.
-    Otherwise fall back to progress notes plus the traces recorded after the
-    last progress boundary (rounds not yet summarized into progress.md),
+    directly — the session memory are just a summary of the same rounds.
+    Otherwise fall back to session memory plus the traces recorded after the
+    last session-memory boundary (rounds not yet summarized into session_memory.md),
     trimmed from the head when even those exceed the remaining budget.
     """
     progress = (progress or "").strip()
@@ -207,11 +381,15 @@ def build_resume_background(run_log_path, *, model: str, progress: str = "") -> 
         return progress
 
     window = model_context_window(model)
+    if window is None:
+        from langbridge_code.settings import COMPACT_THRESHOLD_TOKENS
+
+        window = COMPACT_THRESHOLD_TOKENS
     budget = max(1, int(window * TRACES_RESUME_MAX_FRACTION))
     if estimate_tokens(content) <= budget:
         return content
 
-    # Rounds after the last boundary are the only ones progress.md does not
+    # Rounds after the last boundary are the only ones session_memory.md does not
     # cover; a healthy shutdown leaves nothing here and progress alone suffices.
     after = _content_after_last_boundary(content).strip()
     if not after:
@@ -220,5 +398,5 @@ def build_resume_background(run_log_path, *, model: str, progress: str = "") -> 
     tail = _trim_head_to_budget(after, remaining)
     if not tail.strip():
         return progress
-    heading = "## Raw main-agent traces since the last progress note"
+    heading = "## Raw main-agent traces since the last session memory update"
     return (progress + "\n\n" if progress else "") + heading + "\n\n" + tail.strip()

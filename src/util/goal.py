@@ -1,4 +1,4 @@
-"""Session-scoped autonomous goals stored in progress.md."""
+"""Session-scoped autonomous goals stored in session_memory.md."""
 from __future__ import annotations
 
 import re

@@ -29,7 +29,7 @@ def stack():
 
 def test_default_raw_keep_is_eleven():
     # One more than the 10-round progress-note cadence, so dropped
-    # rounds are always covered by progress.md.
+    # rounds are always covered by session_memory.md.
     assert ContextStack(system_content="sys").raw_keep == 11
 
 
@@ -97,6 +97,19 @@ def test_user_message_attached_to_first_step_only(stack):
     assert user_contents.count("hello") == 1
 
 
+def test_multimodal_user_content_is_preserved_without_mutation(stack):
+    content = [
+        {"type": "input_text", "text": "inspect"},
+        {"type": "input_image", "image_path": "/tmp/shot.png", "detail": "auto"},
+    ]
+    stack.start_turn(content)
+    content[0]["text"] = "mutated"
+    stack.complete_step(_tool_step("c0", "grep", "one"))
+    user = next(message for message in stack.to_messages() if message.get("role") == "user")
+    assert user["content"][0]["text"] == "inspect"
+    assert user["content"][1]["image_path"] == "/tmp/shot.png"
+
+
 def test_bootstrap_from_flat_messages(stack):
     messages = [
         {"role": "system", "content": "system prompt"},
@@ -109,6 +122,33 @@ def test_bootstrap_from_flat_messages(stack):
     rebuilt = stack.to_messages()
     assert rebuilt[0]["role"] == "system"
     assert any(m.get("call_id") == "c1" for m in rebuilt if m.get("type") == "function_call")
+
+
+def test_bootstrap_preserves_native_tool_search_round(stack):
+    messages = [
+        {"role": "system", "content": "sys"},
+        {"role": "user", "content": "find Gmail"},
+        {
+            "type": "tool_search_call",
+            "call_id": "search-1",
+            "arguments": '{"query":"select:gmail.search_threads"}',
+        },
+        {
+            "type": "tool_search_output",
+            "execution": "client",
+            "call_id": "search-1",
+            "status": "completed",
+            "tools": [{"type": "function", "name": "mcp__gmail__search_threads"}],
+        },
+    ]
+
+    stack.bootstrap_from_messages(messages)
+
+    flattened = [item for round_items in stack.raw_rounds for item in round_items]
+    assert [item["type"] for item in flattened if item.get("type")] == [
+        "tool_search_call",
+        "tool_search_output",
+    ]
 
 
 def test_bootstrap_skips_legacy_compact_prose(stack):
@@ -141,13 +181,13 @@ def test_bootstrap_preserves_trailing_user_message(stack):
 
 
 def test_subagent_state_appends_on_change_not_head_pin(stack):
-    stack.set_progress_block("session progress")
+    stack.set_session_memory_block("session progress")
     assert stack.set_subagent_state_block("- RUNNING: agent_worker 'task-1'")
     stack.start_turn("go")
     stack.complete_step(_tool_step("c0", "grep", "one"))
 
     contents = [str(m.get("content", "")) for m in stack.to_messages()]
-    progress_i = next(i for i, c in enumerate(contents) if c.startswith("<progress>"))
+    progress_i = next(i for i, c in enumerate(contents) if c.startswith("<session_memory>"))
     state_i = next(i for i, c in enumerate(contents) if c.startswith("<subagent_state>"))
     # Appended in raw rounds, after durable head pins — not rewritten into the head.
     assert state_i > progress_i
@@ -284,30 +324,30 @@ def test_bootstrap_restores_pinned_assigned_task(stack):
 
 def test_blocks_emitted_in_order_and_wrapped(stack):
     stack.set_memory_block("user prefers short replies")
-    stack.set_progress_block("#### Key discoveries\n- built webpage")
+    stack.set_session_memory_block("#### Key discoveries\n- built webpage")
     stack.set_skill_index_block("- grill-me: challenge assumptions")
     stack.start_turn("next task")
     stack.complete_step(_tool_step("c0", "grep", "one"))
 
     contents = [str(m.get("content", "")) for m in stack.to_messages()]
     memory_at = next(i for i, c in enumerate(contents) if c.startswith("<memory>"))
-    progress_at = next(i for i, c in enumerate(contents) if c.startswith("<progress>"))
+    progress_at = next(i for i, c in enumerate(contents) if c.startswith("<session_memory>"))
     skill_at = next(i for i, c in enumerate(contents) if c.startswith("<skill_index>"))
     task_at = contents.index("next task")
-    # Head <progress> (resume/compaction only), then rounds.
+    # Head <session_memory> (resume/compaction only), then rounds.
     assert memory_at < progress_at < skill_at < task_at
     assert contents[memory_at].rstrip().endswith("</memory>")
     assert "built webpage" in contents[progress_at]
-    assert contents[progress_at].rstrip().endswith("</progress>")
+    assert contents[progress_at].rstrip().endswith("</session_memory>")
 
 
 def test_set_block_none_or_blank_removes_it(stack):
     stack.set_memory_block("something")
     stack.set_memory_block("   ")
-    stack.set_progress_block(None)
+    stack.set_session_memory_block(None)
     contents = [str(m.get("content", "")) for m in stack.to_messages()]
     assert not any(c.startswith("<memory>") for c in contents)
-    assert not any(c.startswith("<progress>") for c in contents)
+    assert not any(c.startswith("<session_memory>") for c in contents)
 
 
 def test_blocks_survive_compaction_and_callback_fires(stack):
@@ -319,7 +359,7 @@ def test_blocks_survive_compaction_and_callback_fires(stack):
     def refresh(inner_stack):
         fired["called"] = True
         inner_stack.set_memory_block("fresh memory")
-        inner_stack.set_progress_block("## Turn 1\n- noted")
+        inner_stack.set_session_memory_block("## Turn 1\n- noted")
 
     stack.on_compacted = refresh
     stack.start_turn("task")
@@ -332,7 +372,7 @@ def test_blocks_survive_compaction_and_callback_fires(stack):
     contents = [str(m.get("content", "")) for m in stack.to_messages()]
     memory = next(c for c in contents if c.startswith("<memory>"))
     assert "fresh memory" in memory and "stale memory" not in memory
-    assert any(c.startswith("<progress>") for c in contents)
+    assert any(c.startswith("<session_memory>") for c in contents)
     assert any(c.startswith("<skill_index>") for c in contents)
 
 
@@ -340,7 +380,7 @@ def test_bootstrap_absorbs_block_messages(stack):
     messages = [
         {"role": "system", "content": "system prompt"},
         {"role": "user", "content": "<memory>\nremembered fact\n</memory>"},
-        {"role": "user", "content": "<progress>\n## Turn 1\n- did stuff\n</progress>"},
+        {"role": "user", "content": "<session_memory>\n## Turn 1\n- did stuff\n</session_memory>"},
         {"role": "user", "content": "<skill_index>\n- grill-me: x\n</skill_index>"},
         {"role": "user", "content": "task"},
         *_tool_step("c0", "grep", "one"),
@@ -353,3 +393,15 @@ def test_bootstrap_absorbs_block_messages(stack):
     # No duplicate block messages in the rebuilt transcript.
     contents = [str(m.get("content", "")) for m in stack.to_messages()]
     assert sum(1 for c in contents if c.startswith("<memory>")) == 1
+
+
+def test_system_reminder_is_appended_after_pending_user_at_tail():
+    stack = ContextStack(system_content="system")
+    stack.start_turn("real user request")
+
+    assert stack.append_system_reminder("Deferred: gmail.search_threads") is True
+
+    messages = stack.to_messages()
+    assert messages[-2] == {"role": "user", "content": "real user request"}
+    assert messages[-1]["role"] == "user"
+    assert messages[-1]["content"].startswith("<system-reminder>")

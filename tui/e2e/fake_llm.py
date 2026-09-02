@@ -15,7 +15,7 @@ _calls_by_convo: dict[str, int] = {}
 _lock = threading.Lock()
 
 
-_AUTOMATED_MARKERS = ("[CONTEXT_STATUS]", "<background>", "<memory>", "<progress>", "<skill_index>")
+_AUTOMATED_MARKERS = ("[CONTEXT_STATUS]", "<background>", "<memory>", "<session_memory>", "<skill_index>")
 
 
 def _last_user_text(messages) -> str:

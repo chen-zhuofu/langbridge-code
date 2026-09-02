@@ -83,15 +83,21 @@ def run_interruptible(call):
     if _stop_event.is_set():
         raise StopRequested()
 
+    from langbridge_code.util.trace_log import get_trace_context, set_trace_context
+
+    parent_trace_context = get_trace_context()
     result = {}
     done = threading.Event()
 
     def worker():
+        previous_trace_context = get_trace_context()
         try:
+            set_trace_context(parent_trace_context)
             result["value"] = call()
         except BaseException as error:  # noqa: BLE001 - propagate to caller thread
             result["error"] = error
         finally:
+            set_trace_context(previous_trace_context)
             done.set()
 
     threading.Thread(target=worker, daemon=True).start()

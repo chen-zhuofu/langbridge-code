@@ -404,6 +404,9 @@ export function App() {
         case "/goal":
           bridge.send({ type: "goal", text: text.slice("/goal".length).trim() });
           break;
+        case "/reviewer":
+          bridge.send({ type: "reviewer", text: text.slice("/reviewer".length).trim() });
+          break;
         case "/banner":
           if (arg === "on") setBannerVisible(true);
           else if (arg === "off") setBannerVisible(false);

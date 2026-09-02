@@ -20,7 +20,10 @@ from langbridge_code.util.agent_worklog import (
     write_worklog_received,
 )
 from langbridge_code.context.common.budget import messages_with_budget_notice, prepare_agent_messages
-from langbridge_code.agents.common.approval import approval_reason
+from langbridge_code.agents.common.approval import (
+    approval_callback_required,
+    approval_reason,
+)
 from langbridge_code.context.agent_context import finish_step, init_agent_context
 from langbridge_code.context.foreground import ForegroundTracker
 from langbridge_code.settings import (
@@ -56,7 +59,7 @@ from langbridge_code.skills import (
 from langbridge_code.agents.common import worktree as worktree_mod
 from langbridge_code.agents.common.task_progress import TaskProgress
 from langbridge_code.agents.common.workspace import workspace_scope
-from langbridge_code.tools.note_progress import TASK_NOTE_PROGRESS_TOOL_SCHEMA
+from langbridge_code.tools.update_session_memory import TASK_UPDATE_SESSION_MEMORY_TOOL_SCHEMA
 from langbridge_code.tools.memory_writer import MEMORY_WRITER_TOOL_SCHEMA
 from langbridge_code.util.optimizer_trace import append_event
 
@@ -201,7 +204,7 @@ AGENT_WORKER_TOOL_SCHEMA = {
                 "type": "string",
                 "description": (
                     "Verbatim id: from the todo being dispatched "
-                    "(e.g. 'task-3-game-state'). Keys the worktree, progress note, "
+                    "(e.g. 'task-3-game-state'). Keys the worktree, session memory, "
                     "and traces — reuse the exact id when re-dispatching or "
                     "continuing so it resumes. If the todo's meaning/content must "
                     "change, put a new id in todo_list.md and pass that new id here."
@@ -505,8 +508,8 @@ class WorkerSession(MemoryPhaseMixin):
         self.tool_schemas = list(tool_schemas)
         self._init_memory_phase_state()
         if self.task_progress.enabled:
-            self.tools["note_progress"] = self.task_progress.write_note
-            self.tool_schemas.append(TASK_NOTE_PROGRESS_TOOL_SCHEMA)
+            self.tools["update_session_memory"] = self.task_progress.write_note
+            self.tool_schemas.append(TASK_UPDATE_SESSION_MEMORY_TOOL_SCHEMA)
             self.task_progress.attach(
                 self.context.stack, self.messages, self.tool_schemas
             )
@@ -699,8 +702,8 @@ class ReviewerSession(MemoryPhaseMixin):
         )
         self._init_memory_phase_state()
         if self.task_progress.enabled:
-            self.tools["note_progress"] = self.task_progress.write_note
-            self.tool_schemas.append(TASK_NOTE_PROGRESS_TOOL_SCHEMA)
+            self.tools["update_session_memory"] = self.task_progress.write_note
+            self.tool_schemas.append(TASK_UPDATE_SESSION_MEMORY_TOOL_SCHEMA)
             self.task_progress.attach(
                 self.context.stack, self.messages, self.tool_schemas
             )
@@ -863,8 +866,13 @@ def run_worker_tool_call(call, tools, approval_callback=None, write_guard=None, 
             if guard_error:
                 raise PermissionError(guard_error)
         risk = approval_reason(name, arguments)
-        if risk and not approve_worker_tool_write(name, arguments, approval_callback):
-            raise PermissionError(f"{name} was not approved ({risk})")
+        if (
+            approval_callback is not None
+            and approval_callback_required(approval_callback, name, arguments)
+            and not approve_worker_tool_write(name, arguments, approval_callback)
+        ):
+            reason = risk or "blocked by the active permission mode"
+            raise PermissionError(f"{name} was not approved ({reason})")
         from langbridge_code.tools.execution import attach_run_log_path
 
         attach_run_log_path(name, arguments, run_log_path)
@@ -1252,7 +1260,7 @@ def _parallel_worktree_context(task: str, worktree_path: Path, *, resumed=False)
                 "This is the SAME task resumed after an earlier incomplete dispatch.",
                 "The worktree already contains its partial work. Inspect it "
                 "before editing; continue from it rather than restarting.",
-                "Your <progress> block also includes this task's earlier progress note "
+                "Your <session_memory> block also includes this task's earlier session memory "
                 "and recoverable raw trace tail.",
             ]
         )
@@ -1326,20 +1334,17 @@ def dispatch_worker(
     # any reverts fully isolated from the main workspace: uncommitted main-agent
     # state (e.g. todo_list.md ticks) can neither pollute the worker's diff nor
     # be clobbered by the worker.
-    use_worktree = (
-        not is_merge_task_prompt(task)
-        and worktree_mod.is_git_repo()
-    )
     worktree_info = None
     resumed = False
-    if use_worktree:
-        worktree_info = worktree_mod.resumable_worktree(
-            run_log_path,
-            task_name=task_name,
-            task_description=task,
-        )
-        resumed = worktree_info is not None
+    if not is_merge_task_prompt(task):
         try:
+            worktree_mod.ensure_git_repo()
+            worktree_info = worktree_mod.resumable_worktree(
+                run_log_path,
+                task_name=task_name,
+                task_description=task,
+            )
+            resumed = worktree_info is not None
             if worktree_info is None:
                 worktree_info = worktree_mod.create_worktree(
                     run_log_path,

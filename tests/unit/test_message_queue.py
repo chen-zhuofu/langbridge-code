@@ -35,3 +35,12 @@ def test_items_snapshot():
     assert queue.items() == ["alpha", "beta"]
     queue.dequeue()
     assert queue.items() == ["beta"]
+
+
+def test_queue_preserves_image_paths_without_changing_text_snapshot():
+    queue = UserMessageQueue()
+    assert queue.enqueue("inspect", ["/tmp/one.png"])
+    assert queue.items() == ["inspect"]
+    item = queue.dequeue()
+    assert item.text == "inspect"
+    assert item.image_paths == ("/tmp/one.png",)

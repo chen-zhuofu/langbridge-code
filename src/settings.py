@@ -1,7 +1,7 @@
 """Load LangBridge settings from config.json.
 
 Defaults ship with the package (``src/config.json``, imported as ``langbridge_code``).
-Per-user overrides live at ~/.langbridge-code/config.json.
+Per-user overrides live at ~/.langbridge/config.json.
 Environment variables still override secrets, model, and runtime paths.
 """
 import getpass
@@ -13,11 +13,11 @@ from pathlib import Path
 
 PACKAGE_DIR = Path(__file__).resolve().parent
 DEFAULT_CONFIG_PATH = PACKAGE_DIR / "config.json"
-CONFIG_DIR = Path.home() / ".langbridge-code"
+CONFIG_DIR = Path.home() / ".langbridge"
 USER_CONFIG_PATH = CONFIG_DIR / "config.json"
 
 # Checkout: src/settings.py → repo root (sibling ``tui/`` + ``pyproject.toml``).
-# Installed wheel / ``uv tool``: no checkout; keep state under ~/.langbridge-code.
+# Installed wheel / ``uv tool``: no checkout; keep state under ~/.langbridge.
 _REPO_ROOT = PACKAGE_DIR.parent
 if (_REPO_ROOT / "pyproject.toml").is_file() and (
     _REPO_ROOT / "tui" / "package.json"
@@ -78,6 +78,7 @@ def _bind(cfg):
     fs = cfg["tools"]["filesystem"]
     execution = cfg["tools"]["execution"]
     web = cfg["tools"]["web"]
+    explorer_tools = (cfg["tools"] or {}).get("explorer") or {}
     debug = cfg["tools"]["debug"]
     eval_cfg = cfg.get("eval") or {}
     paths = cfg.get("paths", {})
@@ -152,13 +153,10 @@ def _bind(cfg):
                 context.get("context_window_max_fraction", 0.4),
             )
         ),
-        "DEFAULT_CONTEXT_WINDOW_TOKENS": int(
-            context.get("default_context_window_tokens", 128000)
-        ),
         "MODEL_CONTEXT_WINDOWS": context.get("model_context_windows", {}),
         "MAX_SESSION_CHOICES": context["max_session_choices"],
-        # Raw tail kept on compaction: one more than the forced progress-note
-        # cadence (11 > 10) so dropped rounds are always covered by progress.md.
+        # Raw tail kept on compaction: one more than the forced session-memory
+        # cadence (11 > 10) so dropped rounds are always covered by session_memory.md.
         "COMPACT_RAW_KEEP": int(context.get("compact_raw_keep", 11)),
         # Fixed compact/budget threshold — not a fraction of the model window.
         "COMPACT_THRESHOLD_TOKENS": int(
@@ -168,15 +166,38 @@ def _bind(cfg):
             )
         ),
         "TRACES_RESUME_MAX_FRACTION": float(context.get("traces_resume_max_fraction", 0.3)),
-        "PROGRESS_NOTE_REMINDER_ROUNDS": int(context.get("progress_note_reminder_rounds", 10)),
-        "MAX_FILE_BYTES": fs["max_file_bytes"],
-        "MAX_EXECUTION_OUTPUT_CHARS": execution["max_output_chars"],
-        "DEFAULT_EXECUTION_TIMEOUT_SECONDS": execution["default_timeout_seconds"],
-        "MAX_EXECUTION_TIMEOUT_SECONDS": execution["max_timeout_seconds"],
-        "DEFAULT_WEB_TIMEOUT_SECONDS": web["default_timeout_seconds"],
-        "MAX_WEB_TIMEOUT_SECONDS": web["max_timeout_seconds"],
-        "MAX_WEBPAGE_CHARS": web["max_webpage_chars"],
-        "DEFAULT_DEBUG_MAX_CHARS": debug["default_max_chars"],
+        "SESSION_MEMORY_REMINDER_ROUNDS": int(
+            context.get(
+                "session_memory_reminder_rounds",
+                context.get("progress_note_reminder_rounds", 10),
+            )
+        ),
+        # Back-compat alias for older imports.
+        "PROGRESS_NOTE_REMINDER_ROUNDS": int(
+            context.get(
+                "session_memory_reminder_rounds",
+                context.get("progress_note_reminder_rounds", 10),
+            )
+        ),
+        # read_file: whole-file byte precheck (Claude 256KB), default window, token gate.
+        "MAX_FILE_BYTES": int(fs.get("max_file_bytes", 262_144)),
+        "MAX_LINES_TO_READ": int(fs.get("max_lines_to_read", 2000)),
+        "MAX_FILE_READ_TOKENS": int(fs.get("max_file_read_tokens", 25_000)),
+        # bash/powershell/webpage: spill over this size; context keeps a short head.
+        "MAX_EXECUTION_OUTPUT_CHARS": int(execution.get("max_output_chars", 30_000)),
+        "TOOL_OUTPUT_PREVIEW_CHARS": int(execution.get("output_preview_chars", 2000)),
+        "DEFAULT_EXECUTION_TIMEOUT_SECONDS": int(
+            execution.get("default_timeout_seconds", 60)
+        ),
+        "MAX_EXECUTION_TIMEOUT_SECONDS": int(execution.get("max_timeout_seconds", 300)),
+        "DEFAULT_WEB_TIMEOUT_SECONDS": int(web.get("default_timeout_seconds", 30)),
+        "MAX_WEB_TIMEOUT_SECONDS": int(web.get("max_timeout_seconds", 120)),
+        "MAX_WEBPAGE_CHARS": int(web.get("max_webpage_chars", 100_000)),
+        "EXPLORE_REPORT_MAX_CHARS": int(explorer_tools.get("report_max_chars", 50_000)),
+        "EXPLORE_REPORT_PREVIEW_CHARS": int(
+            explorer_tools.get("report_preview_chars", 2000)
+        ),
+        "DEFAULT_DEBUG_MAX_CHARS": int(debug.get("default_max_chars", 200)),
         "EVAL_LAYER_TIMEOUT_SECONDS": eval_cfg.get("eval_layer_timeout_seconds", 3600),
         "GRADE_TIMEOUT_SECONDS": eval_cfg.get("grade_timeout_seconds", 600),
     })
@@ -200,7 +221,7 @@ def _bind(cfg):
             paths.get("user_memory_path"),
             CONFIG_DIR / "memory.md",
         ),
-        # Sessions live under the langbridge-code checkout, grouped by project
+        # Sessions live under the langbridge checkout, grouped by project
         # (the directory the CLI was launched from): artifacts/{project}/{session}.
         "ARTIFACTS_DIR": _path_override(
             "LANGBRIDGE_ARTIFACTS_DIR",
@@ -218,6 +239,12 @@ _PROVIDER_ENV = {
     "openai": ("OPENAI_API_KEY",),
     "anthropic": ("ANTHROPIC_API_KEY",),
     "deepseek": ("DEEPSEEK_API_KEY",),
+}
+
+KIMI_CODE_BASE_URL = "https://api.kimi.com/coding/v1"
+_KIMI_CODE_MODEL_ALIASES = {
+    "kimi-k3": "k3",
+    "kimi-k2.7-code": "kimi-for-coding",
 }
 
 PROVIDER_LABELS = {
@@ -301,25 +328,28 @@ def resolve_provider_api_key(provider: str) -> str | None:
 def resolve_llm_route(model: str | None, api_key: str | None = None) -> dict:
     """Pick provider / key / base_url for one model call (cross-provider OK).
 
-    Returns ``{"provider", "api_key", "base_url"}``. Prefers the model's own
-    provider credentials; falls back to ``api_key`` (session active key) when
-    that provider has no key configured — useful for tests and single-key setups.
+    Returns ``{"provider", "api_key", "base_url", "model"}``. Prefers the
+    model's own provider credentials; falls back to ``api_key`` (session active
+    key) when that provider has no key configured — useful for tests and
+    single-key setups.
     """
     catalog = configured_model_catalog()
     provider = (
         infer_provider_for_model(model, catalog=catalog)
         or active_api_provider()
     )
-    base_url = _provider_base_url(provider)
-    if not base_url and provider == API_PROVIDER:
-        base_url = API_BASE_URL
     key = _resolve_provider_api_key(provider)
     if not key:
         key = sanitize_api_key(api_key)
+    base_url = _provider_base_url(provider, api_key=key)
+    if not base_url and provider == API_PROVIDER:
+        base_url = API_BASE_URL
+    routed_model = _kimi_code_model(model) if _is_kimi_code_key(key) else model
     return {
         "provider": provider,
         "api_key": key,
         "base_url": base_url or "",
+        "model": routed_model,
     }
 
 
@@ -337,6 +367,15 @@ def sanitize_api_key(api_key: str | None) -> str | None:
     cleaned = _ANSI_ESCAPE_RE.sub("", str(api_key))
     cleaned = "".join(ch for ch in cleaned if 32 <= ord(ch) < 127).strip()
     return cleaned or None
+
+
+def _is_kimi_code_key(api_key: str | None) -> bool:
+    return bool((sanitize_api_key(api_key) or "").startswith("sk-kimi-"))
+
+
+def _kimi_code_model(model: str | None) -> str | None:
+    cleaned = (model or "").strip()
+    return _KIMI_CODE_MODEL_ALIASES.get(cleaned.lower(), cleaned)
 
 
 def _api_keys_from_config(cfg=None):
@@ -374,8 +413,11 @@ def validate_api_key(api_key, *, provider=None) -> tuple[bool, str]:
         "timeout": 20.0,
         "max_retries": 0,
     }
-    if API_BASE_URL:
-        kwargs["base_url"] = API_BASE_URL
+    base_url = _provider_base_url(provider, api_key=cleaned)
+    if not base_url and provider == API_PROVIDER:
+        base_url = API_BASE_URL
+    if base_url:
+        kwargs["base_url"] = base_url
     try:
         OpenAI(**kwargs).models.list()
     except Exception as error:  # noqa: BLE001 — surface any auth/network failure
@@ -395,7 +437,9 @@ def _dedupe_models(names) -> list[str]:
     return out
 
 
-def _provider_base_url(provider: str, cfg=None) -> str:
+def _provider_base_url(provider: str, cfg=None, *, api_key: str | None = None) -> str:
+    if provider == "moonshot" and _is_kimi_code_key(api_key):
+        return KIMI_CODE_BASE_URL
     cfg = cfg or load_config()
     provider_cfg = (cfg.get("api", {}).get("providers") or {}).get(provider) or {}
     return str(provider_cfg.get("base_url") or "")
@@ -465,7 +509,12 @@ def infer_provider_for_model(model: str, *, catalog=None) -> str | None:
         if entry.get("id") == cleaned and entry.get("provider"):
             return entry["provider"]
     name = cleaned.lower().rsplit("/", 1)[-1]
-    if name.startswith("kimi-") or name.startswith("moonshot-"):
+    if (
+        name == "k3"
+        or name.startswith("k3-")
+        or name.startswith("kimi-")
+        or name.startswith("moonshot-")
+    ):
         return "moonshot"
     if name.startswith("deepseek-"):
         return "deepseek"
@@ -522,7 +571,7 @@ def _prompt_and_save_api_key(provider: str) -> str:
     label = PROVIDER_LABELS.get(provider, provider)
     if not sys.stdin.isatty():
         raise ValueError(
-            f"No {label} API key found. Set one in ~/.langbridge-code/config.json "
+            f"No {label} API key found. Set one in ~/.langbridge/config.json "
             f"or via {_PROVIDER_ENV.get(provider, ('<PROVIDER>_API_KEY',))[0]}."
         )
     print(f"No {label} API key found for provider '{provider}'.")
@@ -559,6 +608,28 @@ def load_api_key(provider=None):
         return api_key
 
     return _prompt_and_save_api_key(provider)
+
+
+def reload_runtime_credentials() -> tuple[str, str, str]:
+    """Reload provider, model, and credentials from the saved user config.
+
+    The desktop app injects these values into each bridge at launch.  Discard
+    those process-local launch overrides before rebinding so an already-open
+    task sees settings saved after it started.
+    """
+    cfg = load_config()
+    previous_provider = os.environ.get("LANGBRIDGE_API_PROVIDER") or API_PROVIDER
+    saved_provider = (cfg.get("api") or {}).get("provider", "openai")
+    for provider in {previous_provider, saved_provider}:
+        env_names = _PROVIDER_ENV.get(provider, ())
+        for env_name in env_names:
+            os.environ.pop(env_name, None)
+    os.environ.pop("LANGBRIDGE_API_PROVIDER", None)
+    os.environ.pop("LANGBRIDGE_MODEL", None)
+
+    _bind(cfg)
+    provider = active_api_provider()
+    return provider, load_api_key(provider), DEFAULT_MODEL
 
 
 def ensure_api_credentials():

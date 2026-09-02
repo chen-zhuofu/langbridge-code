@@ -64,6 +64,34 @@ def test_specialist_stops_on_time_budget(monkeypatch):
 
 def test_workflow_stops_on_time_budget(tmp_path, monkeypatch):
     run_log = tmp_path / "run.json"
+    from langbridge_code.agents.common import worktree as worktree_mod
+
+    info = worktree_mod.WorktreeInfo(
+        "lb/run/task-work",
+        tmp_path / "wt",
+        "Do work",
+        task_name="task-work",
+    )
+    monkeypatch.setattr(
+        "langbridge_code.agents.worker_reviewer.worktree_mod.ensure_git_repo",
+        lambda cwd=None: tmp_path,
+    )
+    monkeypatch.setattr(
+        "langbridge_code.agents.worker_reviewer.worktree_mod.resumable_worktree",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "langbridge_code.agents.worker_reviewer.worktree_mod.create_worktree",
+        lambda *args, **kwargs: info,
+    )
+    monkeypatch.setattr(
+        "langbridge_code.agents.worker_reviewer.worktree_mod.record_branch",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "langbridge_code.agents.worker_reviewer.commit_task",
+        lambda *args, **kwargs: None,
+    )
 
     class ExecSession:
         def __init__(self, *args, **kwargs):
@@ -83,13 +111,10 @@ def test_workflow_stops_on_time_budget(tmp_path, monkeypatch):
             return agent_worker(
                 prompt="Do work",
                 description="run coding",
+                task_name="task-work",
             )
 
     monkeypatch.setattr("langbridge_code.agents.main_agent.MainAgentSession", ExecSession)
-    monkeypatch.setattr(
-        "langbridge_code.agents.worker_reviewer.worktree_mod.is_git_repo",
-        lambda cwd=None: False,
-    )
     monkeypatch.setattr(
         "langbridge_code.agents.worker_reviewer.run_worker_reviewer_loop",
         lambda *args, **kwargs: (False, "Worker/reviewer loop timed out."),

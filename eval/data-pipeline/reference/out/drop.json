@@ -215,6 +215,11 @@
       "task_id": "browser-use__browser-use-2772",
       "reason": "no FAIL_TO_PASS",
       "stage": "reference"
+    },
+    {
+      "task_id": "NousResearch__hermes-agent-77023",
+      "reason": "no FAIL_TO_PASS",
+      "stage": "reference"
     }
   ]
 }

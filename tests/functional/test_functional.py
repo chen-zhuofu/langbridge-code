@@ -18,24 +18,48 @@ def test_workflow_main_agent_direct_reply(tmp_path, monkeypatch):
     monkeypatch.setattr(
         "langbridge_code.agents.main_agent.MainAgentSession",
         lambda *args, **kwargs: _FakeMainSession(
-            "Hello from LangBridge Code.",
+            "Hello from LangBridge.",
             messages=kwargs.get("messages"),
             **kwargs,
         ),
     )
 
     reply = run_agent_turn("key", "model", "hi", run_log, 1, print_reply=False)
-    assert reply == "Hello from LangBridge Code."
+    assert reply == "Hello from LangBridge."
+
+
+def _stub_worker_worktree(monkeypatch, tmp_path, *, task_name="task-1"):
+    from langbridge_code.agents.common import worktree as worktree_mod
+
+    info = worktree_mod.WorktreeInfo(
+        f"lb/run/{task_name}",
+        tmp_path / "wt",
+        task_name,
+        task_name=task_name,
+    )
+    monkeypatch.setattr(
+        "langbridge_code.agents.worker_reviewer.worktree_mod.ensure_git_repo",
+        lambda cwd=None: tmp_path,
+    )
+    monkeypatch.setattr(
+        "langbridge_code.agents.worker_reviewer.worktree_mod.resumable_worktree",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "langbridge_code.agents.worker_reviewer.worktree_mod.create_worktree",
+        lambda *args, **kwargs: info,
+    )
+    monkeypatch.setattr(
+        "langbridge_code.agents.worker_reviewer.worktree_mod.record_branch",
+        lambda *args, **kwargs: None,
+    )
+    return info
 
 
 def test_workflow_delegation_run_coding(tmp_path, monkeypatch):
     run_log = tmp_path / "run.json"
     calls = []
-    # Simulate a non-git workspace: the worker runs in place (no worktree).
-    monkeypatch.setattr(
-        "langbridge_code.agents.worker_reviewer.worktree_mod.is_git_repo",
-        lambda cwd=None: False,
-    )
+    _stub_worker_worktree(monkeypatch, tmp_path, task_name="task-widget")
 
     class CodingSession(_FakeMainSession):
         def send(self, prompt, **kwargs):
@@ -61,6 +85,7 @@ def test_workflow_delegation_run_coding(tmp_path, monkeypatch):
             return agent_worker(
                 prompt="Add widget",
                 description="run coding",
+                task_name="task-widget",
             )
 
     monkeypatch.setattr(
@@ -71,17 +96,14 @@ def test_workflow_delegation_run_coding(tmp_path, monkeypatch):
     reply = run_agent_turn("key", "model", "add a widget", run_log, 1, print_reply=False)
 
     assert calls
-    assert "Single-task completed" in reply
+    assert "Worktree task completed" in reply
     assert "Add widget done" in reply
 
 
 def test_workflow_delegation_plan_then_execute(tmp_path, monkeypatch):
     run_log = tmp_path / "run.json"
     planner_calls = []
-    monkeypatch.setattr(
-        "langbridge_code.agents.worker_reviewer.worktree_mod.is_git_repo",
-        lambda cwd=None: False,
-    )
+    _stub_worker_worktree(monkeypatch, tmp_path, task_name="task-auth")
 
     class PlanThenRunSession(_FakeMainSession):
         def send(self, prompt, **kwargs):
@@ -124,6 +146,7 @@ def test_workflow_delegation_plan_then_execute(tmp_path, monkeypatch):
             return agent_worker(
                 prompt="Build auth system",
                 description="run coding",
+                task_name="task-auth",
             )
 
     monkeypatch.setattr(
@@ -134,7 +157,7 @@ def test_workflow_delegation_plan_then_execute(tmp_path, monkeypatch):
     reply = run_agent_turn("key", "model", "build auth", run_log, 1, print_reply=False)
 
     assert planner_calls
-    assert "Single-task completed" in reply
+    assert "Worktree task completed" in reply
 
 
 def test_workflow_worker_failure_returns_without_auto_refine(tmp_path, monkeypatch):

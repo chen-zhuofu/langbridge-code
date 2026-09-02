@@ -44,6 +44,38 @@ def test_load_api_key_uses_deepseek_env(monkeypatch, tmp_path):
     assert settings.load_api_key("deepseek") == "sk-env-deepseek"
 
 
+def test_reload_runtime_credentials_discards_launch_overrides(monkeypatch, tmp_path):
+    user_cfg = tmp_path / "config.json"
+    user_cfg.write_text(
+        json.dumps({
+            "api": {"provider": "moonshot"},
+            "api_keys": {"moonshot": "sk-new-moon"},
+            "model": "kimi-new",
+        }),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(settings, "USER_CONFIG_PATH", user_cfg)
+    monkeypatch.setenv("LANGBRIDGE_API_PROVIDER", "openai")
+    monkeypatch.setenv("LANGBRIDGE_MODEL", "gpt-old")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-old-openai")
+    monkeypatch.setenv("MOONSHOT_API_KEY", "sk-old-moon")
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-unrelated-deepseek")
+
+    try:
+        assert settings.reload_runtime_credentials() == (
+            "moonshot",
+            "sk-new-moon",
+            "kimi-new",
+        )
+        assert settings.API_PROVIDER == "moonshot"
+        assert "OPENAI_API_KEY" not in settings.os.environ
+        assert "MOONSHOT_API_KEY" not in settings.os.environ
+        assert settings.os.environ["DEEPSEEK_API_KEY"] == "sk-unrelated-deepseek"
+    finally:
+        monkeypatch.undo()
+        settings._bind(settings.load_config())
+
+
 def test_sanitize_api_key_strips_terminal_escape_junk():
     junk = "\x1b[<0;21;23M\x1b[<0;21;23Msk-real-key"
     assert settings.sanitize_api_key(junk) == "sk-real-key"
@@ -203,7 +235,43 @@ def test_list_model_catalog_uses_config_only(monkeypatch):
 
 def test_infer_provider_for_kimi_k3():
     assert settings.infer_provider_for_model("kimi-k3") == "moonshot"
+    assert settings.infer_provider_for_model("k3-256k") == "moonshot"
     assert settings.infer_provider_for_model("deepseek-v4-pro") == "deepseek"
+
+
+def test_kimi_code_membership_key_routes_to_coding_endpoint(monkeypatch, tmp_path):
+    user_cfg = tmp_path / "config.json"
+    user_cfg.write_text(
+        json.dumps({
+            "api": {
+                "provider": "moonshot",
+                "providers": {
+                    "moonshot": {"base_url": "https://api.moonshot.ai/v1"},
+                },
+            },
+            "api_keys": {"moonshot": "sk-kimi-membership-test"},
+            "model": "kimi-k3",
+        }),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(settings, "USER_CONFIG_PATH", user_cfg)
+    for key in (
+        "MOONSHOT_API_KEY",
+        "KIMI_API_KEY",
+        "LANGBRIDGE_API_PROVIDER",
+        "LANGBRIDGE_MODEL",
+        "LANGBRIDGE_API_BASE_URL",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    try:
+        settings._bind(settings.load_config())
+        route = settings.resolve_llm_route("kimi-k3")
+        assert route["provider"] == "moonshot"
+        assert route["base_url"] == "https://api.kimi.com/coding/v1"
+        assert route["model"] == "k3"
+    finally:
+        monkeypatch.undo()
+        settings._bind(settings.load_config())
 
 
 def test_configured_model_catalog_owns_cross_provider_agent_models(monkeypatch):

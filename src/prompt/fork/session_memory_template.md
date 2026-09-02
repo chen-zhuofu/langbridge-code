@@ -1,4 +1,4 @@
-# Session progress
+# Session memory
 
 #### Delegation
 _Subagent and key tool outcomes: kind (planner | worker | explorer | direct), what was dispatched, result._

@@ -257,9 +257,9 @@ def fetch_issue(repo, number):
     return data
 
 
-def make_instance(repo, pr, max_files):
+def make_instance(repo, pr, max_files, *, require_linked_issue: bool = True):
     issues = linked_issue_numbers(pr)
-    if not issues:
+    if not issues and require_linked_issue:
         return None, "no linked issue"
 
     merge_sha = pr["merge_commit_sha"]
@@ -298,7 +298,11 @@ def make_instance(repo, pr, max_files):
         if data.get("html_url"):
             github_issue_urls.append(data["html_url"])
     if not problem_parts:
-        return None, "linked issue had no usable text"
+        # Explicit --pr collection: use the PR title/body when no issue text.
+        pr_text = f"{pr.get('title', '')}\n\n{pr.get('body') or ''}".strip()
+        if not pr_text or require_linked_issue:
+            return None, "linked issue had no usable text"
+        problem_parts = [pr_text]
     problem_statement = "\n\n---\n\n".join(problem_parts)
 
     jira_url, jira_key = extract_jira(issue_bodies)
@@ -331,6 +335,26 @@ def make_instance(repo, pr, max_files):
     return instance, "ok"
 
 
+def parse_pr_ref(raw: str) -> tuple[str, int]:
+    """Parse ``owner/repo#123`` or ``owner/repo/pull/123`` into (repo, number)."""
+    text = (raw or "").strip()
+    match = re.fullmatch(
+        r"([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)(?:#|/pull/)(\d+)",
+        text,
+    )
+    if not match:
+        raise ValueError(
+            f"invalid --pr {raw!r}; expected owner/repo#123 or owner/repo/pull/123"
+        )
+    return match.group(1), int(match.group(2))
+
+
+def fetch_pull(repo: str, number: int) -> dict | None:
+    data, info = api_get(f"{API}/repos/{repo}/pulls/{number}")
+    warn_budget(info)
+    return data
+
+
 _MAX_FILES = 15
 _MAX_PER_REPO = 5
 _MAX_SCAN = 2000
@@ -361,6 +385,14 @@ def main():
         type=Path,
         help="optional machine-readable per-repo collection summary",
     )
+    parser.add_argument(
+        "--pr",
+        action="append",
+        default=[],
+        metavar="REPO#N",
+        help="collect a specific merged PR (owner/repo#123). Repeatable. "
+        "Uses the PR body as the problem statement when no linked issue exists.",
+    )
     args = parser.parse_args()
     if args.limit < 0 or args.balance_target < 0:
         parser.error("--limit and --balance-target must be non-negative")
@@ -370,6 +402,56 @@ def main():
         parser.error(f"invalid --repo-progress-json: {error}")
     if not isinstance(progress, dict):
         parser.error("--repo-progress-json must decode to an object")
+
+    out_path = paths.DEFAULT_COLLECT_JSONL
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    known = existing_task_ids_from_jsonl(out_path)
+
+    # Targeted PR collection (e.g. refactor PRs without linked issues).
+    if args.pr:
+        instances = []
+        skipped_resume = 0
+        try:
+            for raw in args.pr:
+                try:
+                    repo, number = parse_pr_ref(raw)
+                except ValueError as error:
+                    parser.error(str(error))
+                owner, name = repo.split("/")
+                tid = f"{owner}__{name}-{number}"
+                if tid in known:
+                    skipped_resume += 1
+                    print(f"  skip {tid} (already collected)")
+                    continue
+                pr = fetch_pull(repo, number)
+                if not pr:
+                    print(f"  fail {tid}: pull not found", file=sys.stderr)
+                    continue
+                if not pr.get("merged_at") or not pr.get("merge_commit_sha"):
+                    print(f"  fail {tid}: not merged", file=sys.stderr)
+                    continue
+                instance, reason = make_instance(
+                    repo, pr, _MAX_FILES, require_linked_issue=False
+                )
+                if instance is None:
+                    print(f"  fail {tid}: {reason}", file=sys.stderr)
+                    continue
+                instances.append(instance)
+                known.add(instance["instance_id"])
+                with out_path.open("a", encoding="utf-8") as handle:
+                    handle.write(json.dumps(instance) + "\n")
+                print(
+                    f"  + {instance['instance_id']}  "
+                    f"files={instance['_num_files']} "
+                    f"issues={instance['_linked_issues']}"
+                )
+        except RateLimited as limited:
+            print(f"\n[stopped] {limited}", file=sys.stderr)
+        print(f"\nWrote {len(instances)} new instances to {out_path}")
+        if skipped_resume:
+            print(f"Skipped {skipped_resume} already-collected task_ids (resume)")
+        print("\nNext: eval/data-pipeline/env/build_env.py")
+        return
 
     repos_path = paths.DEFAULT_REPOS_MD
     if not repos_path.exists():
@@ -398,10 +480,6 @@ def main():
     if target:
         print(f"Repo targets: {targets}")
         print(f"Repo deficits: {deficits}")
-
-    out_path = paths.DEFAULT_COLLECT_JSONL
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    known = existing_task_ids_from_jsonl(out_path)
 
     instances = []
     rejected = {}

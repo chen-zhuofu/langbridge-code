@@ -1,17 +1,20 @@
 [project]
-name = "langbridge-code"
+name = "langbridge"
 version = "0.1.0"
-description = "LangBridge Code — flat-workflow coding agent CLI (Kimi / OpenAI)."
+description = "LangBridge — a general-purpose AI assistant with agentic workflows."
 requires-python = ">=3.11"
 dependencies = [
+    "croniter>=6.0.0",
     "httpx>=0.28.1",
+    "mcp>=1.26,<2",
     "numpy>=2.4.6",
     "openai>=2.41.1",
+    "playwright>=1.55.0",
     "prompt-toolkit>=3.0.52",
 ]
 
 [project.scripts]
-langbridge-code = "langbridge_code.main:main"
+langbridge = "langbridge_code.main:main"
 
 # Package discovery lives in setup.py (flat src/ → import name langbridge_code).
 [tool.setuptools]

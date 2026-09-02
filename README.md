@@ -1,13 +1,13 @@
 
-<img src="assets/Langbridge_Logotype_Horizontal.svg" alt="LangBridge Code" width="360">
+<img src="assets/Langbridge_Logotype_Horizontal.svg" alt="LangBridge" width="360">
 
-A self-evolving coding agent with a **main agent + specialist subagents** workflow.
+A general-purpose AI assistant with a **main agent + specialist subagents** workflow.
 **Default model: Moonshot Kimi** (`kimi-k2.7-code`); **also supports OpenAI**
 (`gpt-5.6`) and **DeepSeek** (`deepseek-v4-pro`). Configure in
-`~/.langbridge-code/config.json` or via environment variables — see
+`~/.langbridge/config.json` or via environment variables — see
 [Models & providers](#models--providers).
 
-LangBridge Code runs a **flat orchestration pipeline**: the **LangBridge** main agent
+LangBridge runs a **flat orchestration pipeline**: the **LangBridge** main agent
 decides when to chat vs delegate, calls **Planner** to build a markdown `todo_list`,
 then dispatches each unblocked subtask to an isolated **Worker↔Reviewer** loop.
 Independent subtasks may run in parallel. It compacts
@@ -16,14 +16,16 @@ long context automatically and can resume prior sessions and interrupted subtask
 Start it (requires [`uv`](https://docs.astral.sh/uv/)):
 
 ```bash
-uv tool install git+https://github.com/chen-zhuofu/langbridge-code.git
-langbridge-code
+uv tool install git+https://github.com/chen-zhuofu/langbridge.git
+langbridge
 ```
 
 LangBridge also prepares a managed tool runtime under
 `<workspace>/.langbridge/runtime/`. Missing Node.js/npm, `rg`, Git, and Bash are
 installed into a repo-local micromamba prefix; pytest is provided by a local
-test venv.
+test venv. Playwright Chromium is prepared for the main Agent's read-only X
+Browser Use, with its persistent profile under
+`~/Library/Application Support/LangBridge/Browser/`.
 The directory is added to the
 repository's local git exclude file and must not be committed. There is no
 reduced-functionality fallback: if the runtime cannot be downloaded or
@@ -45,7 +47,7 @@ Eval docs: `eval/README.md`.
 
 ## Loop Engineering
 
-LangBridge Code is built around **loop engineering**: instead of a single one-shot
+LangBridge is built around **loop engineering**: instead of a single one-shot
 model call, agents run in loops until a task is done.
 
 **One user turn** can drive the workflow through multiple delegated tasks until
@@ -66,7 +68,7 @@ User prompt
 Safety brakes: `max_workflow_seconds`, worker/reviewer step caps, context compaction,
 and optional `/goal` autonomous rounds with a Goal Evaluator.
 
-## LangBridge Code team (workflow roles)
+## LangBridge team (workflow roles)
 
 - **LangBridge** — main agent; handles light, well-understood work directly,
   coordinates specialists for larger work, and owns `todo_list.md`.
@@ -102,9 +104,11 @@ time; each successful merge cleans only that task's worktree. A changed contract
 uses a fresh `task_name`.
 
 **Main agent tools include:** filesystem, shell, tests,
-`merge_branch`, `read_webpage`, `read_skill`, `ask_user`,
-`note_progress`, `memory_writer`, and the subagent tools (`agent_planner`,
-`agent_worker`, `agent_explorer`). Git operations other than `merge_branch`
+`merge_branch`, `browser`, `schedule`, `read_webpage`, `read_skill`, `ask_user`,
+`update_session_memory`, `memory_writer`, and the subagent tools (`agent_planner`,
+`agent_worker`, `agent_explorer`). Remote MCP tools are deferred: only their names
+are announced to the main Agent, `ToolSearch` loads one selected schema, and no MCP
+schema is exposed to subagents. Git operations other than `merge_branch`
 go through the shell (`bash`).
 
 **Planner tools:** read-only filesystem and `read_skill`;
@@ -114,15 +118,20 @@ the main agent writes the plan file.
 `read_skill`. **Reviewer tools:** read-only filesystem,
 tests, and `read_skill`.
 
-File tools are limited to the directory where you start LangBridge Code. Routine
-writes run directly. Approval is reserved for high-risk or difficult-to-reverse
+File tools are limited to the directory where you start LangBridge. The
+main Agent may also read and write personal Skills under
+`~/Library/Application Support/LangBridge/skills/langbridge/`; other roles
+remain workspace-scoped. Routine writes run directly. Approval is reserved for high-risk or difficult-to-reverse
 operations such as recursive deletion, force push, privilege escalation, raw disk
 writes, and writes inside protected state directories.
 
 On-demand skills: specialists see a catalog of playbooks in their prompt and can
 call `read_skill(name)` to load one. Bundled skills include Karpathy guidelines
 and vendored [Superpowers](https://github.com/obra/superpowers) under
-`src/skills/_external/superpowers/`.
+`src/skills/_external/superpowers/`. After validating a reusable workflow, the
+main Agent can load `writing-app-skills`, ask for approval, and use the regular
+file tools to save a personal app-level Skill. No dedicated Skill-writing Tool
+is exposed.
 
 Each tool call includes a required `description` field: a short, user-visible sentence
 explaining why the agent is calling that tool. It feeds the live thinking line in the TUI.
@@ -130,7 +139,7 @@ explaining why the agent is calling that tool. It feeds the live thinking line i
 Each run writes session artifacts under the installation root, grouped by
 project (the directory you launched from):
 `<install-root>/artifacts/{project}/session-{slug}-{timestamp}/` with
-`todo_list.md`, `progress.md`, `progress-{task-slug}.md`, `traces.md`, `traces/`,
+`todo_list.md`, `session_memory.md`, `progress-{task-slug}.md`, `traces.md`, `traces/`,
 and `worktrees.json`. In a development checkout, `<install-root>` is the
 repository root. Override it with `LANGBRIDGE_ARTIFACTS_DIR` or
 `paths.artifacts_dir`.
@@ -148,9 +157,9 @@ steps and handoffs. Worker and Reviewer have separate message histories. A later
 re-dispatch creates fresh model sessions but restores the unfinished task from disk.
 
 Main-agent cold-start uses full `traces.md` when it fits the resume budget;
-otherwise it uses `progress.md` plus traces after the last progress boundary.
+otherwise it uses `session_memory.md` plus traces after the last progress boundary.
 Worker, Reviewer, and Explorer dispatches similarly use one shared
-`{task-slug}/progress.md` (written by Worker/Explorer) plus the prior raw trace
+`{task-slug}/session_memory.md` (written by Worker/Explorer) plus the prior raw trace
 tail for that role. Reusing the same Worker task's `task_name` also reuses its
 failed worktree branch, so notes, conversation evidence, and code resume
 together.
@@ -160,22 +169,22 @@ gives each subagent task its own directory:
 
 ```
 session-{slug}-{timestamp}/
-├── progress.md          main-agent progress note
+├── session_memory.md          main-agent session memory
 ├── traces.md            main-agent raw rounds (markdown + json blocks)
 ├── session.md           unified human-readable activity log (all agents)
 ├── attachments/         oversized payloads linked from session.md / audits
 ├── compactions.jsonl    progress-note merge audit
 └── {task-slug}/         one directory per subagent task
-    ├── progress.md      task note, shared across dispatches and roles
+    ├── session_memory.md      task note, shared across dispatches and roles
     └── {role}-{n}.md    raw trace of dispatch instance n (same format as traces.md)
 ```
 
 On a later Worker, Reviewer, or Explorer dispatch of the same task, that
 role's previous traces are loaded when they fit the resume budget; otherwise
-its progress note is combined with the newest complete raw rounds.
+its session memory is combined with the newest complete raw rounds.
 
 Long-term memory uses two indexes which are both considered on every prefetch:
-`~/.langbridge-code/memory.md` (global user scope) and
+`~/.langbridge/memory.md` (global user scope) and
 `<project>/.langbridge/memory.md` (repository scope). Global entries may be
 typed `user`, `feedback`, or `reference`; project scope also permits `project`.
 Individual entries live beside each index under `memory/`, use YAML frontmatter
@@ -185,11 +194,11 @@ Override the indexes with `LANGBRIDGE_USER_MEMORY_PATH`,
 
 ### Context forks
 
-Progress notes and memory maintenance both fork the live conversation prefix so
+Session memorys and memory maintenance both fork the live conversation prefix so
 providers can reuse prompt cache.
 
-`note_progress` uses `fork_progress_note`: an Edit-restricted `fork_agent` that
-may only rewrite `progress.md` (other tools are denied). The main agent, Worker,
+`update_session_memory` uses `fork_session_memory`: an Edit-restricted `fork_agent` that
+may only rewrite `session_memory.md` (other tools are denied). The main agent, Worker,
 and Explorer all use this path.
 
 Memory maintenance uses `fork_agent` inside a restricted temporary Memory
@@ -208,12 +217,12 @@ Context compaction and memory prefetch are separate mechanisms.
 
 Bounded by workflow time limits, worker/reviewer step caps, and context compaction.
 After a stop before approval, a later LangBridge turn can re-dispatch the same
-task to resume its branch, progress note, and trace tail. It edits or splits the
+task to resume its branch, session memory, and trace tail. It edits or splits the
 todo only when the contract itself is blocked or needs to change.
 
 ## Eval (benchmarks & datasets)
 
-The `eval/` tree measures LangBridge Code on real issues and builds new task data.
+The `eval/` tree measures LangBridge on real issues and builds new task data.
 
 ### SWE-bench e2e (`eval/`)
 
@@ -257,7 +266,7 @@ See `eval/data-pipeline/README.md` and `eval/README.md`.
 
 ### Models & providers
 
-LangBridge Code is **not tied to a single vendor**. Package defaults in
+LangBridge is **not tied to a single vendor**. Package defaults in
 `src/config.json` use **Moonshot Kimi**; OpenAI and DeepSeek are
 also built in.
 
@@ -271,9 +280,9 @@ Switch provider:
 
 ```bash
 # one-off
-LANGBRIDGE_API_PROVIDER=openai LANGBRIDGE_MODEL=gpt-5.6 uv run langbridge-code
+LANGBRIDGE_API_PROVIDER=openai LANGBRIDGE_MODEL=gpt-5.6 uv run langbridge
 
-# or persist in ~/.langbridge-code/config.json
+# or persist in ~/.langbridge/config.json
 ```
 
 ```json
@@ -298,7 +307,7 @@ overrides both the session model and every per-agent model; use
 ### API keys
 
 Choose a provider with `LANGBRIDGE_API_PROVIDER` or
-`~/.langbridge-code/config.json`. When provider selection runs directly on a TTY
+`~/.langbridge/config.json`. When provider selection runs directly on a TTY
 with no explicit choice, it offers Moonshot, OpenAI, and DeepSeek and saves the
 answer; non-interactive launches use the packaged Moonshot default. A missing API
 key is requested and saved under `api_keys.<provider>`. Provider keys can live
@@ -319,7 +328,7 @@ Environment overrides: `MOONSHOT_API_KEY` / `KIMI_API_KEY` (Kimi),
 `LANGBRIDGE_API_PROVIDER`, `LANGBRIDGE_MODEL`, and `LANGBRIDGE_API_BASE_URL`.
 
 Copy any section from `src/config.json` into
-`~/.langbridge-code/config.json` to override limits, paths, or tool budgets.
+`~/.langbridge/config.json` to override limits, paths, or tool budgets.
 
 ### TypeScript TUI (default)
 
@@ -329,10 +338,10 @@ command-driven layout: a welcome banner, a flowing conversation, a multi-line
 prompt, and a status bar.
 
 ```bash
-uv run langbridge-code
+uv run langbridge
 ```
 
-`langbridge-code` launches the TypeScript TUI. On first launch it installs a
+`langbridge` launches the TypeScript TUI. On first launch it installs a
 managed Node.js/npm when necessary, runs `npm ci`, and builds `tui/dist`.
 Point at specific Node, npm, or Python binaries with `LANGBRIDGE_NODE`,
 `LANGBRIDGE_NPM`, or `LANGBRIDGE_PYTHON`.
@@ -345,9 +354,61 @@ clipboard. `PageUp`/`PageDown` and `Ctrl+↑`/`Ctrl+↓` also scroll.
 Set `LANGBRIDGE_TUI_MOUSE=0` to start in select mode.
 `LANGBRIDGE_TUI_DEBUG=<path>` records bridge JSONL for debugging.
 
-While developing locally, prefer `uv run langbridge-code` (editable install) so code
-changes take effect immediately. Use `uv sync --reinstall-package langbridge-code
+While developing locally, prefer `uv run langbridge` (editable install) so code
+changes take effect immediately. Use `uv sync --reinstall-package langbridge
 --no-editable` only when you need a non-editable install.
+
+### Native macOS app
+
+The optional SwiftUI desktop client lives in `desktop/`. It uses the same Python
+JSONL bridge as the TUI, so the agent workflow and terminal interface remain
+available unchanged. The desktop app adds Codex-style project and task navigation,
+parallel task processes, streamed activity, approvals, questions, model selection,
+in-app API settings, image recognition, a resizable Codex-style composer, prompt
+cache hit rate, and macOS background schedules. Use the paperclip to select images or
+paste an image from the clipboard; up to four PNG, JPEG, GIF, or WebP images are
+sent with a prompt while the TUI's existing text flow stays unchanged.
+
+Choose an Obsidian Vault in Settings before creating a schedule. The main Agent
+uses one `schedule` tool (`create`, `list`, `update`, `pause`, `resume`, `run_now`,
+or `delete`), with confirmation required for creation, material changes, and
+deletion. A per-user macOS LaunchAgent checks due work once a minute, runs different
+tasks concurrently, prevents the same task from overlapping, and writes reports to
+`<Vault>/LangBridge/<task>/YYYY-MM-DD.md`. Task definitions and run history stay in
+`~/Library/Application Support/LangBridge/`; successful notifications open the
+corresponding Obsidian note when clicked. Unattended runs expose only the
+read-only tools approved when the schedule was created.
+
+Gmail uses the standard Gmail API through a local, GET-only adapter and requests
+only `gmail.readonly`. The main Agent can defer-load `search_threads`,
+`get_message`, `get_thread`, and `list_labels`; Gmail write tools do not exist in
+the adapter. To connect for local/self use:
+
+1. In a Google Cloud project, enable **Gmail API**, configure the OAuth consent
+   screen, and add your Google account as a test user if the app is External.
+2. Create an OAuth client with application type **Desktop app**, then download its
+   JSON file.
+3. In LangBridge Settings, click **Choose OAuth JSON…**, then **Connect Gmail**.
+   macOS opens the Google sign-in flow and returns to the app automatically.
+
+Access and refresh tokens are stored in macOS Keychain. The local tool
+configuration at `~/Library/Application Support/LangBridge/mcp.json` contains the
+read-only allowlist and OAuth client metadata, but no user token. Scheduled tasks
+see Gmail only when **Read-only Gmail** was explicitly enabled for that schedule.
+This path does not use Google Workspace MCP or its Developer Preview program.
+
+On macOS 14 or later, build an ad-hoc signed local app:
+
+```bash
+bash desktop/build-app.sh
+open "desktop/dist/LangBridge.app"
+```
+
+You can also double-click `desktop/Build LangBridge.command` in Finder; it
+builds and opens the app. The local build records this checkout's absolute path,
+then uses its `.venv` (or `uv`) to start one isolated Python bridge per task.
+It is intended for the machine that built it. A future GitHub Release can replace
+that local marker with a bundled runtime plus Developer ID signing and notarization.
 Development and test dependencies are intentionally excluded from a normal
 launch; install them with `uv sync --group dev`.
 
@@ -372,9 +433,17 @@ launch; install them with `uv sync --group dev`.
 | `/goal clear` | remove the current goal |
 | `/goal pause` | pause goal auto-continue |
 | `/goal resume` | resume a paused goal |
+| `/reviewer <request>` | post-hoc review: an independent evaluator checks each reply and either releases it or sends the agent back with a concrete next prompt |
 | `/banner [on\|off]` | show or hide the header box |
 | `/exit` | quit |
 | `/quit` | alias for `/exit` |
+
+Use `/goal` when you can state the completion condition up front and want
+LangBridge to keep working autonomously until it is verifiably met; use
+`/reviewer` when you'd rather send one request and have an independent
+reviewer check each reply after the fact, with no spec written in advance.
+If you're not sure what you want yet, `/grilling` helps you discover the
+request itself before either mode runs.
 
 **Keys**: `Ctrl+A` approve · `Ctrl+D` deny · `Ctrl+Y` yolo · `Ctrl+P` pause ·
 `Ctrl+S` stop · `Ctrl+R` sessions · `Ctrl+B` header · `Ctrl+J` newline ·
@@ -387,7 +456,7 @@ sessions — move with `↑`/`↓`, `Enter` to resume, `n` for a new session, an
 **Queue**: while a turn is running you can keep typing — messages wait in the
 queue and run after the current turn finishes successfully; queued messages do
 not auto-run after Stop or an error. Each started turn gets the next id when
-processing begins; session + progress notes are written when the main agent loop
+processing begins; session + session memories are written when the main agent loop
 ends (success, stop, timeout, or error).
 
 **Pause** (soft hold): holds the agent at the next step boundary and resumes the
@@ -399,8 +468,8 @@ Cursor's stop. It cancels the in-flight model request (abandoned in the
 background) instead of waiting for it, so control returns almost immediately. The
 half-finished model round is discarded so the conversation history stays valid.
 Long-running shell and test tools are stop-aware: their process group is killed
-and the run unwinds immediately. Completed traces and progress notes (written by
-`note_progress` as a full override of `progress.md`) remain available for resume.
+and the run unwinds immediately. Completed traces and session memories (written by
+`update_session_memory` as a full override of `session_memory.md`) remain available for resume.
 
 **Approvals**: routine edits, commits, and ordinary shell commands run without a
 prompt. High-risk calls post an inline approval request; approve with `Ctrl+A` /
@@ -430,11 +499,11 @@ echo "add a --verbose flag" | uv run python -m langbridge_code.headless
 Print compact model output lines to stderr (one line per model response):
 
 ```bash
-LANGBRIDGE_DEBUG_LLM=1 uv run --no-editable langbridge-code
+LANGBRIDGE_DEBUG_LLM=1 uv run --no-editable langbridge
 ```
 
 Optional line length cap (default `200`):
 
 ```bash
-LANGBRIDGE_DEBUG_LLM=1 LANGBRIDGE_DEBUG_LLM_MAX_CHARS=500 uv run --no-editable langbridge-code
+LANGBRIDGE_DEBUG_LLM=1 LANGBRIDGE_DEBUG_LLM_MAX_CHARS=500 uv run --no-editable langbridge
 ```

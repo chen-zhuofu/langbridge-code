@@ -3,7 +3,7 @@
 Credentials resolve in order:
 1. Explicit ``base_url`` / ``model`` args when provided by the caller
 2. ``LB_INTERACTIVE_MODEL`` / ``OPENAI_BASE_URL`` env overrides
-3. LangBridge ``~/.langbridge-code/config.json`` (active provider key + base_url + model)
+3. LangBridge ``~/.langbridge/config.json`` (active provider key + base_url + model)
 4. Classic env keys: ``OPENAI_API_KEY`` / ``LB_OPENAI_API_KEY`` / ``ANTHROPIC_API_KEY``
    (and other provider env vars via LangBridge settings)
 """

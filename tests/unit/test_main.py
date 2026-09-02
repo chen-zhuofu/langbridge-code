@@ -12,8 +12,19 @@ def _normalized(text):
 
 
 def test_main_agent_identity_prompt():
-    assert "LangBridge Code" in LANGBRIDGE_PROMPT
+    assert "LangBridge" in LANGBRIDGE_PROMPT
+    assert "LangBridge Code" not in LANGBRIDGE_PROMPT
+    assert "general-purpose AI assistant" in LANGBRIDGE_PROMPT
+    assert "the main coding assistant" not in LANGBRIDGE_PROMPT
     assert "Do not reveal" in LANGBRIDGE_PROMPT
+
+
+def test_main_agent_conversation_feels_like_a_capable_friend():
+    normalized = _normalized(LANGBRIDGE_PROMPT)
+
+    assert "thoughtful, capable friend" in normalized
+    assert "warm, natural, curious, and candid" in normalized
+    assert "Match the user's tone and level of understanding" in normalized
 
 
 def test_langbridge_system_prompt_covers_answer_and_delegate():
@@ -21,7 +32,7 @@ def test_langbridge_system_prompt_covers_answer_and_delegate():
 
     prompt = langbridge_system_prompt()
     tool_names = {schema["name"] for schema in MAIN_AGENT_TOOL_SCHEMAS}
-    assert "LangBridge Code" in prompt
+    assert "LangBridge" in prompt
     assert {"agent_planner", "agent_explorer", "agent_worker"} <= tool_names
     assert "继续" in prompt or "continue" in prompt.lower()
     assert "worker-reviewer loop" in prompt.lower()
@@ -29,6 +40,14 @@ def test_langbridge_system_prompt_covers_answer_and_delegate():
     assert "# User interaction" in prompt
     assert "superpowers_writing-plans" not in prompt
     assert "answer in conversation" in prompt.lower()
+
+
+def test_langbridge_system_prompt_requires_readable_long_replies():
+    normalized = _normalized(langbridge_system_prompt())
+
+    assert "one idea in each paragraph" in normalized
+    assert "leave a blank line between paragraphs" in normalized
+    assert "Do not pack several labeled topics into one continuous paragraph" in normalized
 
 
 def test_langbridge_prompt_has_seven_content_areas():
@@ -50,7 +69,7 @@ def test_langbridge_prompt_has_seven_content_areas():
 
 def test_main_agent_records_every_subagent_result_in_progress():
     normalized = _normalized(langbridge_system_prompt())
-    assert "note_progress" in normalized
+    assert "update_session_memory" in normalized
     assert "once after every subagent return" in normalized
     assert "including failures and partial results" in normalized
     assert "one call per result" in normalized

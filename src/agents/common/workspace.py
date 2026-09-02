@@ -80,8 +80,9 @@ def configure_agent_artifacts(run_log_path, *, label: str, task_name: str = "") 
     """
     from langbridge_code.agents.common.todo_list import PLAN_FILENAME
     from langbridge_code.util.artifacts import (
+        LEGACY_PROGRESS_MD,
         MAIN_DIRNAME,
-        PROGRESS_MD,
+        SESSION_MEMORY_MD,
         artifact_dir,
         role_dir_name,
         task_role_dir,
@@ -100,7 +101,8 @@ def configure_agent_artifacts(run_log_path, *, label: str, task_name: str = "") 
     role = role_dir_name(label)
     if role == MAIN_DIRNAME:
         st.readable_roots.add(session / MAIN_DIRNAME)
-        st.readable_roots.add(session / PROGRESS_MD)
+        st.readable_roots.add(session / SESSION_MEMORY_MD)
+        st.readable_roots.add(session / LEGACY_PROGRESS_MD)
         st.readable_roots.add(session / PLAN_FILENAME)
         return
     role_path = task_role_dir(session, st.task_name, role)
@@ -109,8 +111,13 @@ def configure_agent_artifacts(run_log_path, *, label: str, task_name: str = "") 
 
 
 def _main_may_read_task_path(resolved: Path, session: Path) -> bool:
-    """Main can read task progress.md files and explorer reports/ only."""
-    from langbridge_code.util.artifacts import PROGRESS_MD, TASKS_DIRNAME, is_engine_only_path
+    """Main can read task session_memory.md files and explorer reports/ only."""
+    from langbridge_code.util.artifacts import (
+        LEGACY_PROGRESS_MD,
+        SESSION_MEMORY_MD,
+        TASKS_DIRNAME,
+        is_engine_only_path,
+    )
 
     if is_engine_only_path(resolved, session):
         return False
@@ -121,7 +128,7 @@ def _main_may_read_task_path(resolved: Path, session: Path) -> bool:
         return False
     if not rel.parts:
         return False
-    if resolved.name == PROGRESS_MD:
+    if resolved.name in {SESSION_MEMORY_MD, LEGACY_PROGRESS_MD}:
         return True
     return "reports" in rel.parts
 
@@ -138,7 +145,7 @@ def can_read_artifact(path) -> bool:
     for root in st.readable_roots:
         root_path = Path(root)
         if root_path.is_file() or not root_path.exists():
-            # File roots (progress.md / todo_list.md) match exactly.
+            # File roots (session_memory.md / todo_list.md) match exactly.
             if resolved == root_path.resolve():
                 return True
             # Non-existent dir roots still authorize children once created.

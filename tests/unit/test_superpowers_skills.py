@@ -79,7 +79,7 @@ def test_agent_read_skill_tools_are_role_scoped():
 
 def test_guard_skill_reference_loads():
     body = load_skill("clean-code-guard")
-    assert "LangBridge Code mapping (reviewer)" in body
+    assert "LangBridge mapping (reviewer)" in body
     assert "Review mode" in body
 
     ref = load_skill("clean-code-guard/references/ai-failure-modes.md")

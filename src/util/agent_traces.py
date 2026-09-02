@@ -150,7 +150,7 @@ def build_agent_resume_background(
     """Resume one subagent task from progress plus its prior raw trace tail.
 
     This mirrors the main-agent cold-start policy: use raw traces directly when
-    they fit; otherwise use the durable progress note plus the newest complete
+    they fit; otherwise use the durable session memory plus the newest complete
     raw rounds that fit the remaining resume budget.
     """
     progress = (progress or "").strip()
@@ -165,7 +165,12 @@ def build_agent_resume_background(
     if not rounds:
         return progress
 
-    budget = max(1, int(model_context_window(model) * TRACES_RESUME_MAX_FRACTION))
+    window = model_context_window(model)
+    if window is None:
+        from langbridge_code.settings import COMPACT_THRESHOLD_TOKENS
+
+        window = COMPACT_THRESHOLD_TOKENS
+    budget = max(1, int(window * TRACES_RESUME_MAX_FRACTION))
     full = _render_resume_rounds(rounds, role)
     if estimate_tokens(full) <= budget:
         return full

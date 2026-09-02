@@ -1,4 +1,5 @@
 import os
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -135,10 +136,24 @@ def test_bootstrap_prepares_every_advertised_runtime_dependency(monkeypatch):
     monkeypatch.setattr(
         runtime, "ensure_managed_test_python", lambda: calls.append("pytest")
     )
+    monkeypatch.setattr(
+        runtime, "ensure_playwright_browser", lambda: calls.append("playwright")
+    )
 
     runtime.bootstrap_runtime()
 
-    assert calls == ["ignore", "native", "pytest"]
+    assert calls == ["ignore", "native", "pytest", "playwright"]
+
+
+def test_playwright_check_uses_cli_without_starting_a_connection(monkeypatch):
+    calls = []
+    monkeypatch.setattr(runtime, "_run_checked", lambda command: calls.append(command))
+
+    runtime.ensure_playwright_browser()
+
+    assert calls == [
+        [sys.executable, "-m", "playwright", "install", "chromium"]
+    ]
 
 
 def test_runtime_root_defaults_inside_workspace(tmp_path, monkeypatch):

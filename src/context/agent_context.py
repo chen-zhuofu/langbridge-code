@@ -88,7 +88,7 @@ class AgentContextManager:
         self._messages.extend(rebuilt)
         return self._messages
 
-    def begin_turn(self, user_prompt: str) -> None:
+    def begin_turn(self, user_prompt: str | list[dict]) -> None:
         self._stack.start_turn(user_prompt)
         self.sync()
 

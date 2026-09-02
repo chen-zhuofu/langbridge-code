@@ -2,7 +2,8 @@
 
 Starts ``lb-interactive:<task_id>``, copies LangBridge into the container, and
 keeps a ``MainAgentSession`` across sim turns via a small in-container state
-file. After the episode, grades FAIL_TO_PASS inside the same image.
+file. After the episode, captures ``candidate.diff``, tears down the agent
+container, then grades FAIL_TO_PASS in a fresh same-image container.
 """
 from __future__ import annotations
 
@@ -29,7 +30,7 @@ from _lib.docker_util import docker, image_exists
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 SRC_PATH = PROJECT_ROOT / "src"
 EVAL_PKG_PATH = PROJECT_ROOT / "eval"
-USER_CONFIG = Path.home() / ".langbridge-code" / "config.json"
+USER_CONFIG = Path.home() / ".langbridge" / "config.json"
 
 if str(EVAL_PKG_PATH) not in sys.path:
     sys.path.insert(0, str(EVAL_PKG_PATH))
@@ -332,11 +333,11 @@ def _write_sut_user_config(container: str) -> None:
         except json.JSONDecodeError:
             user_cfg = {}
     merged = merge_agent_user_config(user_cfg)
-    _container_exec(container, "mkdir -p /root/.langbridge-code")
+    _container_exec(container, "mkdir -p /root/.langbridge")
     with tempfile.TemporaryDirectory(prefix="lb-ix-cfg-") as tmp:
         path = Path(tmp) / "config.json"
         path.write_text(json.dumps(merged, indent=2) + "\n", encoding="utf-8")
-        docker(["cp", str(path), f"{container}:/root/.langbridge-code/config.json"])
+        docker(["cp", str(path), f"{container}:/root/.langbridge/config.json"])
 
 
 def _container_exec(
@@ -501,10 +502,15 @@ class DockerMainAgent:
         )
         return self.candidate_diff
 
+    def grade_container_name(self) -> str:
+        return f"{self.container}-grade"[:63]
+
     def grade(self, *, timeout: int = 600) -> dict[str, Any]:
-        self.start()
+        """Grade in a fresh same-image container (agent must already be closed)."""
         if not self.candidate_diff:
-            self.capture_diff()
+            raise RuntimeError(
+                "candidate.diff missing — call capture_diff() before close()/grade()"
+            )
         # Keep full candidate.diff on disk for debugging; grade only code hunks
         # so the official test_patch is the sole source of eval tests.
         graded_diff = code_only_for_grade(
@@ -515,25 +521,55 @@ class DockerMainAgent:
         (self.artifacts_dir / "candidate.code.diff").write_text(
             graded_diff, encoding="utf-8"
         )
-        with tempfile.TemporaryDirectory(prefix="lb-ix-grade-") as tmp:
-            task_path = Path(tmp) / "grade_task.json"
-            diff_path = Path(tmp) / "candidate.diff"
-            script = Path(tmp) / "grade_runner.py"
-            task_path.write_text(json.dumps(self.spec), encoding="utf-8")
-            diff_path.write_text(graded_diff, encoding="utf-8")
-            script.write_text(_GRADE_SCRIPT, encoding="utf-8")
-            docker(["cp", str(task_path), f"{self.container}:{CONTAINER_IX}/grade_task.json"])
-            docker(["cp", str(diff_path), f"{self.container}:{CONTAINER_IX}/candidate.diff"])
-            docker(["cp", str(script), f"{self.container}:{CONTAINER_IX}/grade_runner.py"])
-        result = _container_exec(
-            self.container,
-            f"LB_GRADE_TIMEOUT={int(timeout)} {HARNESS_PYTHON} -u {CONTAINER_IX}/grade_runner.py",
-            timeout=timeout + 120,
-        )
-        payload = _parse_json_line(result.stdout or "") or {
-            "error": ((result.stderr or result.stdout or "")[-800:]),
-            "tests_passed": False,
-        }
+
+        grade_name = self.grade_container_name()
+        docker(["rm", "-f", grade_name])
+        try:
+            started = docker(
+                [
+                    "run",
+                    "-d",
+                    "--name",
+                    grade_name,
+                    self.image,
+                    "sleep",
+                    "infinity",
+                ]
+            )
+            if started.returncode != 0:
+                raise RuntimeError(
+                    f"grade docker run failed: {(started.stderr or '').strip()}"
+                )
+            _container_exec(grade_name, f"mkdir -p {CONTAINER_IX}")
+            with tempfile.TemporaryDirectory(prefix="lb-ix-grade-") as tmp:
+                task_path = Path(tmp) / "grade_task.json"
+                diff_path = Path(tmp) / "candidate.diff"
+                script = Path(tmp) / "grade_runner.py"
+                task_path.write_text(json.dumps(self.spec), encoding="utf-8")
+                diff_path.write_text(graded_diff, encoding="utf-8")
+                script.write_text(_GRADE_SCRIPT, encoding="utf-8")
+                docker(
+                    ["cp", str(task_path), f"{grade_name}:{CONTAINER_IX}/grade_task.json"]
+                )
+                docker(
+                    ["cp", str(diff_path), f"{grade_name}:{CONTAINER_IX}/candidate.diff"]
+                )
+                docker(
+                    ["cp", str(script), f"{grade_name}:{CONTAINER_IX}/grade_runner.py"]
+                )
+            result = _container_exec(
+                grade_name,
+                f"LB_GRADE_TIMEOUT={int(timeout)} {HARNESS_PYTHON} -u "
+                f"{CONTAINER_IX}/grade_runner.py",
+                timeout=timeout + 120,
+            )
+            payload = _parse_json_line(result.stdout or "") or {
+                "error": ((result.stderr or result.stdout or "")[-800:]),
+                "tests_passed": False,
+            }
+        finally:
+            docker(["rm", "-f", grade_name])
+
         self.last_grade = payload
         (self.artifacts_dir / "grade.json").write_text(
             json.dumps(payload, indent=2), encoding="utf-8"
@@ -545,6 +581,7 @@ class DockerMainAgent:
             return
         self._closed = True
         docker(["rm", "-f", self.container])
+        docker(["rm", "-f", self.grade_container_name()])
 
 
 def _parse_json_line(stdout: str) -> dict[str, Any] | None:

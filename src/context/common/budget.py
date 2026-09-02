@@ -41,16 +41,24 @@ def context_budget_snapshot(messages, model: str, *, fraction: float | None = No
         "used_tokens": used,
         "budget_fraction": None,
         "used_pct_of_budget": round(100 * used / budget, 1) if budget else 0.0,
-        "used_pct_of_window": round(100 * used / window, 1) if window else 0.0,
+        "used_pct_of_window": round(100 * used / window, 1) if window else None,
     }
 
 
 def format_context_budget_line(messages, model: str) -> str:
     snap = context_budget_snapshot(messages, model)
+    if snap["window_tokens"]:
+        window_line = f"Model context window: {snap['window_tokens']:,} tokens."
+        usage_line = (
+            f"Current transcript size: {snap['used_tokens']:,} tokens "
+            f"({snap['used_pct_of_window']}% of model window)."
+        )
+    else:
+        window_line = "Model context window: unknown."
+        usage_line = f"Current transcript size: {snap['used_tokens']:,} tokens."
     lines = [
-        f"Model context window: {snap['window_tokens']:,} tokens.",
-        f"Current transcript size: {snap['used_tokens']:,} tokens "
-        f"({snap['used_pct_of_window']}% of model window).",
+        window_line,
+        usage_line,
         f"Compact threshold: {snap['budget_tokens']:,} tokens (fixed) "
         f"— currently {snap['used_pct_of_budget']}% of that threshold.",
         CONTEXT_BUDGET_BODY,
@@ -100,9 +108,10 @@ def messages_with_budget_notice(messages, model: str) -> list:
 def format_status_context_line(messages, model: str, *, label: str | None = None) -> str:
     snap = context_budget_snapshot(messages, model)
     prefix = f"{label} context" if label else "context"
+    window = format_token_count(snap["window_tokens"])
+    window_part = f", window {window}" if window else ", window "
     return (
         f"{prefix} {snap['used_pct_of_budget']:.1f}% "
         f"({format_token_count(snap['used_tokens'])}/"
-        f"{format_token_count(snap['budget_tokens'])}, "
-        f"window {format_token_count(snap['window_tokens'])})"
+        f"{format_token_count(snap['budget_tokens'])}{window_part})"
     )

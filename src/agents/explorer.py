@@ -8,7 +8,7 @@ from langbridge_code.agents.common import control
 from langbridge_code.agents.common.limits import now, over_time_budget
 from langbridge_code.agents.common.task_progress import TaskProgress
 from langbridge_code.prompt.system import explorer_system_prompt
-from langbridge_code.tools.note_progress import TASK_NOTE_PROGRESS_TOOL_SCHEMA
+from langbridge_code.tools.update_session_memory import TASK_UPDATE_SESSION_MEMORY_TOOL_SCHEMA
 from langbridge_code.llm.client import create_model_response
 from langbridge_code.llm.parse import extract_output_text, print_step_trace
 from langbridge_code.tools.common.description import without_description
@@ -22,6 +22,8 @@ from langbridge_code.context.common.budget import messages_with_budget_notice, p
 from langbridge_code.context.agent_context import finish_step, init_agent_context
 from langbridge_code.context.foreground import ForegroundTracker
 from langbridge_code.settings import (
+    EXPLORE_REPORT_MAX_CHARS,
+    EXPLORE_REPORT_PREVIEW_CHARS,
     MAX_EXPLORER_SECONDS,
     MAX_EXPLORER_STEPS,
     WORKSPACE_ROOT,
@@ -163,7 +165,7 @@ AGENT_EXPLORER_TOOL_SCHEMA = {
                 "type": "string",
                 "description": (
                     "Stable id for this investigation (e.g. 'explore-auth-flow'). "
-                    "Keys the progress note and traces — reuse the exact id when "
+                    "Keys the session memory and traces — reuse the exact id when "
                     "continuing the same investigation; use a new id for a new one."
                 ),
             },
@@ -181,12 +183,6 @@ AGENT_EXPLORER_TOOL_SCHEMA = {
         "additionalProperties": False,
     },
 }
-
-
-# Mirrors Claude Code's AgentTool limits: inline up to ~50K chars; larger
-# reports are persisted to a file and the caller gets a preview + path.
-EXPLORE_REPORT_MAX_CHARS = 50_000
-EXPLORE_REPORT_PREVIEW_CHARS = 2_000
 
 
 def write_report_copy(run_log_path, task_name, instance_id, report) -> Path | None:
@@ -312,8 +308,8 @@ class ExploreSession:
         self.tools = dict(tools)
         self.tool_schemas = list(tool_schemas)
         if self.task_progress.enabled:
-            self.tools["note_progress"] = self.task_progress.write_note
-            self.tool_schemas.append(TASK_NOTE_PROGRESS_TOOL_SCHEMA)
+            self.tools["update_session_memory"] = self.task_progress.write_note
+            self.tool_schemas.append(TASK_UPDATE_SESSION_MEMORY_TOOL_SCHEMA)
             self.task_progress.attach(
                 self.context.stack, self.messages, self.tool_schemas
             )
@@ -410,7 +406,7 @@ class ExploreSession:
         """Return partial findings when the explore budget ends — not a stub.
 
         One no-tool finalize call asks for the normal report shape from what is
-        already in context. If that fails, fall back to task progress notes so
+        already in context. If that fails, fall back to task session memories so
         the parent still gets something reusable.
         """
         header = (
@@ -420,9 +416,9 @@ class ExploreSession:
         finalized = self._finalize_partial_report(reason)
         if finalized:
             return header + finalized
-        notes = self._progress_notes_fallback()
+        notes = self._session_memory_fallback()
         if notes:
-            return header + "## Progress notes so far\n\n" + notes
+            return header + "## Session memorys so far\n\n" + notes
         return header + "(No findings were recorded before the budget ended.)"
 
     def _finalize_partial_report(self, reason: str) -> str:
@@ -454,17 +450,17 @@ class ExploreSession:
         except Exception:
             return ""
 
-    def _progress_notes_fallback(self) -> str:
+    def _session_memory_fallback(self) -> str:
         if not self.task_progress.enabled:
             return ""
-        from langbridge_code.util.progress import PROGRESS_HEADER, read_progress
+        from langbridge_code.util.progress import SESSION_MEMORY_HEADER, read_progress
 
         content = read_progress(
             self.run_log_path,
             self.task_progress.task_name,
             role=self.label,
         ).strip()
-        if not content or content == PROGRESS_HEADER.strip():
+        if not content or content == SESSION_MEMORY_HEADER.strip():
             return ""
         return content
 

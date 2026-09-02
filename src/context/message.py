@@ -1,6 +1,11 @@
 """Message list helpers for context stack and workflow."""
 
 
+_TOOL_CALL_TYPES = frozenset({"function_call", "tool_search_call"})
+_TOOL_OUTPUT_TYPES = frozenset({"function_call_output", "tool_search_output"})
+_TOOL_ROUND_TYPES = frozenset({"reasoning", *_TOOL_CALL_TYPES, *_TOOL_OUTPUT_TYPES})
+
+
 def recent_chat_turns(messages, *, max_turns=20, max_chars=12000):
     """Extract recent user/assistant turns, skipping system prompts and tool items."""
     turns = []
@@ -28,10 +33,10 @@ def iter_tool_rounds(messages: list) -> list[tuple[int, list[int]]]:
     while index < len(messages):
         item = messages[index]
         item_type = item.get("type")
-        if item.get("role") or item_type not in {"reasoning", "function_call", "function_call_output"}:
+        if item.get("role") or item_type not in _TOOL_ROUND_TYPES:
             index += 1
             continue
-        if item_type == "function_call_output":
+        if item_type in _TOOL_OUTPUT_TYPES:
             index += 1
             continue
 
@@ -40,12 +45,12 @@ def iter_tool_rounds(messages: list) -> list[tuple[int, list[int]]]:
         while index < len(messages):
             current = messages[index]
             current_type = current.get("type")
-            if current_type == "function_call_output":
+            if current_type in _TOOL_OUTPUT_TYPES:
                 indices.append(index)
                 saw_output = True
                 index += 1
                 continue
-            if current_type == "function_call":
+            if current_type in _TOOL_CALL_TYPES:
                 if saw_output:
                     break
                 indices.append(index)

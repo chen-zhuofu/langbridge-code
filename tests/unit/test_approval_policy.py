@@ -54,7 +54,7 @@ def test_reason_explains_the_risk():
     ("Edit", ".git/config"),
     ("write", "sub/dir/.git/HEAD"),
     ("write", ".langbridge/memory.md"),
-    ("write", ".langbridge-code/config.json"),
+    ("write", ".langbridge/config.json"),
     ("Edit", ".vscode/settings.json"),
     ("write", "home/.config/git/config"),
 ])

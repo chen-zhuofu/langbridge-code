@@ -8,6 +8,7 @@ from langbridge_code.settings import (
     DEFAULT_EXECUTION_TIMEOUT_SECONDS,
     MAX_EXECUTION_OUTPUT_CHARS,
     MAX_EXECUTION_TIMEOUT_SECONDS,
+    TOOL_OUTPUT_PREVIEW_CHARS,
 )
 from langbridge_code.tools.common.env import workspace_env
 from langbridge_code.tools.common.proc import run_command
@@ -18,7 +19,6 @@ from langbridge_code.agents.common.workspace import get_workspace_root
 WORKSPACE_ROOT = Path.cwd().resolve()
 
 # Claude Code v2.1.2+: spill full output to disk; context keeps a short head preview.
-TOOL_OUTPUT_PREVIEW_CHARS = 2_000
 EXECUTION_OUTPUT_PREVIEW_CHARS = TOOL_OUTPUT_PREVIEW_CHARS  # back-compat alias
 _tool_output_seq = itertools.count(1)
 _SHELL_SPILL_TOOLS = frozenset({"bash", "powershell"})

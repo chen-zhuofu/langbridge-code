@@ -49,7 +49,7 @@ pandas-dev/pandas
 # Intro: Open-source coding agent designed for terminal-based development
 # workflows and positioned as an open alternative to proprietary coding agents.
 # Languages: primary = TypeScript; secondary = Go
-anomalyco/opencode
+<!-- anomalyco/opencode -->
 
 # 38.0k stars
 # Intro: Stateful orchestration framework for building agent workflows with

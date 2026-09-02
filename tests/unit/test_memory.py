@@ -29,7 +29,7 @@ def temp_memory_paths(tmp_path, monkeypatch):
         memory_mod, "PROJECT_MEMORY_PATH", tmp_path / "repo" / ".langbridge" / "memory.md"
     )
     monkeypatch.setattr(
-        memory_mod, "USER_MEMORY_PATH", tmp_path / "home" / ".langbridge-code" / "memory.md"
+        memory_mod, "USER_MEMORY_PATH", tmp_path / "home" / ".langbridge" / "memory.md"
     )
 
 

@@ -394,6 +394,17 @@ def ensure_managed_test_python() -> str:
     return str(python)
 
 
+def ensure_playwright_browser() -> None:
+    """Install Playwright's Chromium once before advertising Browser Use."""
+    try:
+        import playwright  # noqa: F401
+    except ImportError as error:
+        raise RuntimeBootstrapError(
+            "Playwright is not installed in the LangBridge Python environment."
+        ) from error
+    _run_checked([sys.executable, "-m", "playwright", "install", "chromium"])
+
+
 def ensure_test_python(preferred: str) -> str:
     """Ensure pytest exists, preserving a workspace venv when one is present."""
     check = subprocess.run(
@@ -422,3 +433,4 @@ def bootstrap_runtime() -> None:
     _ensure_runtime_ignored()
     ensure_native_tools()
     ensure_managed_test_python()
+    ensure_playwright_browser()

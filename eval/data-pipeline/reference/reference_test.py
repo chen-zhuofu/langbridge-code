@@ -75,7 +75,13 @@ apply(test_patch)
 pre = run_pytest(test_files)
 apply(code_patch)
 post = run_pytest(test_files)
-f2p = sorted(t for t, r in post.items() if r == "PASSED" and pre.get(t) in ("FAILED", "ERROR"))
+# New tests that only collect/pass after the gold patch (common for refactors
+# that extract helpers) are F2P even when they never appeared in the pre run.
+f2p = sorted(
+    t
+    for t, r in post.items()
+    if r == "PASSED" and pre.get(t) in ("FAILED", "ERROR", None)
+)
 p2p = sorted(t for t, r in post.items() if r == "PASSED" and pre.get(t) == "PASSED")
 print(json.dumps({"FAIL_TO_PASS": f2p, "PASS_TO_PASS": p2p, "n_tests_seen": len(post)}))
 PY

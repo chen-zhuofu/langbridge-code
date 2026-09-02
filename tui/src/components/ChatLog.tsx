@@ -49,6 +49,9 @@ interface RenderRow {
   first: boolean;
 }
 
+/** Keep assistant prose readable on very wide terminals. */
+const MAX_ASSISTANT_COLUMNS = 96;
+
 function linePrefix(line: ChatLine): string {
   if (line.kind === "user") return "\u2726 ";
   if (line.kind === "assistant") return "\u25cf ";
@@ -62,10 +65,11 @@ function explodeLine(line: ChatLine, width: number): RenderRow[] {
   const prefixCols = [...prefix].reduce((total, char) => total + charWidth(char), 0);
   const continuationIndent = prefix ? 2 : 0;
   const text = line.queued ? `${line.text} (queued)` : line.text;
+  const lineWidth = line.kind === "assistant" ? Math.min(width, MAX_ASSISTANT_COLUMNS) : width;
   const rows: RenderRow[] = [];
   for (const segment of text.split("\n")) {
     const firstOfLine = rows.length === 0;
-    const columns = Math.max(10, width - (firstOfLine ? prefixCols : continuationIndent));
+    const columns = Math.max(10, lineWidth - (firstOfLine ? prefixCols : continuationIndent));
     for (const chunk of wrapSegment(segment, columns)) {
       rows.push({
         key: `${line.id}:${rows.length}`,

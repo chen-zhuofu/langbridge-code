@@ -67,7 +67,7 @@ _ROOT_HOME_REMOVAL = re.compile(
 )
 
 
-def _protected_path_reason(name: str, arguments: dict | None) -> str | None:
+def protected_path_reason(name: str, arguments: dict | None) -> str | None:
     if name not in FILE_WRITE_TOOL_NAMES:
         return None
     path = str((arguments or {}).get("path", ""))
@@ -93,7 +93,11 @@ def circuit_breaker_reason(name: str, arguments: dict | None) -> str | None:
 
 
 def approval_reason(name: str, arguments: dict | None) -> str | None:
-    protected = _protected_path_reason(name, arguments)
+    if name == "schedule":
+        action = str((arguments or {}).get("action", "")).lower()
+        if action in {"create", "update", "delete"}:
+            return f"{action}s an unattended background schedule"
+    protected = protected_path_reason(name, arguments)
     if protected:
         return protected
     if name not in SHELL_TOOL_NAMES:
@@ -103,3 +107,11 @@ def approval_reason(name: str, arguments: dict | None) -> str | None:
         if pattern.search(command):
             return reason
     return None
+
+
+def approval_callback_required(callback, name: str, arguments: dict | None) -> bool:
+    """Whether this callback must see the tool, preserving legacy callback behavior."""
+    if approval_reason(name, arguments) is not None:
+        return True
+    owner = getattr(callback, "__self__", None)
+    return getattr(owner, "permission_mode", "manual") == "auto"

@@ -1,7 +1,7 @@
 {
   "name": "langbridge-tui",
   "version": "0.1.0",
-  "description": "LangBridge Code terminal UI (TypeScript / Ink)",
+  "description": "LangBridge terminal UI (TypeScript / Ink)",
   "type": "module",
   "bin": {
     "langbridge-tui": "dist/cli.js"

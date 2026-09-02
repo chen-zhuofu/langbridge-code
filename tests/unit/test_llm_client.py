@@ -12,6 +12,7 @@ from langbridge_code.llm.client import (
     quota_exceeded_message,
     rate_limit_is_non_retryable,
     resolve_max_output_tokens,
+    supports_native_tool_search,
     to_chat_messages,
     to_chat_tools,
     uses_responses_api,
@@ -258,6 +259,29 @@ def test_create_model_response_uses_kimi_k3_reasoning_effort(monkeypatch):
     assert data["output"][0]["type"] == "reasoning"
 
 
+def test_create_model_response_uses_routed_kimi_code_model(monkeypatch):
+    captured = {}
+    _patch_chat_provider(monkeypatch, _fake_chat_client(captured), "moonshot")
+    monkeypatch.setattr(
+        "langbridge_code.settings.resolve_llm_route",
+        lambda model, api_key: {
+            "provider": "moonshot",
+            "api_key": api_key,
+            "base_url": "https://api.kimi.com/coding/v1",
+            "model": "k3",
+        },
+    )
+
+    create_model_response(
+        "sk-kimi-test",
+        "kimi-k3",
+        [{"role": "user", "content": "hi"}],
+    )
+
+    assert captured["model"] == "k3"
+    assert captured["extra_body"] == {"reasoning_effort": "max"}
+
+
 def test_create_model_response_enables_deepseek_thinking(monkeypatch):
     captured = {}
     _patch_chat_provider(monkeypatch, _fake_chat_client(captured), "deepseek")
@@ -267,6 +291,22 @@ def test_create_model_response_enables_deepseek_thinking(monkeypatch):
     assert captured["extra_body"]["thinking"] == {"type": "enabled"}
     assert captured["extra_body"]["reasoning_effort"] == "max"
     assert data["output"][0]["type"] == "reasoning"
+
+
+def test_create_model_response_can_use_low_budget_deepseek_classifier(monkeypatch):
+    captured = {}
+    _patch_chat_provider(monkeypatch, _fake_chat_client(captured), "deepseek")
+
+    create_model_response(
+        "key",
+        "deepseek-v4-flash",
+        [{"role": "user", "content": "classify"}],
+        reasoning={"effort": "low"},
+        max_output_tokens=64,
+    )
+
+    assert captured["extra_body"] == {"thinking": {"type": "disabled"}}
+    assert captured["max_tokens"] == 64
 
 
 def test_create_model_response_routes_cross_provider(monkeypatch):
@@ -307,6 +347,13 @@ def test_uses_responses_api_only_for_openai():
     assert uses_responses_api("anthropic") is False
     assert uses_responses_api("moonshot") is False
     assert uses_responses_api("deepseek") is False
+
+
+def test_native_tool_search_requires_openai_gpt_5_4_or_newer():
+    assert supports_native_tool_search("gpt-5.4", "openai") is True
+    assert supports_native_tool_search("gpt-5.6-sol", "openai") is True
+    assert supports_native_tool_search("gpt-5.3", "openai") is False
+    assert supports_native_tool_search("deepseek-v4-flash", "deepseek") is False
 
 
 def test_create_model_response_uses_openai_xhigh_reasoning(monkeypatch):

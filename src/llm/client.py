@@ -6,12 +6,15 @@ Routing:
     Anthropic uses its OpenAI-compatible endpoint (``api.anthropic.com/v1``).
 """
 import os
+import re
 import time
 import uuid
 
 from openai import OpenAI, OpenAIError, RateLimitError
 
 from langbridge_code.llm.debug import print_llm_request, print_llm_response
+from langbridge_code.llm.images import to_chat_content, to_responses_input
+from langbridge_code.llm.usage import normalize_usage, record_usage
 
 
 class ApiQuotaExceeded(RuntimeError):
@@ -31,7 +34,7 @@ def rate_limit_is_non_retryable(error: RateLimitError) -> bool:
 def quota_exceeded_message(error: RateLimitError) -> str:
     return (
         "API daily token quota is exhausted (provider TPD limit). "
-        "Wait for the daily reset, or switch provider/model/API key in ~/.langbridge-code/config.json."
+        "Wait for the daily reset, or switch provider/model/API key in ~/.langbridge/config.json."
     )
 
 
@@ -79,6 +82,22 @@ def make_client(api_key, *, base_url=None):
 def uses_responses_api(provider=None):
     """Only OpenAI uses the Responses API; everyone else uses chat completions."""
     return (provider or settings.API_PROVIDER) == "openai"
+
+
+def supports_native_tool_search(model, provider=None):
+    """Whether this route supports client-executed Responses tool search."""
+    resolved = (
+        provider
+        or settings.infer_provider_for_model(str(model or ""))
+        or settings.active_api_provider()
+    )
+    if resolved != "openai":
+        return False
+    match = re.search(r"(?:^|/)gpt-(\d+)(?:\.(\d+))?", str(model or "").lower())
+    if match is None:
+        return False
+    version = (int(match.group(1)), int(match.group(2) or 0))
+    return version >= (5, 4)
 
 
 def resolve_max_output_tokens(override=None):
@@ -187,7 +206,9 @@ def to_chat_messages(agent_input):
 
         if role in {"system", "user"}:
             flush_assistant()
-            messages.append({"role": role, "content": item.get("content", "")})
+            messages.append(
+                {"role": role, "content": to_chat_content(item.get("content", ""))}
+            )
             continue
 
         if role == "assistant":
@@ -246,11 +267,20 @@ def from_chat_message(message):
 def _stream_chat_completion(client, kwargs, *, label, stream_sink):
     from langbridge_code.llm.trace import ThoughtEvent
 
-    stream = client.chat.completions.create(**kwargs, stream=True)
+    stream_kwargs = dict(kwargs)
+    stream_kwargs["stream"] = True
+    # Prefer usage on the final chunk when the provider supports it.
+    stream_kwargs["stream_options"] = {"include_usage": True}
+    try:
+        stream = client.chat.completions.create(**stream_kwargs)
+    except OpenAIError:
+        stream_kwargs.pop("stream_options", None)
+        stream = client.chat.completions.create(**stream_kwargs)
     reasoning_parts: list[str] = []
     content_parts: list[str] = []
     tool_calls: dict[int, dict[str, str]] = {}
     finish_reason = None
+    usage = None
     last_emit = 0.0
 
     def maybe_emit(kind: str, text: str, *, force: bool = False):
@@ -264,6 +294,9 @@ def _stream_chat_completion(client, kwargs, *, label, stream_sink):
         stream_sink(ThoughtEvent(role=label, kind=kind, text=text))
 
     for chunk in stream:
+        chunk_usage = getattr(chunk, "usage", None)
+        if chunk_usage is not None:
+            usage = chunk_usage
         if not chunk.choices:
             continue
         choice = chunk.choices[0]
@@ -271,6 +304,8 @@ def _stream_chat_completion(client, kwargs, *, label, stream_sink):
         if choice_finish_reason:
             finish_reason = choice_finish_reason
         delta = choice.delta
+        if delta is None:
+            continue
         reasoning_delta = getattr(delta, "reasoning_content", None)
         if reasoning_delta:
             reasoning_parts.append(reasoning_delta)
@@ -335,7 +370,11 @@ def _stream_chat_completion(client, kwargs, *, label, stream_sink):
         tool_calls=built_tool_calls,
         reasoning="".join(reasoning_parts) or None,
     )
-    return {"output": from_chat_message(message), "finish_reason": finish_reason}
+    data = {"output": from_chat_message(message), "finish_reason": finish_reason}
+    normalized = normalize_usage(usage)
+    if normalized:
+        data["usage"] = normalized
+    return data
 
 
 # OpenAI Responses API: GPT-5.6 supports effort "max"; earlier GPT-5.x tops at "xhigh".
@@ -356,7 +395,7 @@ DEFAULT_ANTHROPIC_OUTPUT_CONFIG = {"effort": "max"}
 
 def _is_kimi_k3(model: str | None) -> bool:
     name = (model or "").strip().lower().rsplit("/", 1)[-1]
-    return name == "kimi-k3" or name.startswith("kimi-k3-")
+    return name in {"kimi-k3", "k3"} or name.startswith("kimi-k3-")
 
 
 def _is_gpt_5_6(model: str | None) -> bool:
@@ -374,20 +413,37 @@ def _openai_reasoning(model: str | None = None) -> dict:
     return {"effort": effort, "summary": DEFAULT_OPENAI_REASONING_SUMMARY}
 
 
-def _chat_extra_body(model: str | None = None, *, provider: str | None = None):
-    """Provider-specific chat extras — always request the highest think mode."""
+def _chat_extra_body(
+    model: str | None = None,
+    *,
+    provider: str | None = None,
+    reasoning: dict | None = None,
+):
+    """Provider-specific thinking config, with an optional low-budget override."""
     resolved = provider or settings.infer_provider_for_model(model) or settings.API_PROVIDER
+    requested_effort = str((reasoning or {}).get("effort", "")).lower()
+    low_budget = requested_effort in {"none", "minimal", "low"}
     if resolved == "moonshot":
         if _is_kimi_k3(model):
-            return {"reasoning_effort": DEFAULT_KIMI_K3_REASONING_EFFORT}
+            return {
+                "reasoning_effort": "low" if low_budget else DEFAULT_KIMI_K3_REASONING_EFFORT
+            }
+        if low_budget:
+            return {"thinking": {"type": "disabled"}}
         return {"thinking": DEFAULT_MOONSHOT_THINKING}
     if resolved == "deepseek":
+        if low_budget:
+            return {"thinking": {"type": "disabled"}}
         return {
             "thinking": DEFAULT_DEEPSEEK_THINKING,
             "reasoning_effort": DEFAULT_DEEPSEEK_REASONING_EFFORT,
         }
     if resolved == "anthropic":
-        return {"output_config": DEFAULT_ANTHROPIC_OUTPUT_CONFIG}
+        return {
+            "output_config": (
+                {"effort": "low"} if low_budget else DEFAULT_ANTHROPIC_OUTPUT_CONFIG
+            )
+        }
     return None
 
 
@@ -398,6 +454,7 @@ def create_model_response(
     *,
     tool_schemas=None,
     reasoning=None,
+    max_output_tokens=None,
     label="agent",
     stream_sink=None,
 ):
@@ -411,11 +468,12 @@ def create_model_response(
     if not route.get("api_key"):
         raise ValueError(
             f"No API key for provider {route['provider']!r} (model {model!r}). "
-            f"Add it under api_keys.{route['provider']} in ~/.langbridge-code/config.json."
+            f"Add it under api_keys.{route['provider']} in ~/.langbridge/config.json."
         )
     client = make_client(route["api_key"], base_url=route["base_url"] or None)
     provider = route["provider"]
-    max_tokens, env_override = resolve_max_output_tokens()
+    routed_model = route.get("model") or model
+    max_tokens, env_override = resolve_max_output_tokens(max_output_tokens)
     default_cap = int(
         getattr(settings, "DEFAULT_MAX_OUTPUT_TOKENS", CAPPED_DEFAULT_MAX_TOKENS)
     )
@@ -428,9 +486,13 @@ def create_model_response(
         try:
             if uses_responses_api(provider):
                 kwargs = {
-                    "model": model,
-                    "input": agent_input,
-                    "reasoning": reasoning if reasoning is not None else _openai_reasoning(model),
+                    "model": routed_model,
+                    "input": to_responses_input(agent_input),
+                    "reasoning": (
+                        reasoning
+                        if reasoning is not None
+                        else _openai_reasoning(routed_model)
+                    ),
                     "max_output_tokens": max_tokens,
                 }
                 if tool_schemas:
@@ -438,13 +500,18 @@ def create_model_response(
                 response = client.responses.create(**kwargs)
                 data = response.model_dump(exclude_none=True)
                 finish_reason = None
+                usage = normalize_usage(data.get("usage") or getattr(response, "usage", None))
             else:
                 kwargs = {
-                    "model": model,
+                    "model": routed_model,
                     "messages": to_chat_messages(agent_input),
                     "max_tokens": max_tokens,
                 }
-                extra_body = _chat_extra_body(model, provider=provider)
+                extra_body = _chat_extra_body(
+                    routed_model,
+                    provider=provider,
+                    reasoning=reasoning,
+                )
                 if extra_body:
                     kwargs["extra_body"] = extra_body
                 if tool_schemas:
@@ -457,11 +524,13 @@ def create_model_response(
                         stream_sink=stream_sink,
                     )
                     finish_reason = data.pop("finish_reason", None)
+                    usage = data.get("usage")
                 else:
                     response = client.chat.completions.create(**kwargs)
                     message = response.choices[0].message
                     finish_reason = response.choices[0].finish_reason
                     data = {"output": from_chat_message(message)}
+                    usage = normalize_usage(getattr(response, "usage", None))
             if (
                 not env_override
                 and not escalated
@@ -471,6 +540,9 @@ def create_model_response(
                 escalated = True
                 max_tokens = escalated_cap
                 continue
+            if usage:
+                data["usage"] = usage
+                record_usage(usage, label=label)
             print_llm_response(label, data)
             return data
         except RateLimitError as error:

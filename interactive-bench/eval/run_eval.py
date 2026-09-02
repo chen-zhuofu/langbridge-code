@@ -123,8 +123,15 @@ def run_one_spec(
             # Void episode — the sim never spoke, so grading measures nothing.
             _log(f"  {tid}: SIM ERROR: {episode['sim_error']} (skipping grade)")
         elif not stub and not no_grade and hasattr(agent, "grade"):
-            _log(f"  {tid}: capturing diff + grading F2P...")
+            _log(f"  {tid}: capturing diff, closing agent, grading F2P...")
             agent.capture_diff()
+            # Sequential dual-container: tear down agent before grade so scoring
+            # cannot see leftover agent state in the same container.
+            if hasattr(agent, "close"):
+                try:
+                    agent.close()
+                except Exception:  # noqa: BLE001
+                    pass
             grade = agent.grade(timeout=grade_timeout)
             tests_passed = bool(grade.get("tests_passed"))
             _log(

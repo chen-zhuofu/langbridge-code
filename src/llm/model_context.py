@@ -4,6 +4,7 @@ from __future__ import annotations
 # Built-in defaults; config.json context.model_context_windows overrides/extends these.
 _BUILTIN_MODEL_CONTEXT_WINDOWS: dict[str, int] = {
     "kimi-k3": 1_048_576,
+    "k3": 1_048_576,
     "kimi-k2.7-code": 262_144,
     "kimi-k2.7": 262_144,
     "kimi-k2.5": 262_144,
@@ -34,6 +35,7 @@ _BUILTIN_MODEL_CONTEXT_WINDOWS: dict[str, int] = {
 
 _PREFIX_WINDOWS: list[tuple[str, int]] = [
     ("kimi-k3", 1_048_576),
+    ("k3", 1_048_576),
     ("kimi-k2.7", 262_144),
     ("kimi-k2", 262_144),
     ("kimi", 131_072),
@@ -67,10 +69,8 @@ def _registry() -> dict[str, int]:
     return merged
 
 
-def model_context_window(model: str) -> int:
-    """Return the model provider's full context window in tokens."""
-    from langbridge_code.settings import DEFAULT_CONTEXT_WINDOW_TOKENS
-
+def model_context_window(model: str) -> int | None:
+    """Return the model provider's full context window in tokens, or None if unknown."""
     name = _normalize_model(model)
     registry = _registry()
     if name in registry:
@@ -84,10 +84,12 @@ def model_context_window(model: str) -> int:
     if "/" in name:
         return model_context_window(name.rsplit("/", 1)[-1])
 
-    return DEFAULT_CONTEXT_WINDOW_TOKENS
+    return None
 
 
-def format_token_count(value: int) -> str:
+def format_token_count(value: int | None) -> str:
+    if value is None:
+        return ""
     if value >= 1_000_000:
         return f"{value / 1_000_000:.1f}M"
     if value >= 1_000:

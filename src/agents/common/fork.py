@@ -20,7 +20,8 @@ from langbridge_code.tools.common.description import without_description
 
 # Progress-note Edit loops are short; bound them so a stubborn model cannot
 # burn the full main-agent step budget on denials.
-_PROGRESS_NOTE_MAX_STEPS = 8
+_SESSION_MEMORY_MAX_STEPS = 8
+_PROGRESS_NOTE_MAX_STEPS = _SESSION_MEMORY_MAX_STEPS  # back-compat
 
 
 def _trace_fork_input(label: str, instruction: str, message_count: int) -> None:
@@ -101,8 +102,8 @@ def fork_agent(
     return f"{label} stopped: max steps."
 
 
-def _progress_edit_tool(allowed_path: Path):
-    """Edit that only mutates the exact progress.md file (absolute path OK)."""
+def _session_memory_edit_tool(allowed_path: Path):
+    """Edit that only mutates the exact session_memory.md file (absolute path OK)."""
     allowed = allowed_path.resolve()
     deny = f"only Edit on {allowed} is allowed"
 
@@ -116,6 +117,11 @@ def _progress_edit_tool(allowed_path: Path):
         if under_notes == allowed:
             return allowed
         if candidate.name == allowed.name:
+            return allowed
+        # Legacy progress.md edits that target the same notes dir.
+        if candidate.name in {"session_memory.md", "progress.md"} and (
+            under_notes.parent == allowed.parent
+        ):
             return allowed
         return under_notes
 
@@ -155,8 +161,8 @@ def _progress_edit_tool(allowed_path: Path):
     return Edit
 
 
-def _progress_note_tools(allowed_path: Path, tool_schemas) -> dict:
-    """Parent schemas for cache match; only Edit on progress.md actually works."""
+def _session_memory_tools(allowed_path: Path, tool_schemas) -> dict:
+    """Parent schemas for cache match; only Edit on session_memory.md works."""
     allowed = allowed_path.resolve()
     deny_message = f"only Edit on {allowed} is allowed"
 
@@ -168,11 +174,11 @@ def _progress_note_tools(allowed_path: Path, tool_schemas) -> dict:
         name = schema.get("name")
         if name:
             tools[name] = deny
-    tools["Edit"] = _progress_edit_tool(allowed)
+    tools["Edit"] = _session_memory_edit_tool(allowed)
     return tools
 
 
-def _progress_note_schemas(tool_schemas) -> list:
+def _session_memory_schemas(tool_schemas) -> list:
     """Keep parent schemas for prompt-cache key match; ensure Edit is present."""
     schemas = list(tool_schemas or [])
     if not any(schema.get("name") == "Edit" for schema in schemas):
@@ -187,7 +193,7 @@ def _progress_note_schemas(tool_schemas) -> list:
     return schemas
 
 
-def fork_progress_note(
+def fork_session_memory(
     api_key,
     model,
     messages: list[dict],
@@ -197,30 +203,30 @@ def fork_progress_note(
     role: str | None = None,
     turn_id: int | None = None,
     tool_schemas=None,
-    label: str = "progress note fork",
-    max_steps: int = _PROGRESS_NOTE_MAX_STEPS,
+    label: str = "session memory fork",
+    max_steps: int = _SESSION_MEMORY_MAX_STEPS,
 ) -> str:
-    """Session-Memory-style progress update: Edit-only fork on progress.md.
+    """Session-memory update: Edit-only fork on session_memory.md.
 
     Seeds the section template when the file is empty, runs a tool-using fork
     that may only Edit that file, and returns a ``Noted...`` / no-op string
     based on whether the file content changed.
     """
-    from langbridge_code.prompt.fork import build_progress_note_instruction
+    from langbridge_code.prompt.fork import build_session_memory_instruction
     from langbridge_code.util.progress import (
-        ensure_progress_template,
-        note_progress_edit_succeeded,
-        progress_path,
-        read_progress,
+        ensure_session_memory_template,
+        read_session_memory,
+        session_memory_edit_succeeded,
+        session_memory_path,
     )
 
-    path = progress_path(run_log_path, task_name, role=role)
+    path = session_memory_path(run_log_path, task_name, role=role)
     if path is None:
         return "No session directory; note not recorded."
-    before = ensure_progress_template(run_log_path, task_name, role=role)
-    schemas = _progress_note_schemas(tool_schemas)
-    tools = _progress_note_tools(path, schemas)
-    instruction = build_progress_note_instruction(
+    before = ensure_session_memory_template(run_log_path, task_name, role=role)
+    schemas = _session_memory_schemas(tool_schemas)
+    tools = _session_memory_tools(path, schemas)
+    instruction = build_session_memory_instruction(
         notes_path=str(path.resolve()),
         current_notes=before.rstrip() + "\n",
         task=bool(task_name),
@@ -237,12 +243,24 @@ def fork_progress_note(
             max_steps=max_steps,
         )
     except Exception as error:
-        return f"Progress note fork failed: {error}"
-    after = read_progress(run_log_path, task_name, role=role)
-    return note_progress_edit_succeeded(
+        return f"Session memory fork failed: {error}"
+    after = read_session_memory(run_log_path, task_name, role=role)
+    return session_memory_edit_succeeded(
         before,
         after,
         run_log_path=run_log_path,
         turn_id=turn_id,
         task_name=task_name,
     )
+
+
+def fork_progress_note(*args, **kwargs) -> str:
+    """Back-compat alias for ``fork_session_memory``."""
+    kwargs.setdefault("label", "session memory fork")
+    return fork_session_memory(*args, **kwargs)
+
+
+# Private aliases for older callers/tests.
+_progress_edit_tool = _session_memory_edit_tool
+_progress_note_tools = _session_memory_tools
+_progress_note_schemas = _session_memory_schemas

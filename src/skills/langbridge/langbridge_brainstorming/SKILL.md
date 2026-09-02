@@ -7,7 +7,7 @@ description: >-
   grilling), and not when Ambiguity gate alone can settle one blocking choice.
 ---
 
-## LangBridge Code mapping (main agent)
+## LangBridge mapping (main agent)
 
 Run this yourself on the main agent. Ask via `ask_user` only — one question per
 call. Prefer tools / `agent_explorer` for facts over asking. Do not start

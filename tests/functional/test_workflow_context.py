@@ -31,7 +31,7 @@ def test_workflow_uses_main_agent_session(tmp_path, monkeypatch):
     monkeypatch.setattr("langbridge_code.agents.main_agent.MainAgentSession", fake_session)
 
     history = [
-        {"role": "system", "content": "You are LangBridge Code."},
+        {"role": "system", "content": "You are LangBridge."},
         {"role": "user", "content": "你现在是新版了"},
         {"role": "assistant", "content": "是的，已更新。"},
     ]
@@ -52,10 +52,29 @@ def test_workflow_uses_main_agent_session(tmp_path, monkeypatch):
 def test_workflow_resume_can_execute_existing_todo(tmp_path, monkeypatch):
     run_log = tmp_path / "run.json"
     _write_todo(run_log, ["- [ ] Build a web game"])
-    # Simulate a non-git workspace: the worker runs in place (no worktree).
+    from langbridge_code.agents.common import worktree as worktree_mod
+
+    info = worktree_mod.WorktreeInfo(
+        "lb/run/task-game",
+        tmp_path / "wt",
+        "Build a web game",
+        task_name="task-game",
+    )
     monkeypatch.setattr(
-        "langbridge_code.agents.worker_reviewer.worktree_mod.is_git_repo",
-        lambda cwd=None: False,
+        "langbridge_code.agents.worker_reviewer.worktree_mod.ensure_git_repo",
+        lambda cwd=None: tmp_path,
+    )
+    monkeypatch.setattr(
+        "langbridge_code.agents.worker_reviewer.worktree_mod.resumable_worktree",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "langbridge_code.agents.worker_reviewer.worktree_mod.create_worktree",
+        lambda *args, **kwargs: info,
+    )
+    monkeypatch.setattr(
+        "langbridge_code.agents.worker_reviewer.worktree_mod.record_branch",
+        lambda *args, **kwargs: None,
     )
 
     class ResumeSession(_FakeMainSession):
@@ -73,6 +92,7 @@ def test_workflow_resume_can_execute_existing_todo(tmp_path, monkeypatch):
             return agent_worker(
                 prompt="Build a web game",
                 description="run coding",
+                task_name="task-game",
             )
 
     monkeypatch.setattr(
@@ -94,4 +114,4 @@ def test_workflow_resume_can_execute_existing_todo(tmp_path, monkeypatch):
         messages=[{"role": "system", "content": "sys"}],
     )
 
-    assert "Single-task completed" in reply
+    assert "Worktree task completed" in reply

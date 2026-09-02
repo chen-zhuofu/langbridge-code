@@ -1,13 +1,13 @@
-"""Per-task progress notes for subagents — Session Memory Edit model.
+"""Per-task session memory for subagents — Session Memory Edit model.
 
-A task's note lives at {session}/tasks/{slug}/{role}/progress.md. Loaded into
-``<progress>`` on attach (resume) and after context compaction. Mid-turn
-``note_progress`` forks an Edit-restricted writer that updates section bodies
+A task's note lives at {session}/tasks/{slug}/{role}/session_memory.md. Loaded into
+``<session_memory>`` on attach (resume) and after context compaction. Mid-turn
+``update_session_memory`` forks an Edit-restricted writer that updates section bodies
 in place and does not rewrite the pinned block.
 """
 from __future__ import annotations
 
-from langbridge_code.settings import PROGRESS_NOTE_REMINDER_ROUNDS
+from langbridge_code.settings import SESSION_MEMORY_REMINDER_ROUNDS
 
 
 class TaskProgress:
@@ -39,7 +39,7 @@ class TaskProgress:
         return bool(self.task_name and self.run_log_path)
 
     def attach(self, stack, messages, tool_schemas=None) -> None:
-        """Start one dispatch: pin existing note (resume) into ``<progress>``."""
+        """Start one dispatch: pin existing note (resume) into ``<session_memory>``."""
         if not self.enabled:
             return
         self._stack = stack
@@ -59,11 +59,11 @@ class TaskProgress:
         stack.on_compacted = on_compacted
 
     def refresh_block(self, *, include_traces=False) -> None:
-        """Load progress.md into head ``<progress>`` (resume / compaction only)."""
+        """Load session_memory.md into head ``<session_memory>`` (resume / compaction only)."""
         if self._stack is None or not self.enabled:
             return
         from langbridge_code.util.progress import (
-            PROGRESS_HEADER,
+            SESSION_MEMORY_HEADER,
             clip_progress_for_context,
             read_progress,
         )
@@ -71,7 +71,7 @@ class TaskProgress:
         content = read_progress(
             self.run_log_path, self.task_name, role=self.label
         ).strip()
-        if content == PROGRESS_HEADER.strip():
+        if content == SESSION_MEMORY_HEADER.strip():
             content = ""
         if include_traces:
             from langbridge_code.util.agent_traces import build_agent_resume_background
@@ -90,7 +90,7 @@ class TaskProgress:
             task_name=self.task_name,
             role=self.label,
         )
-        self._stack.set_progress_block(content or None)
+        self._stack.set_session_memory_block(content or None)
         self._sync_messages()
 
     def _sync_messages(self) -> None:
@@ -104,10 +104,10 @@ class TaskProgress:
         """Fork an Edit-restricted note-writer for this role's progress file."""
         if not self.enabled:
             return "No task progress file for this session; note not recorded."
-        from langbridge_code.agents.common.fork import fork_progress_note
+        from langbridge_code.agents.common.fork import fork_session_memory
 
         try:
-            result = fork_progress_note(
+            result = fork_session_memory(
                 self.api_key,
                 self.model,
                 list(self._messages or []),
@@ -118,7 +118,7 @@ class TaskProgress:
                 label=f"{self.label} note fork",
             )
         except Exception as error:
-            return f"Progress note fork failed: {error}"
+            return f"Session memory fork failed: {error}"
         # Reset only on success so a failed fork retries next round.
         if str(result).startswith("Noted"):
             self._rounds_since_note = 0
@@ -129,7 +129,7 @@ class TaskProgress:
         if not self.enabled:
             return
         self._rounds_since_note += 1
-        if self._rounds_since_note <= PROGRESS_NOTE_REMINDER_ROUNDS:
+        if self._rounds_since_note <= SESSION_MEMORY_REMINDER_ROUNDS:
             return
         self.write_note()
 

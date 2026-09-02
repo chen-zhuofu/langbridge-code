@@ -196,6 +196,31 @@ def test_worker_ordinary_bash_runs_without_approval():
     assert result["output"] == "ok"
 
 
+def test_worker_ordinary_bash_reaches_auto_mode_callback():
+    approvals = []
+
+    class AutoModeOwner:
+        permission_mode = "auto"
+
+        def approve(self, role, name, arguments):
+            approvals.append((role, name, arguments))
+            return True
+
+    result = run_worker_tool_call(
+        {
+            "type": "function_call",
+            "name": "bash",
+            "call_id": "call_1",
+            "arguments": '{"command":"pytest -q"}',
+        },
+        {"bash": lambda **arguments: "ok"},
+        approval_callback=AutoModeOwner().approve,
+    )
+
+    assert approvals == [("Worker", "bash", {"command": "pytest -q"})]
+    assert result["output"] == "ok"
+
+
 def test_specialist_tool_strips_description_before_execution():
     result = run_worker_tool_call(
         {

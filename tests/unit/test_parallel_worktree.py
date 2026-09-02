@@ -189,3 +189,58 @@ def test_create_worktree_in_git_repo(tmp_path):
     assert info.path.name == "task-auth-api"
     assert info.branch.endswith("/task-auth-api")
     worktree_mod.remove_worktree(info, force=True)
+
+
+def test_ensure_git_repo_inits_and_seeds_head(tmp_path):
+    workspace = tmp_path / "project"
+    workspace.mkdir()
+    (workspace / "index.html").write_text("<html></html>\n", encoding="utf-8")
+
+    with patch.object(worktree_mod, "WORKSPACE_ROOT", workspace):
+        root = worktree_mod.ensure_git_repo()
+        again = worktree_mod.ensure_git_repo()
+
+    assert root == workspace.resolve()
+    assert again == root
+    assert (workspace / ".git").exists()
+    head = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=workspace,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert head.stdout.strip()
+    tracked = subprocess.run(
+        ["git", "ls-files"],
+        cwd=workspace,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert "index.html" in tracked.stdout
+
+
+def test_ensure_git_repo_then_create_worktree(tmp_path):
+    workspace = tmp_path / "project"
+    workspace.mkdir()
+    (workspace / "app.py").write_text("print('hi')\n", encoding="utf-8")
+    # Parent repo must not count — only workspace/.git does.
+    parent_git = tmp_path / ".git"
+    parent_git.mkdir()
+
+    run_log = tmp_path / "session" / "run.json"
+    run_log.parent.mkdir()
+    with patch.object(worktree_mod, "WORKSPACE_ROOT", workspace):
+        with patch.object(worktree_mod, "AGENT_STATE_DIR", tmp_path / "agent-state"):
+            worktree_mod.ensure_git_repo()
+            info = worktree_mod.create_worktree(
+                run_log,
+                "Build feature",
+                task_name="task-1-feature",
+            )
+
+    assert (workspace / ".git").exists()
+    assert not (workspace / ".git").samefile(parent_git)
+    assert (info.path / "app.py").exists()
+    worktree_mod.remove_worktree(info, force=True)

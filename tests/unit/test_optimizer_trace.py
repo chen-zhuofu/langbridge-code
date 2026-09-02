@@ -7,7 +7,7 @@ def _artifact_session(tmp_path, slug="test"):
     session_dir = tmp_path / f"session-{slug}-2026-07-09T120000"
     session_dir.mkdir()
     (session_dir / "debug").mkdir()
-    (session_dir / "progress.md").write_text("# Session progress\n", encoding="utf-8")
+    (session_dir / "session_memory.md").write_text("# Session memory\n", encoding="utf-8")
     return session_dir
 
 

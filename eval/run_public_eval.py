@@ -450,7 +450,7 @@ def run_instance(instance, *, difficulty, namespace, artifacts_root, api_key, mo
         copy_json_into_container(
             container,
             merge_agent_user_config({}),
-            "/root/.langbridge-code/config.json",
+            "/root/.langbridge/config.json",
         )
 
         prepare_instance_workspace(container, repo_dir, instance.get("base_commit"))
@@ -811,7 +811,7 @@ def main():
     if not api_key:
         sys.exit(
             "No API key found. Set DEEPSEEK_API_KEY / MOONSHOT_API_KEY / OPENAI_API_KEY "
-            "or create ~/.langbridge-code/config.json before running the eval."
+            "or create ~/.langbridge/config.json before running the eval."
         )
 
     difficulty = args.difficulty

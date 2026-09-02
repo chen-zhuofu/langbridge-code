@@ -23,6 +23,7 @@ def test_parse_skill_slash_ignores_non_slash_and_reserved():
     assert parse_skill_slash("grilling me") is None
     assert parse_skill_slash("/help") is None
     assert parse_skill_slash("/goal ship it") is None
+    assert parse_skill_slash("/reviewer fix the bug") is None
     assert parse_skill_slash("/queue clear") is None
 
 

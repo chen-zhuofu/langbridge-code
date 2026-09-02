@@ -11,7 +11,7 @@ from langbridge_code.settings import (
 )
 from langbridge_code.tools.common.description import DESCRIPTION_PARAMETER
 
-USER_AGENT = "langbridge-code/0.1 (+webpage reader)"
+USER_AGENT = "langbridge/0.1 (+webpage reader)"
 
 # Tags whose text content is markup/scripts, not readable page content.
 _SKIP_TAGS = {"script", "style", "noscript", "template"}

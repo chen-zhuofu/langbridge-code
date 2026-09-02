@@ -1,9 +1,10 @@
 """Parallel Docker runner for langbridge-bench eval.
 
-Each task runs in its dedicated pipeline image ``lb-task:<task_id>`` (repo +
-``.refvenv`` already baked in by ``eval/data-pipeline/env``). The host copies in
-LangBridge source, runs main-agent e2e, then grades in-container. Artifacts
-land under ``artifacts/evals/<run_id>/``.
+Each task uses its dedicated pipeline image ``lb-task:<task_id>`` (repo +
+``.refvenv`` baked by ``eval/data-pipeline/env``). Flow is sequential dual
+containers: agent container → ``candidate.diff`` → tear down agent → fresh
+grade container (same image, no egress). Artifacts land under
+``artifacts/evals/<run_id>/``.
 
   uv run python eval/run_eval.py --workers 4 --limit 5
   uv run python eval/run_eval.py --rebuild-image --task <id>
@@ -424,56 +425,89 @@ def _docker_cp_out(container, remote_path, local_path: Path) -> None:
         )
 
 
-def grade_in_container(container, spec, candidate_diff, grade_timeout):
-    """Reset to base, grade inside the container, return parsed grade dict."""
-    base = spec["base_commit"]
-    container_exec(container, f"mkdir -p {CONTAINER_GRADE_DIR}")
+def grade_container_name(task_id: str) -> str:
+    return f"langbridge-lbench-grade-{task_id}".replace("__", "_").replace("/", "-")[:63]
 
-    with tempfile.TemporaryDirectory(prefix="lb_docker_grade_") as tmp:
-        tmp_path = Path(tmp)
-        spec_path = tmp_path / "spec.json"
-        diff_path = tmp_path / "candidate.diff"
-        spec_path.write_text(json.dumps(spec), encoding="utf-8")
-        diff_path.write_text(candidate_diff or "", encoding="utf-8")
-        docker(["cp", str(spec_path), f"{container}:{CONTAINER_GRADE_DIR}/spec.json"])
-        docker(["cp", str(diff_path), f"{container}:{CONTAINER_GRADE_DIR}/candidate.diff"])
 
-    reset = container_exec(
-        container,
-        f"cd {CONTAINER_REPO} && git reset --hard {base} && git clean -fdq "
-        f"-e .refvenv -e .langbridge",
-    )
-    if reset.returncode != 0:
-        raise RuntimeError(
-            f"reset to base_commit failed: {(reset.stderr or reset.stdout or '').strip()}"
+def grade_in_fresh_container(image, spec, candidate_diff, grade_timeout):
+    """Grade in a new same-image container (no egress). Tear it down when done."""
+    container = grade_container_name(spec["task_id"])
+    docker(["rm", "-f", container])
+    try:
+        started = docker(
+            ["run", "-d", "--name", container, image, "sleep", "infinity"]
         )
+        if started.returncode != 0:
+            raise RuntimeError(
+                f"grade docker run failed: {(started.stderr or '').strip()}"
+            )
 
-    env = {"PYTHONPATH": CONTAINER_PYTHONPATH}
-    cmd = (
-        f"{HARNESS_PYTHON} {CONTAINER_EVAL}/grade_checkout.py "
-        f"--spec {CONTAINER_GRADE_DIR}/spec.json "
-        f"--diff {CONTAINER_GRADE_DIR}/candidate.diff "
-        f"--out {CONTAINER_GRADE_DIR}/grade.json "
-        f"--repo {CONTAINER_REPO} "
-        f"--timeout {int(grade_timeout)}"
-    )
-    result = container_exec(
-        container, cmd, env=env, timeout=grade_timeout + 120, workdir=CONTAINER_REPO
-    )
-    grade_log = (result.stdout or "") + (result.stderr or "")
-    with tempfile.TemporaryDirectory(prefix="lb_grade_out_") as tmp:
-        local_grade = Path(tmp) / "grade.json"
-        try:
-            _docker_cp_out(container, f"{CONTAINER_GRADE_DIR}/grade.json", local_grade)
-            graded = json.loads(local_grade.read_text(encoding="utf-8"))
-        except Exception as error:  # noqa: BLE001
-            graded = {
-                "resolved": False,
-                "status": "grade_failed",
-                "error": str(error),
-                "log": grade_log[-2000:],
-            }
-    return graded
+        container_exec(
+            container,
+            f"mkdir -p {CONTAINER_EVAL} {CONTAINER_GRADE_DIR}",
+        )
+        for name in ("util", "grade_checkout.py"):
+            src = EVAL_PKG_PATH / name
+            copy_eval = docker(["cp", str(src), f"{container}:{CONTAINER_EVAL}/"])
+            if copy_eval.returncode != 0:
+                raise RuntimeError(
+                    f"docker cp {name} failed: {(copy_eval.stderr or '').strip()}"
+                )
+
+        setup = prepare_task_workspace(container, spec)
+        if setup.returncode != 0:
+            detail = ((setup.stdout or "") + (setup.stderr or "")).strip()[-2000:]
+            raise RuntimeError(f"grade workspace prepare failed: {detail}")
+
+        with tempfile.TemporaryDirectory(prefix="lb_docker_grade_") as tmp:
+            tmp_path = Path(tmp)
+            spec_path = tmp_path / "spec.json"
+            diff_path = tmp_path / "candidate.diff"
+            spec_path.write_text(json.dumps(spec), encoding="utf-8")
+            diff_path.write_text(candidate_diff or "", encoding="utf-8")
+            docker(["cp", str(spec_path), f"{container}:{CONTAINER_GRADE_DIR}/spec.json"])
+            docker(
+                ["cp", str(diff_path), f"{container}:{CONTAINER_GRADE_DIR}/candidate.diff"]
+            )
+
+        # Grade only needs eval/util on PYTHONPATH (not the agent package tree).
+        env = {"PYTHONPATH": CONTAINER_EVAL}
+        cmd = (
+            f"{HARNESS_PYTHON} {CONTAINER_EVAL}/grade_checkout.py "
+            f"--spec {CONTAINER_GRADE_DIR}/spec.json "
+            f"--diff {CONTAINER_GRADE_DIR}/candidate.diff "
+            f"--out {CONTAINER_GRADE_DIR}/grade.json "
+            f"--repo {CONTAINER_REPO} "
+            f"--timeout {int(grade_timeout)}"
+        )
+        result = container_exec(
+            container, cmd, env=env, timeout=grade_timeout + 120, workdir=CONTAINER_REPO
+        )
+        grade_log = (result.stdout or "") + (result.stderr or "")
+        with tempfile.TemporaryDirectory(prefix="lb_grade_out_") as tmp:
+            local_grade = Path(tmp) / "grade.json"
+            try:
+                _docker_cp_out(
+                    container, f"{CONTAINER_GRADE_DIR}/grade.json", local_grade
+                )
+                graded = json.loads(local_grade.read_text(encoding="utf-8"))
+            except Exception as error:  # noqa: BLE001
+                graded = {
+                    "resolved": False,
+                    "status": "grade_failed",
+                    "error": str(error),
+                    "log": grade_log[-2000:],
+                }
+        return graded
+    finally:
+        docker(["rm", "-f", container])
+
+
+# Back-compat alias used by older call sites / notebooks.
+def grade_in_container(container, spec, candidate_diff, grade_timeout):
+    del container  # ignored — grading always uses a fresh container
+    image = task_image_tag(spec)
+    return grade_in_fresh_container(image, spec, candidate_diff, grade_timeout)
 
 
 def run_one_spec(spec, artifacts_root, api_env, model, timeout, grade_timeout, progress=None, net_args=()):
@@ -542,7 +576,7 @@ def run_one_spec(spec, artifacts_root, api_env, model, timeout, grade_timeout, p
         copy = docker(["cp", f"{SRC_PATH}/.", f"{container}:{CONTAINER_PKG}"])
         if copy.returncode != 0:
             raise RuntimeError(f"docker cp src failed: {copy.stderr.strip()}")
-        for name in ("util", "prompt", "run_agent.py", "grade_checkout.py"):
+        for name in ("util", "prompt", "run_agent.py"):
             src = EVAL_PKG_PATH / name
             copy_eval = docker(["cp", str(src), f"{container}:{CONTAINER_EVAL}/"])
             if copy_eval.returncode != 0:
@@ -557,7 +591,7 @@ def run_one_spec(spec, artifacts_root, api_env, model, timeout, grade_timeout, p
         copy_json_into_container(
             container,
             merge_agent_user_config({}),
-            "/root/.langbridge-code/config.json",
+            "/root/.langbridge/config.json",
         )
 
         phase("setup", image)
@@ -598,10 +632,12 @@ def run_one_spec(spec, artifacts_root, api_env, model, timeout, grade_timeout, p
         (artifacts_dir / "candidate.diff").write_text(diff, encoding="utf-8")
 
         # Session notes are bind-mounted to session_dir for the whole run — no
-        # post-agent docker cp needed.
+        # post-agent docker cp needed. Tear down the agent before grading so
+        # scoring cannot see leftover agent state.
+        docker(["rm", "-f", container])
 
         phase("grade")
-        graded = grade_in_container(container, spec, diff, grade_timeout)
+        graded = grade_in_fresh_container(image, spec, diff, grade_timeout)
         gt_pass = bool(graded.get("resolved"))
         grade_status = graded.get("status", "graded")
         (artifacts_dir / "grade.json").write_text(
@@ -612,6 +648,7 @@ def run_one_spec(spec, artifacts_root, api_env, model, timeout, grade_timeout, p
         phase("error", error.splitlines()[0][:60])
     finally:
         docker(["rm", "-f", container])
+        docker(["rm", "-f", grade_container_name(task_id)])
 
     duration = round(time.time() - started, 1)
 

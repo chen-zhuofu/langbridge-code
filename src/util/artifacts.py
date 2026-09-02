@@ -2,7 +2,7 @@
 
 Layout:
   todo_list.md         main-agent plan (main only)
-  progress.md          main-agent progress note (main only)
+  session_memory.md    main-agent session memory (main only; legacy: progress.md)
   traces.md            main-agent raw trace (engine/human only)
   session.md           activity log (engine/human only)
   attachments/         oversized payloads linked from session.md (engine/human only)
@@ -11,13 +11,13 @@ Layout:
   tasks/{task-slug}/
     traces/            {role}-{n}.md raw traces (engine/human only)
     worker/
-      progress.md
+      session_memory.md
       attachments/
     reviewer/
-      progress.md
+      session_memory.md
       attachments/
     explorer/
-      progress.md
+      session_memory.md
       attachments/
       reports/
         report-{n}.md  explorer findings for main to read
@@ -32,9 +32,13 @@ from pathlib import Path
 
 from langbridge_code.settings import ARTIFACTS_DIR
 
-PROGRESS_MD = "progress.md"
+SESSION_MEMORY_MD = "session_memory.md"
+LEGACY_PROGRESS_MD = "progress.md"
+# Back-compat alias for older imports.
+PROGRESS_MD = SESSION_MEMORY_MD
 TRACES_MD = "traces.md"
 SESSION_TRACE_MD = "session.md"
+SESSION_TITLE_FILE = ".session-title"
 ATTACHMENTS_DIRNAME = "attachments"
 TASKS_DIRNAME = "tasks"
 TRACES_DIRNAME = "traces"
@@ -102,11 +106,31 @@ def artifact_dir(run_log_path) -> Path | None:
     return Path(run_log_path)
 
 
-def progress_path(run_log_path) -> Path | None:
+def session_memory_path(run_log_path) -> Path | None:
+    """Canonical write path for session memory (session_memory.md)."""
     directory = artifact_dir(run_log_path)
     if directory is None:
         return None
-    return directory / PROGRESS_MD
+    return directory / SESSION_MEMORY_MD
+
+
+def resolve_session_memory_path(run_log_path) -> Path | None:
+    """Read path: prefer session_memory.md, else legacy progress.md."""
+    directory = artifact_dir(run_log_path)
+    if directory is None:
+        return None
+    preferred = directory / SESSION_MEMORY_MD
+    if preferred.exists():
+        return preferred
+    legacy = directory / LEGACY_PROGRESS_MD
+    if legacy.exists():
+        return legacy
+    return preferred
+
+
+def progress_path(run_log_path) -> Path | None:
+    """Back-compat alias for ``session_memory_path`` (write target)."""
+    return session_memory_path(run_log_path)
 
 
 def main_dir(run_log_path) -> Path | None:
@@ -139,15 +163,35 @@ def task_role_dir(run_log_path, task_name: str, role: str) -> Path | None:
     return directory / role_dir_name(role)
 
 
-def task_progress_path(run_log_path, task_name: str, role: str = "Worker") -> Path | None:
-    """Per-task, per-role progress notes.
-
-    Re-dispatches of the same role+task_name resume the same file.
-    """
+def task_session_memory_path(
+    run_log_path, task_name: str, role: str = "Worker"
+) -> Path | None:
+    """Per-task, per-role session memory write path (session_memory.md)."""
     directory = task_role_dir(run_log_path, task_name, role)
     if directory is None:
         return None
-    return directory / PROGRESS_MD
+    return directory / SESSION_MEMORY_MD
+
+
+def resolve_task_session_memory_path(
+    run_log_path, task_name: str, role: str = "Worker"
+) -> Path | None:
+    """Read path: prefer session_memory.md, else legacy progress.md."""
+    directory = task_role_dir(run_log_path, task_name, role)
+    if directory is None:
+        return None
+    preferred = directory / SESSION_MEMORY_MD
+    if preferred.exists():
+        return preferred
+    legacy = directory / LEGACY_PROGRESS_MD
+    if legacy.exists():
+        return legacy
+    return preferred
+
+
+def task_progress_path(run_log_path, task_name: str, role: str = "Worker") -> Path | None:
+    """Back-compat alias for ``task_session_memory_path`` (write target)."""
+    return task_session_memory_path(run_log_path, task_name, role)
 
 
 def task_attachments_dir(run_log_path, task_name: str, role: str) -> Path | None:
@@ -236,7 +280,7 @@ def create_artifact_session(first_user_message: str, when: datetime | None = Non
         suffix += 1
     session_dir.mkdir(parents=True)
     (session_dir / MAIN_DIRNAME).mkdir()
-    (session_dir / PROGRESS_MD).write_text("# Session progress\n", encoding="utf-8")
+    (session_dir / SESSION_MEMORY_MD).write_text("# Session memory\n", encoding="utf-8")
     (session_dir / TRACES_MD).write_text("# Session traces\n", encoding="utf-8")
     return session_dir
 
@@ -254,4 +298,21 @@ def list_artifact_sessions() -> list[Path]:
 
 def label_artifact_session(session_path: Path) -> str:
     path = Path(session_path)
-    return path.name if path.is_dir() else path.parent.name
+    directory = path if path.is_dir() else path.parent
+    title_path = directory / SESSION_TITLE_FILE
+    if title_path.is_file():
+        title = " ".join(title_path.read_text(encoding="utf-8").split()).strip()
+        if title:
+            return title
+    return directory.name.removeprefix("session-")
+
+
+def rename_artifact_session(session_path: Path, title: str) -> str:
+    directory = Path(session_path)
+    if not directory.is_dir():
+        raise FileNotFoundError(directory)
+    normalized = " ".join((title or "").split()).strip()[:120].rstrip()
+    if not normalized:
+        raise ValueError("Session name cannot be empty.")
+    (directory / SESSION_TITLE_FILE).write_text(normalized + "\n", encoding="utf-8")
+    return normalized

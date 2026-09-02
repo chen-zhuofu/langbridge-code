@@ -68,20 +68,22 @@
   },
   "context": {
     "context_window_max_fraction": 0.4,
-    "default_context_window_tokens": 128000,
     "model_context_windows": {},
     "max_session_choices": 10,
     "compact_raw_keep": 11,
     "compact_threshold_tokens": 100000,
     "traces_resume_max_fraction": 0.3,
-    "progress_note_reminder_rounds": 10
+    "session_memory_reminder_rounds": 10
   },
   "tools": {
     "filesystem": {
-      "max_file_bytes": 262144
+      "max_file_bytes": 262144,
+      "max_lines_to_read": 2000,
+      "max_file_read_tokens": 25000
     },
     "execution": {
       "max_output_chars": 30000,
+      "output_preview_chars": 2000,
       "default_timeout_seconds": 60,
       "max_timeout_seconds": 300
     },
@@ -89,6 +91,10 @@
       "default_timeout_seconds": 30,
       "max_timeout_seconds": 120,
       "max_webpage_chars": 100000
+    },
+    "explorer": {
+      "report_max_chars": 50000,
+      "report_preview_chars": 2000
     },
     "debug": {
       "default_max_chars": 200

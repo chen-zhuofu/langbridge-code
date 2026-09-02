@@ -14,7 +14,9 @@ WORKER_ENGINEER_PROMPT = load_prompt("system/worker.md").rstrip("\n")
 
 
 def _is_git_repo(path):
-    return any((parent / ".git").exists() for parent in [path, *path.parents])
+    # Match worktree.is_git_repo: only the workspace itself counts. Parent-repo
+    # membership is not enough for isolated worker worktrees.
+    return (path / ".git").exists()
 
 
 def langbridge_system_prompt():

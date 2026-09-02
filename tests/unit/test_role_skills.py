@@ -241,5 +241,5 @@ def test_explorer_prompt_stays_a_narrow_searcher():
     assert "superpowers_subagent-driven-development" not in prompt
     # Explorer shares the main agent's skill mechanism: <skill_index> + read_skill.
     assert "<skill_index>" in prompt
-    assert "<progress>" in prompt
+    assert "<session_memory>" in prompt
     assert "<invoked_skills>" in prompt
